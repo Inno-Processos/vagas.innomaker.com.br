@@ -114,7 +114,7 @@
   // ---------- Status ----------
   const STATUS = {
     // Solicitações
-    "PENDENTE": ["Aguardando RH", "ambar"], "REAJUSTE": ["Reajuste solicitado", "verm"], "APROVADA": ["Aprovada", "verde"],
+    "PENDENTE": ["Aguardando RH", "ambar"], "REAJUSTE": ["Recusada com alteração", "verm"], "APROVADA": ["Aprovada", "verde"],
     "RECUSADA": ["Recusada", "cinza"], "VAGA_CRIADA": ["Vaga criada", "azul"],
     // Vagas
     "Aberta": ["Aberta", "verde"], "Pausada": ["Pausada", "ambar"], "Fechada": ["Fechada", "cinza"], "Concluída": ["Concluída", "azul"],
@@ -267,12 +267,12 @@
     { id: "solicitar", nome: "Solicitar vaga", acao: "solic_criar", render: viewSolicitar,
       desc: "Peça ao RH a abertura de uma vaga para a sua área." },
     { id: "minhas", nome: "Minhas solicitações", acao: "solic_minhas", render: viewMinhas,
-      desc: "Acompanhe a análise do RH e corrija pedidos de reajuste." },
+      desc: "Acompanhe a análise do RH e corrija as recusadas com alteração." },
     { id: "minhas-vagas", nome: "Vagas da minha área", acao: "minhas_vagas", render: viewMinhasVagas, soSe: () => !pode("vagas_todas"),
       desc: "Veja os candidatos das vagas que você pediu." },
     { grupo: "RH" },
     { id: "solicitacoes", nome: "Solicitações", acao: "solic_listar", render: viewSolicitacoes,
-      desc: "Analise os pedidos dos gestores, aprove, peça reajustes e crie a vaga." },
+      desc: "Analise os pedidos dos gestores: aprove, recuse ou recuse com alteração." },
     { id: "vagas", nome: "Vagas", acao: "vagas_todas", render: viewVagas,
       desc: "Crie e edite vagas, controle prazos e conduza as etapas dos candidatos." },
     { id: "admissoes", nome: "Admissões", acao: "adm_listar", render: viewAdmissoes,
@@ -487,11 +487,11 @@
           el("span", null, el("b", null, i.departamento)), el("span", null, i.quantidade + " vaga(s)"),
           el("span", null, "Por ", el("b", null, i.solicitante_nome)), el("span", null, fmtData(i.criado_em)),
           i.urgencia ? el("span", { class: /alta/i.test(i.urgencia) ? "urg-alta" : null }, "Urgência ", el("b", null, i.urgencia)) : null,
-          i.status === "REAJUSTE" ? el("span", null, el("b", null, "Reenviada após reajuste")) : null)),
+          (i.historico || []).some(h => h.acao === "Corrigida e reenviada") ? el("span", null, el("b", null, "Corrigida e reenviada")) : null)),
       el("div", { class: "acoes" },
         el("a", { class: "bt-sec", href: "#solicitacao/" + i.id }, "Ver dados"),
         el("button", { type: "button", class: "bt-perigo", onclick: () => decidirSolic(i, "recusar") }, "Recusar"),
-        el("button", { type: "button", class: "bt-alerta", onclick: () => decidirSolic(i, "reajuste") }, "Pedir reajustes"),
+        el("button", { type: "button", class: "bt-alerta", onclick: () => decidirSolic(i, "reajuste") }, "Recusar com alteração"),
         el("button", { type: "button", class: "bt", onclick: () => decidirSolic(i, "aprovar") }, "Aprovar")));
   }
 
@@ -536,7 +536,7 @@
     limpar(area);
     const itens = m.ok ? m.itens : [];
     const reajuste = itens.filter(i => i.status === "REAJUSTE");
-    if (reajuste.length) area.append(el("div", { class: "nota ambar", style: "margin:0 0 18px" }, el("strong", null, "O RH pediu ajustes em " + reajuste.length + " solicitação(ões)"),
+    if (reajuste.length) area.append(el("div", { class: "nota ambar", style: "margin:0 0 18px" }, el("strong", null, "O RH recusou com alteração " + reajuste.length + " solicitação(ões). Corrija para ela ser analisada de novo."),
       el("a", { href: "#editar-solicitacao/" + reajuste[0].id }, "Corrigir agora →")));
 
     const colunas = el("div", { class: "duas" });
@@ -608,6 +608,12 @@
       const r = await api(pode("solic_listar") ? "solic_listar" : "solic_minhas");
       pre = (r.ok ? r.itens : []).find(i => i.id === idEdicao);
       if (!pre) { limpar(area); return area.append(msg("erro", "Solicitação não encontrada.")); }
+      if (pre.status !== "REAJUSTE") {
+        limpar(area);
+        return area.append(msg("info", pre.status === "PENDENTE"
+          ? "Esta solicitação já foi enviada ao RH e não pode ser alterada. Ela só volta para correção se o RH recusar com alteração."
+          : "Esta solicitação não pode mais ser alterada."));
+      }
     }
     limpar(area);
 
@@ -697,7 +703,7 @@
             rh ? el("span", null, "Por ", el("b", null, i.solicitante_nome)) : null, el("span", null, fmtData(i.criado_em)),
             i.urgencia ? el("span", null, "Urgência ", el("b", null, i.urgencia)) : null)),
         pill(i.status)),
-      i.status === "REAJUSTE" && ultimaNota ? el("div", { class: "nota ambar" }, el("strong", null, "Reajuste pedido pelo RH"), ultimaNota.texto) : null,
+      i.status === "REAJUSTE" && ultimaNota ? el("div", { class: "nota ambar" }, el("strong", null, "Recusada com alteração — o que o RH pediu"), ultimaNota.texto) : null,
       i.status === "RECUSADA" && ultimaNota ? el("div", { class: "nota verm" }, el("strong", null, "Motivo da recusa"), ultimaNota.texto) : null,
       i.vaga_id ? el("div", { class: "nota azul" }, "Vaga criada: ", el("a", { href: "#vaga/" + i.vaga_id }, i.vaga_id)) : null,
       el("details", { class: "mais", open: rh && location.hash === "#solicitacao/" + i.id }, el("summary", null, "Ver todos os dados"),
@@ -708,18 +714,20 @@
         hist.length ? el("div", { style: "margin-top:12px" }, el("b", { class: "pequeno" }, "Histórico"),
           el("ul", { class: "pequeno suave", style: "margin:6px 0 0" }, hist.map(h => el("li", null, fmtData(h.quando, true) + " — " + h.acao + " (" + h.quem.replace(/ <.*>$/, "") + ")" + (h.texto ? ": " + h.texto : ""))))) : null),
       el("div", { class: "item-acoes acoes" },
-        rh && (i.status === "PENDENTE" || i.status === "REAJUSTE") ? [
+        rh && i.status === "PENDENTE" ? [
           el("button", { type: "button", class: "bt", onclick: () => decidirSolic(i, "aprovar") }, "Aprovar"),
-          el("button", { type: "button", class: "bt-alerta", onclick: () => decidirSolic(i, "reajuste") }, "Pedir reajustes"),
+          el("button", { type: "button", class: "bt-alerta", onclick: () => decidirSolic(i, "reajuste") }, "Recusar com alteração"),
           el("button", { type: "button", class: "bt-perigo", onclick: () => decidirSolic(i, "recusar") }, "Recusar")] : null,
         rh && i.status === "APROVADA" ? el("a", { class: "bt", href: "#vaga-de-solicitacao/" + i.id }, "Criar vaga") : null,
-        !rh && (i.status === "REAJUSTE" || i.status === "PENDENTE") ? el("a", { class: i.status === "REAJUSTE" ? "bt" : "bt-sec", href: "#editar-solicitacao/" + i.id }, i.status === "REAJUSTE" ? "Corrigir e reenviar" : "Editar") : null,
+        // Depois de enviada, só volta para alteração se o RH recusar com alteração
+        !rh && i.status === "REAJUSTE" ? el("a", { class: "bt", href: "#editar-solicitacao/" + i.id }, "Corrigir e reenviar") : null,
+        !rh && i.status === "PENDENTE" ? el("span", { class: "pequeno suave" }, "Enviada ao RH. Não pode ser alterada enquanto aguarda a análise.") : null,
         !rh ? el("button", { type: "button", class: "bt-sec", onclick: () => { estadoPrefill = i; location.hash = "#solicitar"; } }, "Usar como base") : null));
   }
 
   async function decidirSolic(i, tipo) {
     const t = { aprovar: ["Aprovar", "bt", "Observação para o gestor (opcional)", "Confirme que o alinhamento com o gestor e com Financeiro/Engenharia (faixa salarial, budget, modelo de contratação e prioridade) foi feito."],
-      reajuste: ["Pedir reajustes", "bt-alerta", "O que precisa ser ajustado? O gestor recebe este texto por e-mail.", "O gestor corrige no painel e reenvia."],
+      reajuste: ["Recusar com alteração", "bt-alerta", "O que o gestor precisa alterar? Ele recebe este texto por e-mail.", "A solicitação volta para o gestor, que corrige e reenvia. Só assim ela pode ser alterada."],
       recusar: ["Recusar", "bt-perigo", "Motivo da recusa", "A solicitação será encerrada."] }[tipo];
     const txt = el("textarea", { placeholder: t[2] });
     const ok = await dialogo({
@@ -754,7 +762,7 @@
       const grupo = i => ({ PENDENTE: "aguardando", REAJUSTE: "reajuste", APROVADA: "aprovada", VAGA_CRIADA: "criada", RECUSADA: "recusada" })[i.status];
       listaFiltrada(area, r.itens, {
         inicial: abrirId ? "todas" : (r.itens.some(i => i.status === "PENDENTE") ? "aguardando" : "todas"),
-        filtros: [["aguardando", "Aguardando"], ["reajuste", "Reajuste"], ["aprovada", "Aprovadas"], ["criada", "Vaga criada"], ["recusada", "Recusadas"], ["todas", "Todas"]],
+        filtros: [["aguardando", "Aguardando"], ["reajuste", "Com o gestor (alteração)"], ["aprovada", "Aprovadas"], ["criada", "Vaga criada"], ["recusada", "Recusadas"], ["todas", "Todas"]],
         grupo, placeholder: "Buscar por cargo, departamento, solicitante ou ID",
         texto: i => [i.id, i.titulo, i.departamento, i.solicitante_nome, i.solicitante_email].join(" "),
         desenhar: (alvo, vis) => vis.forEach(i => alvo.append(cartaoSolicitacao(i, true)))
@@ -1126,7 +1134,8 @@
         if (checks.some(x => !x.checked)) return "Confirme todos os itens da conferência antes de aprovar.";
         const r = await api("adm_decidir", { id: a.id, decisao: "aprovar", modelos: mods.filter(x => x.checked).map(x => x.value) });
         if (!r.ok) return r.erro;
-        toast("Aprovado. Matrícula " + r.matricula + ", " + r.documentos + " documento(s) para assinatura.");
+        toast("Aprovado. Matrícula " + r.matricula + ", " + r.documentos + " documento(s) para assinatura." +
+          (r.planilha === "enviando" ? " A linha está sendo preenchida na planilha de Registros." : ""));
         return true;
       }
     }) && recarregar();
@@ -1209,6 +1218,27 @@
       flag("ponto_cadastrado", "Cadastrado no aplicativo de ponto", "Depois da conferência dos documentos (item 4.10)."),
       flag("onboarding_ok", "Onboarding realizado", "Sala, slides, camisa e crachá preparados; reunião feita no primeiro dia (item 6)."),
       flag("ativo", "Funcionário ativo", "Desmarque no desligamento.")));
+
+    // Planilha "Registros" (Google Sheets): preenchida na aprovação da admissão
+    const ST_PLANILHA = {
+      ENVIADO: ["Na planilha" + (f.planilha_linha ? " (linha " + f.planilha_linha + ")" : ""), "verde"],
+      ENVIANDO: ["Enviando…", "ambar"], FALHOU: ["Falhou", "verm"], NAO_CONFIGURADA: ["Planilha não configurada", "cinza"]
+    }[f.planilha_status] || ["Não enviado", "cinza"];
+    const btPlanilha = el("button", { type: "button", class: f.planilha_status === "ENVIADO" ? "bt-sec" : "bt", onclick: async () => {
+      btPlanilha.disabled = true; btPlanilha.textContent = "Enviando… (pode levar alguns minutos)";
+      const res = await api("func_planilha", { matricula: f.matricula });
+      btPlanilha.disabled = false; btPlanilha.textContent = "Enviar para a planilha";
+      if (!res.ok) return toast(res.erro, true);
+      toast("Planilha de Registros: linha " + res.linha + (res.criada ? " criada." : " completada.") + (res.avisos && res.avisos.length ? " Aviso: " + res.avisos.join(" | ") : ""));
+      recarregar();
+    } }, "Enviar para a planilha");
+    box.append(el("h2", { class: "sec" }, "Planilha de Registros"), el("div", { class: "card item-topo" },
+      el("div", null,
+        el("div", { class: "acoes", style: "margin-bottom:6px" }, el("span", { class: "pill " + ST_PLANILHA[1] }, ST_PLANILHA[0]),
+          f.planilha_em ? el("span", { class: "pequeno suave" }, fmtData(f.planilha_em, true)) : null),
+        f.planilha_erro ? el("div", { class: "pequeno " + (f.planilha_status === "FALHOU" ? "" : "suave"), style: f.planilha_status === "FALHOU" ? "color:var(--verm)" : "" }, f.planilha_erro) : null,
+        el("div", { class: "pequeno suave" }, "Na aprovação, o sistema preenche a linha do funcionário na aba Registros e a planilha cria a pasta no Drive e as planilhas dele. Reenviar só completa células vazias: nada já preenchido é apagado.")),
+      btPlanilha));
 
     box.append(el("h2", { class: "sec" }, "Documentos"), r.documentos.length ? el("div", { class: "lista" }, r.documentos.map(d =>
       el("div", { class: "card item-topo" },
@@ -1312,6 +1342,28 @@
         res.ok ? toast("Configurações salvas.") : toast(res.erro, true);
       });
       area.append(el("h2", { class: "sec" }, "Geral"), el("div", { class: "card" }, geral));
+
+      // Planilha Registros (Google Sheets)
+      const resPlanilha = el("div", { class: "pequeno", style: "margin-top:10px" });
+      const btTestar = el("button", { type: "button", class: "bt-sec", onclick: async () => {
+        btTestar.disabled = true; btTestar.textContent = "Testando…";
+        const res = await api("planilha_testar");
+        btTestar.disabled = false; btTestar.textContent = "Testar planilha";
+        limpar(resPlanilha);
+        const t = res.ok ? res.resultado : res;
+        if (!t.ok) return resPlanilha.append(msg("erro", t.erro));
+        resPlanilha.append(msg("ok", "Conectado à aba " + t.aba + ": " + Math.max(0, (t.linhas || 1) - 1) + " registro(s). Próxima matrícula: " + t.proximaMatricula + "." +
+          (t.colunas && t.colunas < t.esperadas ? " Atenção: a aba tem " + t.colunas + " colunas e o sistema envia " + t.esperadas + "." : "")));
+      } }, "Testar planilha");
+      area.append(el("h2", { class: "sec" }, "Planilha de Registros"), el("div", { class: "card" },
+        el("div", { class: "item-topo" },
+          el("div", null,
+            el("span", { class: "pill " + (r.planilhaConfigurada ? "verde" : "cinza") }, r.planilhaConfigurada ? "Configurada" : "Não configurada"),
+            el("p", { class: "pequeno suave", style: "margin:8px 0 0;max-width:720px" },
+              "Quando o RH aprova uma admissão, o sistema pega a próxima matrícula na aba Registros e preenche a linha do funcionário. " +
+              "A configuração fica no backend/.env (PLANILHA_REGISTROS_URL e PLANILHA_REGISTROS_TOKEN); o passo a passo está em docs/planilha-registros.md.")),
+          btTestar),
+        resPlanilha));
 
       // Departamentos
       const linhaDep = dep => {

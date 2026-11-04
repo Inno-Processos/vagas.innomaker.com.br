@@ -7,6 +7,7 @@ import {
 } from "../lib/http.js";
 import { um, todos, executar, prep, novoId, registrarLog, lerConfig, historicoMais, quemE } from "../lib/db.js";
 import { enviarEmail, layout, textoSimples, anexoIcs, smtpConfigurado } from "../lib/email.js";
+import { planilhaConfigurada, proximaMatricula, enviarRegistro, testarPlanilha } from "../lib/planilha.js";
 import { estadoDasEtapas } from "../lib/etapas.js";
 import { CAMPOS_DOCUMENTO, validarModelo, valoresDoFuncionario, preencherModelo, camposUsados } from "../lib/documentos.js";
 import { sha256Hex } from "../lib/senha.js";
@@ -118,22 +119,25 @@ async function solicEditar(env, ctx, b, u) {
   const atual = await um(env, "SELECT * FROM solicitacoes WHERE id = ?", texto(b.id, 30));
   if (!atual) throw new ErroApi("Solicitação não encontrada.");
   const dono = atual.solicitante_email === String(u.email || "").toLowerCase();
-  if (!dono && u.papel !== "rh") throw new ErroApi("Você só pode editar as suas solicitações.", 403);
-  if (["PENDENTE", "REAJUSTE"].indexOf(atual.status) < 0) throw new ErroApi("Esta solicitação não pode mais ser editada.");
+  if (!dono) throw new ErroApi("Só quem fez a solicitação pode corrigi-la.", 403);
+  // Depois de enviada, a solicitação só pode ser alterada se o RH recusar com alteração
+  if (atual.status !== "REAJUSTE") {
+    throw new ErroApi(atual.status === "PENDENTE"
+      ? "A solicitação já foi enviada ao RH e não pode ser alterada. Ela só volta para correção se o RH recusar com alteração."
+      : "Esta solicitação não pode mais ser alterada.");
+  }
 
   const s = lerSolicitacao(b);
   const cols = Object.keys(s);
   await executar(env,
     `UPDATE solicitacoes SET ${cols.map(k => k + " = ?").join(", ")}, status = 'PENDENTE', historico = ?, atualizado_em = ? WHERE id = ?`,
-    ...cols.map(k => s[k]), historicoMais(atual.historico, quemE(u), atual.status === "REAJUSTE" ? "Reenviada após reajuste" : "Editada", ""), agora(), atual.id);
+    ...cols.map(k => s[k]), historicoMais(atual.historico, quemE(u), "Corrigida e reenviada", ""), agora(), atual.id);
   await registrarLog(env, quemE(u), "SOLICITACAO_EDITADA", "solicitacao", atual.id, "");
 
-  if (atual.status === "REAJUSTE") {
-    const config = await lerConfig(env);
-    notificar(env, ctx, config.email_rh, `Solicitação reenviada após reajuste — ${s.titulo} (${atual.id})`, "Solicitação reenviada",
-      [`<b>${u.nome}</b> ajustou a solicitação <b>${atual.id}</b> (${s.titulo}).`],
-      { texto: "Analisar no painel", url: linkPainel(env, "solicitacao/" + atual.id) });
-  }
+  const config = await lerConfig(env);
+  notificar(env, ctx, config.email_rh, `Solicitação corrigida e reenviada — ${s.titulo} (${atual.id})`, "Solicitação reenviada",
+    [`<b>${u.nome}</b> corrigiu a solicitação <b>${atual.id}</b> (${s.titulo}) e reenviou para análise.`],
+    { texto: "Analisar no painel", url: linkPainel(env, "solicitacao/" + atual.id) });
   return { ok: true, id: atual.id };
 }
 
@@ -153,21 +157,24 @@ async function solicListar(env) {
 async function solicDecidir(env, ctx, b, u) {
   const s = await um(env, "SELECT * FROM solicitacoes WHERE id = ?", texto(b.id, 30));
   if (!s) throw new ErroApi("Solicitação não encontrada.");
-  if (["PENDENTE", "REAJUSTE"].indexOf(s.status) < 0) throw new ErroApi("Esta solicitação já foi decidida.");
+  if (s.status === "REAJUSTE") throw new ErroApi("Esta solicitação foi recusada com alteração e está com o gestor para correção.");
+  if (s.status !== "PENDENTE") throw new ErroApi("Esta solicitação já foi decidida.");
   const decisao = b.decisao;
   const comentario = texto(b.comentario, 3000);
   const novo = { aprovar: "APROVADA", reajuste: "REAJUSTE", recusar: "RECUSADA" }[decisao];
   if (!novo) throw new ErroApi("Decisão inválida.");
-  if (decisao !== "aprovar" && comentario.length < 5) throw new ErroApi("Explique o motivo para o gestor.");
+  if (decisao !== "aprovar" && comentario.length < 5) {
+    throw new ErroApi(decisao === "reajuste" ? "Escreva o que o gestor precisa alterar." : "Escreva o motivo da recusa para o gestor.");
+  }
 
-  const rotulo = { aprovar: "Aprovada pelo RH", reajuste: "Reajuste solicitado", recusar: "Recusada pelo RH" }[decisao];
+  const rotulo = { aprovar: "Aprovada pelo RH", reajuste: "Recusada com alteração", recusar: "Recusada pelo RH" }[decisao];
   await executar(env, "UPDATE solicitacoes SET status = ?, decidido_por = ?, decidido_em = ?, historico = ?, atualizado_em = ? WHERE id = ?",
     novo, quemE(u), agora(), historicoMais(s.historico, quemE(u), rotulo, comentario), agora(), s.id);
   await registrarLog(env, quemE(u), "SOLICITACAO_" + novo, "solicitacao", s.id, comentario);
 
   const textos = {
     aprovar: ["Sua solicitação foi <b>aprovada</b>. O RH vai criar e publicar a vaga."],
-    reajuste: ["O RH pediu <b>ajustes</b> na sua solicitação antes de aprovar:", comentario.replace(/\n/g, "<br>"), "Abra a solicitação no painel, corrija e reenvie."],
+    reajuste: ["O RH <b>recusou com alteração</b> a sua solicitação. Para ela ser analisada de novo, altere o seguinte:", comentario.replace(/\n/g, "<br>"), "Abra a solicitação no painel, corrija e reenvie. Só neste caso a solicitação pode ser alterada."],
     recusar: ["Sua solicitação foi <b>recusada</b>.", comentario.replace(/\n/g, "<br>")]
   }[decisao];
   notificar(env, ctx, s.solicitante_email, `${rotulo} — ${s.titulo} (${s.id})`, rotulo,
@@ -529,10 +536,19 @@ async function admDecidir(env, ctx, b, u) {
   const hoje = hojeISO();
   modelos.forEach(m => preencherModelo(m, valoresDoFuncionario(Object.assign({ matricula: "0" }, func), hoje), "(nova)"));
 
+  // Matrícula: a próxima da planilha Registros (maior da coluna A + 1), para o sistema e a planilha não divergirem
+  if (planilhaConfigurada(env)) {
+    try {
+      func.matricula = await proximaMatricula(env);
+    } catch (e) {
+      throw new ErroApi("Não consegui pegar a próxima matrícula na planilha de Registros: " + e.message + ". Nada foi gravado. Tente de novo em instantes.");
+    }
+  }
+
   const cols = Object.keys(func);
   const r = await executar(env, `INSERT INTO funcionarios (${cols.join(", ")}, criado_em, atualizado_em) VALUES (${cols.map(() => "?").join(", ")}, ?, ?)`,
     ...cols.map(k => func[k]), t, t);
-  const matricula = r.meta.last_row_id;
+  const matricula = func.matricula || r.meta.last_row_id;
   const f = await um(env, "SELECT * FROM funcionarios WHERE matricula = ?", matricula);
 
   const stmtsDocs = await gerarDocumentos(env, f, modelos, u, a.id);
@@ -543,6 +559,9 @@ async function admDecidir(env, ctx, b, u) {
     prep(env, "UPDATE candidaturas SET status = 'Contratado', atualizado_em = ? WHERE id = ?", t, a.candidatura_id)
   ]);
   await registrarLog(env, quemE(u), "ADMISSAO_APROVADA", "admissao", a.id, "matrícula " + matricula + ", " + modelos.length + " documento(s)");
+
+  // Planilha Registros: em segundo plano (as rotinas da planilha podem levar alguns minutos)
+  if (planilhaConfigurada(env)) ctx.waitUntil(enviarRegistro(env, matricula, quemE(u)));
 
   const ics = anexoIcs("Início — " + f.nome, f.data_efetivacao, `Início de ${f.nome} (${a.titulo_vaga}). Função: ${f.funcao}. Departamento: ${f.departamento}.`);
   notificar(env, ctx, f.email, "Admissão aprovada — documentos para assinatura", "Sua admissão foi aprovada",
@@ -558,7 +577,7 @@ async function admDecidir(env, ctx, b, u) {
       `Início: <b>${dataBR(f.data_efetivacao)}</b>. Função: ${f.funcao}. Departamento: ${f.departamento}.`],
     { texto: "Ver no painel", url: linkPainel(env, "funcionario/" + matricula) }, ics ? { anexos: [ics] } : null);
 
-  return { ok: true, matricula, documentos: modelos.length };
+  return { ok: true, matricula, documentos: modelos.length, planilha: planilhaConfigurada(env) ? "enviando" : "nao_configurada" };
 }
 
 // =====================================================================
@@ -567,11 +586,26 @@ async function admDecidir(env, ctx, b, u) {
 async function funcListar(env) {
   const linhas = await todos(env,
     `SELECT f.matricula, f.nome, f.email, f.email_innomaker, f.cargo, f.funcao, f.departamento, f.tipo_contratacao,
-            f.data_efetivacao, f.data_final_contrato, f.ponto_cadastrado, f.documentos_conferidos, f.onboarding_ok, f.ativo,
+            f.data_efetivacao, f.data_final_contrato, f.ponto_cadastrado, f.documentos_conferidos, f.onboarding_ok, f.ativo, f.planilha_status,
             (SELECT COUNT(*) FROM documentos d WHERE d.funcionario_matricula = f.matricula AND d.status = 'AGUARDANDO_ASSINATURA') AS docs_pendentes,
             (SELECT COUNT(*) FROM documentos d WHERE d.funcionario_matricula = f.matricula AND d.status = 'ASSINADO') AS docs_assinados
        FROM funcionarios f ORDER BY f.matricula DESC`);
   return { ok: true, hoje: hojeISO(), itens: linhas };
+}
+
+// Reenvia (ou completa) o funcionário na planilha Registros
+async function funcPlanilha(env, ctx, b, u) {
+  const f = await um(env, "SELECT matricula FROM funcionarios WHERE matricula = ?", parseInt(b.matricula, 10) || 0);
+  if (!f) throw new ErroApi("Funcionário não encontrado.");
+  if (!planilhaConfigurada(env)) throw new ErroApi("A planilha de Registros não está configurada (PLANILHA_REGISTROS_URL e PLANILHA_REGISTROS_TOKEN no backend/.env).");
+  const r = await enviarRegistro(env, f.matricula, quemE(u));
+  if (!r.ok) throw new ErroApi(r.erro);
+  return r;
+}
+
+// Configurações → "Testar planilha": confere URL, token, aba e a próxima matrícula
+async function planilhaTestar(env) {
+  return { ok: true, resultado: await testarPlanilha(env) };
 }
 
 async function funcDetalhe(env, ctx, b) {
@@ -650,7 +684,8 @@ async function cfgObter(env) {
   TIPOS_LISTA.forEach(t => { listas[t] = []; });
   (await todos(env, "SELECT tipo, valor FROM listas ORDER BY ordem, valor")).forEach(l => { (listas[l.tipo] = listas[l.tipo] || []).push(l.valor); });
   const modelos = (await todos(env, "SELECT * FROM modelos_documento ORDER BY nome")).map(m => Object.assign(m, { campos: camposUsados(m.conteudo) }));
-  return { ok: true, config, departamentos, listas, tiposLista: TIPOS_LISTA, modelos, camposDocumento: CAMPOS_DOCUMENTO };
+  return { ok: true, config, departamentos, listas, tiposLista: TIPOS_LISTA, modelos, camposDocumento: CAMPOS_DOCUMENTO,
+    planilhaConfigurada: planilhaConfigurada(env) };
 }
 
 async function cfgSalvarGeral(env, ctx, b, u) {
@@ -750,7 +785,7 @@ const HANDLERS = {
   proposta_criar: propostaCriar, adm_listar: admListar, adm_detalhe: admDetalhe, adm_decidir: admDecidir, adm_reenviar: admReenviar,
   func_listar: funcListar, func_detalhe: funcDetalhe, func_atualizar: funcAtualizar, doc_gerar: docGerar, doc_cancelar: docCancelar,
   cfg_obter: cfgObter, cfg_salvar_geral: cfgSalvarGeral, dep_salvar: depSalvar, lista_salvar: listaSalvar, modelo_salvar: modeloSalvar,
-  log_listar: logListar, email_teste: emailTeste
+  log_listar: logListar, email_teste: emailTeste, func_planilha: funcPlanilha, planilha_testar: planilhaTestar
 };
 
 export { podeVerVaga };

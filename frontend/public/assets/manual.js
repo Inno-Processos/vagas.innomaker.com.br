@@ -8,7 +8,7 @@ window.MANUAL_PAINEL = {
       passos: [
         "Os números no topo mostram o que precisa de atenção. Os que estão verdes têm pendências: clique para abrir a aba certa.",
         "Em <b>Aguardando sua aprovação</b> ficam as vagas pedidas pelos gestores. Use <b>Ver dados</b> para ler o pedido inteiro.",
-        "Decida ali mesmo: <b>Aprovar</b>, <b>Pedir reajustes</b> (o gestor corrige e reenvia) ou <b>Recusar</b> (escreva o motivo; o gestor recebe por e-mail).",
+        "Decida ali mesmo: <b>Aprovar</b>, <b>Recusar com alteração</b> (o pedido volta para o gestor corrigir e reenviar) ou <b>Recusar</b> (encerra; escreva o motivo).",
         "Depois de aprovar, o sistema pergunta se você quer criar a vaga. O formulário já vem preenchido com os dados do pedido.",
         "Pedidos aprovados que ainda não viraram vaga aparecem em <b>Aprovadas — falta criar a vaga</b>."
       ],
@@ -19,8 +19,8 @@ window.MANUAL_PAINEL = {
       resumo: "Peça vagas para a sua área e acompanhe a resposta do RH.",
       passos: [
         "Clique em <b>+ Solicitar vaga</b> para pedir ao RH a abertura de uma vaga.",
-        "Em <b>Minhas solicitações</b> você vê a situação de cada pedido: Aguardando RH, Reajuste, Aprovada, Vaga criada ou Recusada.",
-        "Se o RH pedir ajustes, aparece um aviso amarelo com o link <b>Corrigir agora</b>.",
+        "Em <b>Minhas solicitações</b> você vê a situação de cada pedido: Aguardando RH, Recusada com alteração, Aprovada, Vaga criada ou Recusada.",
+        "Se o RH recusar com alteração, aparece um aviso com o link <b>Corrigir agora</b>.",
         "Em <b>Vagas da minha área</b> ficam as vagas abertas a partir dos seus pedidos, com os candidatos."
       ],
       dicas: ["Você recebe por e-mail cada decisão do RH."]
@@ -52,14 +52,14 @@ window.MANUAL_PAINEL = {
 
   "editar-solicitacao": {
     resumo: "Corrija o que o RH pediu e reenvie.",
-    passos: ["Leia o pedido do RH em <b>Minhas solicitações</b> (aviso amarelo).", "Ajuste os campos necessários.", "Clique em <b>Reenviar ao RH</b>. O pedido volta para <b>Aguardando RH</b> e o RH é avisado por e-mail."]
+    passos: ["Leia o que o RH pediu em <b>Minhas solicitações</b> (quadro <b>Recusada com alteração</b>).", "Ajuste os campos necessários.", "Clique em <b>Reenviar ao RH</b>. O pedido volta para <b>Aguardando RH</b> e o RH é avisado por e-mail."]
   },
 
   "minhas": {
     resumo: "Todos os pedidos de vaga feitos com o seu e-mail.",
     passos: [
-      "<b>Aguardando RH:</b> o RH ainda vai analisar. Você ainda pode clicar em <b>Editar</b>.",
-      "<b>Reajuste:</b> o RH pediu mudanças. Clique em <b>Corrigir e reenviar</b>.",
+      "<b>Aguardando RH:</b> o pedido foi enviado e o RH vai analisar. Depois de enviado, ele <b>não pode ser alterado</b>.",
+      "<b>Recusada com alteração:</b> o RH pediu mudanças. Só neste caso você pode alterar: clique em <b>Corrigir e reenviar</b>.",
       "<b>Aprovada:</b> o RH vai criar a vaga. <b>Vaga criada:</b> a vaga já está publicada (o link aparece no pedido).",
       "<b>Recusada:</b> o motivo aparece no pedido."
     ],
@@ -73,12 +73,12 @@ window.MANUAL_PAINEL = {
   },
 
   "solicitacoes": {
-    resumo: "Pedidos de vaga dos gestores. Aqui o RH aprova, pede reajustes ou recusa.",
+    resumo: "Pedidos de vaga dos gestores. O RH aprova, recusa ou recusa com alteração.",
     passos: [
-      "Use os filtros (<b>Aguardando</b>, <b>Reajuste</b>, <b>Aprovadas</b>…) ou a busca para achar um pedido.",
+      "Use os filtros (<b>Aguardando</b>, <b>Com o gestor (alteração)</b>, <b>Aprovadas</b>…) ou a busca para achar um pedido.",
       "Clique em <b>Ver todos os dados</b> para conferir descrição, requisitos, salário, prazo e tipo de contrato.",
       "<b>Aprovar:</b> confirme que o alinhamento com o gestor, Financeiro e Engenharia foi feito. Em seguida, crie a vaga.",
-      "<b>Pedir reajustes:</b> escreva o que precisa mudar. O gestor recebe por e-mail, corrige e reenvia.",
+      "<b>Recusar com alteração:</b> escreva o que o gestor precisa mudar. Ele recebe por e-mail, corrige e reenvia. É o único jeito de o pedido ser alterado depois de enviado.",
       "<b>Recusar:</b> escreva o motivo. O pedido é encerrado e o gestor é avisado.",
       "Pedidos <b>Aprovados</b> têm o botão <b>Criar vaga</b>, com o formulário já preenchido."
     ],
@@ -147,7 +147,8 @@ window.MANUAL_PAINEL = {
       "Confira os dados e abra cada documento enviado.",
       "Se faltar algo ou estiver errado, clique em <b>Pedir correção</b> e liste exatamente o que precisa ser corrigido.",
       "Se estiver tudo certo, clique em <b>Aprovar cadastro</b> e marque os 5 itens de conferência.",
-      "Escolha os documentos para assinatura e confirme. O sistema cria a matrícula e envia os termos ao candidato."
+      "Escolha os documentos para assinatura e confirme. O sistema pega a <b>próxima matrícula da planilha de Registros</b>, cria o funcionário e envia os termos ao candidato.",
+      "Em seguida, a linha do funcionário é preenchida na planilha de Registros (veja o quadro <b>Planilha de Registros</b> na tela do funcionário)."
     ],
     dicas: ["<b>Reenviar proposta</b> manda o e-mail da proposta de novo.", "<b>Recusar</b> encerra a admissão e envia a justificativa ao candidato."]
   },
@@ -164,7 +165,8 @@ window.MANUAL_PAINEL = {
       "Em <b>Dados do registro</b>, corrija o que for preciso e clique em <b>Salvar dados</b>.",
       "Para renovar ou gerar termos, clique em <b>Gerar documentos</b>, escolha os modelos e envie para assinatura.",
       "Documentos ainda não assinados podem ser cancelados em <b>Cancelar documento</b>.",
-      "No checklist, marque: <b>Documentos assinados conferidos</b>, <b>Cadastrado no aplicativo de ponto</b> e <b>Onboarding realizado</b>."
+      "No checklist, marque: <b>Documentos assinados conferidos</b>, <b>Cadastrado no aplicativo de ponto</b> e <b>Onboarding realizado</b>.",
+      "Em <b>Planilha de Registros</b>, confira se a linha foi preenchida. Se aparecer <b>Falhou</b>, leia o motivo e clique em <b>Enviar para a planilha</b>."
     ],
     dicas: ["Se um campo usado no modelo estiver vazio, a geração é cancelada e o sistema diz qual campo falta.",
       "No desligamento, desmarque <b>Funcionário ativo</b>."]
@@ -176,7 +178,8 @@ window.MANUAL_PAINEL = {
       "<b>Geral:</b> o e-mail do RH recebe todos os avisos. Use <b>Enviar e-mail de teste</b> para conferir se os e-mails estão saindo.",
       "<b>Departamentos e gestores:</b> informe o gestor e o e-mail de cada departamento. É ele quem recebe os avisos da área.",
       "<b>Listas de opções:</b> etapas, tipos de contratação, horários e outras listas (um item por linha).",
-      "<b>Modelos de documento:</b> cole o texto oficial dos termos. Use os campos entre chaves, como {{NOME}} e {{CPF}}."
+      "<b>Modelos de documento:</b> cole o texto oficial dos termos. Use os campos entre chaves, como {{NOME}} e {{CPF}}.",
+      "<b>Planilha de Registros:</b> clique em <b>Testar planilha</b> para conferir a ligação com a planilha (mostra a próxima matrícula)."
     ],
     dicas: ["<b>Links úteis</b> aparecem no início do painel para todos."]
   },

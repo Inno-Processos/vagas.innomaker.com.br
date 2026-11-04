@@ -144,6 +144,37 @@ test("backend e frontend separados: telas, repasse da API, arquivos estáticos e
     });
     assert.equal(outraOrigem.status, 403);
 
+    // Solicitação: depois de enviada, só muda se o RH recusar com alteração
+    const staff = async (acao, corpo) => (await fetch(base + "/api/staff/" + acao, {
+      method: "POST", headers: { "content-type": "application/json", origin: base }, body: JSON.stringify(corpo || {})
+    })).json();
+    const pedido = { departamento: "Engenharia", titulo: "Estágio em Software", quantidade: 1, data_limite: "2027-12-20", localidade: "Niterói/RJ",
+      tipo_vaga: "Híbrido", tipo_contratacao: "Estágio", carga_horaria: "30 horas semanais", remuneracao: "Bolsa de R$ 1.200,00",
+      descricao: "Descrição", habilidades_obrigatorias: "Python", principais_funcoes: "Programar", motivo: "Demanda", urgencia: "Alta",
+      gestor_responsavel: "Pessoa Teste", concordancia: true };
+    const criada = await staff("solic_criar", pedido);
+    assert.equal(criada.ok, true, JSON.stringify(criada));
+    const editarEnviada = await staff("solic_editar", Object.assign({ id: criada.id }, pedido, { titulo: "Mudado" }));
+    assert.equal(editarEnviada.ok, false, "enviada não pode ser alterada");
+    assert.match(editarEnviada.erro, /não pode ser alterada/);
+    const comAlteracao = await staff("solic_decidir", { id: criada.id, decisao: "reajuste", comentario: "Ajustar a bolsa" });
+    assert.equal(comAlteracao.ok, true, JSON.stringify(comAlteracao));
+    const decidirComGestor = await staff("solic_decidir", { id: criada.id, decisao: "aprovar" });
+    assert.equal(decidirComGestor.ok, false, "com o gestor para correção: RH não decide");
+    const corrigida = await staff("solic_editar", Object.assign({ id: criada.id }, pedido, { remuneracao: "Bolsa de R$ 1.500,00" }));
+    assert.equal(corrigida.ok, true, JSON.stringify(corrigida));
+    const lista = await staff("solic_listar");
+    const s1 = lista.itens.find(i => i.id === criada.id);
+    assert.equal(s1.status, "PENDENTE");
+    assert.equal(s1.remuneracao, "Bolsa de R$ 1.500,00");
+    assert.equal((await staff("solic_editar", Object.assign({ id: criada.id }, pedido))).ok, false, "reenviada volta a ficar travada");
+    assert.equal((await staff("solic_decidir", { id: criada.id, decisao: "aprovar" })).ok, true);
+
+    // Planilha não configurada: o teste da tela avisa
+    const tp = await staff("planilha_testar");
+    assert.equal(tp.ok, true);
+    assert.equal(tp.resultado.ok, false);
+
     // backend fora do ar: o frontend responde 503 "reiniciando" (as telas tentam de novo sozinhas)
     back.filho.kill();
     await new Promise(r => back.filho.once("exit", r));

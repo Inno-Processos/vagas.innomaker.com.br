@@ -48,7 +48,9 @@ export const ACOES = {
   lista_salvar: RH,
   modelo_salvar: RH,
   log_listar: RH,
-  email_teste: RH
+  email_teste: RH,
+  func_planilha: RH,
+  planilha_testar: RH
 };
 
 export function podeExecutar(papel, acao) {
