@@ -28,6 +28,9 @@ export function paginaPainel(env, usuario, config) {
   return new Response(html, { headers: Object.assign({}, HEADERS_HTML, { "x-frame-options": "DENY" }) });
 }
 
+// Define o tema (claro/escuro) antes de a página aparecer: escolha salva ou tema do sistema
+const SCRIPT_TEMA = `<script>(function(){var t;try{t=localStorage.getItem("tema")}catch(e){}if(t!=="claro"&&t!=="escuro")t=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"escuro":"claro";document.documentElement.dataset.tema=t})();</script>`;
+
 const ESTILO = `
   :root{--green:#41A639;--dark:#111;--muted:rgba(36,33,34,.66);--border:rgba(0,0,0,.10)}
   *{box-sizing:border-box}
@@ -38,7 +41,8 @@ const ESTILO = `
 function paginaSimples(status, titulo, textoLivre, botoes) {
   const html = `<!DOCTYPE html>
 <html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><title>${esc(titulo)} — Innomaker</title>
+<meta name="robots" content="noindex"><meta name="color-scheme" content="light dark"><title>${esc(titulo)} — Vagas.Innomaker</title>
+${SCRIPT_TEMA}
 <style>${ESTILO}
   body{min-height:100vh;display:grid;place-items:center;padding:24px}
   .box{max-width:560px;width:100%;background:#fff;border:1px solid var(--border);border-radius:20px;padding:34px}
@@ -48,6 +52,10 @@ function paginaSimples(status, titulo, textoLivre, botoes) {
   .acoes{display:flex;gap:10px;flex-wrap:wrap}
   .acoes a{display:inline-flex;align-items:center;min-height:44px;padding:11px 20px;border-radius:999px;font-weight:800;font-size:14px;text-decoration:none}
   .prim{background:var(--green);color:#fff}.sec{border:1px solid var(--border);color:#222}
+  [data-tema="escuro"]{color-scheme:dark;--dark:#ecefec;--muted:rgba(236,239,236,.66);--border:rgba(255,255,255,.14)}
+  [data-tema="escuro"] body{background:#0b0d0c}
+  [data-tema="escuro"] .box{background:#131715}
+  [data-tema="escuro"] .sec{color:#ecefec}
 </style></head>
 <body><div class="box">
   <div class="codigo">Erro ${status}</div>

@@ -3,7 +3,8 @@ const lista = s => String(s || "").split(",").map(x => x.trim().toLowerCase()).f
 const semBarraFinal = s => String(s || "").replace(/\/+$/, "");
 
 export const SITE = {
-  logoUrl: "https://lh3.googleusercontent.com/d/1tsWG9lhE1xD0OLLdg0AHs78KswFpEzxW",
+  logoUrl: "/assets/logo.png",
+  logoEscuroUrl: "/assets/logo-escuro.png",
   usvUrl: "https://lh3.googleusercontent.com/d/1oJqHdWGQzA3_eGaqyccbcSr31S_9H9OE",
   contato: { whatsapp: "https://wa.me/21966396480", email: "ainnomaker@gmail.com", site: "https://innomaker.com.br/" }
 };

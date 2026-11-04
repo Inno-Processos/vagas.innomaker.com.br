@@ -8,8 +8,6 @@
   let ultimoTracking = null;
 
   /* ---------- Assets e links ---------- */
-  $("logoTop").src = BOOT.logoUrl;
-  $("logoFoot").src = BOOT.logoUrl;
   $("lnkWhats").href = $("fWhats").href = BOOT.contato.whatsapp;
   $("lnkSite").href = $("fSite").href = BOOT.contato.site;
   $("fMail").href = "mailto:" + BOOT.contato.email;

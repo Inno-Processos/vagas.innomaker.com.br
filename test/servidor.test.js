@@ -97,7 +97,7 @@ test("servidor: site, painel, API, arquivos estáticos e saúde", { timeout: 300
 
     const painel = await fetch(base + "/painel");
     assert.equal(painel.status, 200);
-    assert.match(await painel.text(), /Painel interno/);
+    assert.match(await painel.text(), /<title>Painel — Vagas\.Innomaker<\/title>/);
 
     const log = await fetch(base + "/api/staff/log_listar", {
       method: "POST", headers: { "content-type": "application/json", origin: base }, body: "{}"

@@ -4,17 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Painel interno — Innomaker</title>
+<meta name="color-scheme" content="light dark">
+<title>Painel — Vagas.Innomaker</title>
+<script>(function(){var t;try{t=localStorage.getItem("tema")}catch(e){}if(t!=="claro"&&t!=="escuro")t=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"escuro":"claro";document.documentElement.dataset.tema=t})();</script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%2341A639%22/></svg>">
 <link rel="stylesheet" href="/assets/painel.css?v=__VERSAO__">
+<script src="/assets/tema.js?v=__VERSAO__" defer></script>
 </head>
 <body>
 <header class="topo">
-  <button class="menu-btn" id="menuBtn" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="lateral">☰</button>
-  <a class="marca" href="/painel#inicio"><img id="logo" alt="Innomaker"><span>Painel interno</span></a>
+  <button class="menu-btn" id="menuBtn" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="lateral">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+  <a class="marca" href="/painel#inicio">
+    <img class="logo-claro" src="/assets/logo.png" alt="Innomaker">
+    <img class="logo-escuro" src="/assets/logo-escuro.png" alt="Innomaker">
+    <span class="marca-tag">Painel</span>
+  </a>
   <div class="topo-dir">
-    <div class="usuario"><span class="u-nome" id="uNome"></span><span class="u-papel" id="uPapel"></span></div>
-    <a class="bt-ghost" href="/">Ver site</a>
+    <a class="bt-ghost so-largo" href="/" target="_blank" rel="noopener">Ver site</a>
+    <button class="bt-icone" type="button" data-tema-botao aria-label="Mudar tema"></button>
+    <div class="usuario">
+      <span class="avatar" id="uAvatar" aria-hidden="true"></span>
+      <span class="u-txt"><span class="u-nome" id="uNome"></span><span class="u-papel" id="uPapel"></span></span>
+    </div>
     <a class="bt-ghost" id="btSair" href="/sair">Sair</a>
   </div>
 </header>
@@ -23,6 +36,7 @@
   <nav class="lateral" id="lateral" aria-label="Seções do painel"></nav>
   <main class="conteudo" id="conteudo" tabindex="-1"></main>
 </div>
+<div class="veu" id="veu" hidden></div>
 
 <dialog id="dlg" aria-labelledby="dlgTitulo">
   <div class="dlg-caixa">

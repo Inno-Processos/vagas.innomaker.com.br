@@ -281,16 +281,64 @@
   };
   const visiveis = () => VIEWS.filter(v => v.id && pode(v.acao) && (!v.soSe || v.soSe()));
 
+  // Ícones do menu (traço 2px, 24×24)
+  const ICONES = {
+    "inicio": "M3 10.5 12 3l9 7.5M5 9v12h5v-6h4v6h5V9",
+    "vagas-abertas": "M3 8h18v12H3zM8 8V5h8v3M3 13h18",
+    "solicitar": "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 8v8M8 12h8",
+    "minhas": "M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01",
+    "minhas-vagas": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
+    "solicitacoes": "M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9",
+    "vagas": "M3 8h18v12H3zM8 8V5h8v3M3 13h18",
+    "admissoes": "M9 4h6v3H9zM15 5h3v16H6V5h3M9 13l2 2 4-4",
+    "funcionarios": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
+    "configuracoes": "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
+    "log": "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 7v5l3 2"
+  };
+  function icone(id) {
+    const ns = "http://www.w3.org/2000/svg";
+    const s = document.createElementNS(ns, "svg");
+    [["viewBox", "0 0 24 24"], ["width", "19"], ["height", "19"], ["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2"],
+      ["stroke-linecap", "round"], ["stroke-linejoin", "round"], ["aria-hidden", "true"]].forEach(a => s.setAttribute(a[0], a[1]));
+    const p = document.createElementNS(ns, "path");
+    p.setAttribute("d", ICONES[id] || ICONES.inicio);
+    s.append(p);
+    return s;
+  }
+
+  const GRUPO_DA_VIEW = {};
   function montarMenu() {
     const nav = $("lateral");
     limpar(nav);
-    let grupo = null;
+    let grupo = null, grupoAtual = "Painel";
     VIEWS.forEach(v => {
-      if (v.grupo) { grupo = v.grupo; return; }
+      if (v.grupo) { grupo = v.grupo; grupoAtual = v.grupo; return; }
+      GRUPO_DA_VIEW[v.id] = grupoAtual;
       if (!pode(v.acao) || (v.soSe && !v.soSe())) return;
       if (grupo) { nav.append(el("h3", null, grupo)); grupo = null; }
-      nav.append(el("a", { href: "#" + v.id, dataset: { view: v.id } }, v.nome));
+      nav.append(el("a", { href: "#" + v.id, dataset: { view: v.id } }, icone(v.id), el("span", null, v.nome)));
     });
+    atualizarContadores();
+  }
+
+  // Número de pendências ao lado do item do menu (ex.: solicitações aguardando aprovação)
+  async function atualizarContadores() {
+    if (!pode("solic_listar")) return;
+    const r = await api("solic_listar");
+    const a = document.querySelector('.lateral a[data-view="solicitacoes"]');
+    if (!a || !r.ok) return;
+    const n = r.itens.filter(i => i.status === "PENDENTE").length;
+    let b = a.querySelector(".badge");
+    if (!n) { if (b) b.remove(); return; }
+    if (!b) { b = el("span", { class: "badge", title: "Aguardando aprovação" }); a.append(b); }
+    b.textContent = String(n);
+  }
+
+  function abrirMenu(abrir) {
+    $("lateral").classList.toggle("aberta", abrir);
+    $("veu").classList.toggle("ativo", abrir);
+    $("veu").hidden = !abrir;
+    $("menuBtn").setAttribute("aria-expanded", String(abrir));
   }
 
   function irPara() {
@@ -310,9 +358,9 @@
     document.querySelectorAll(".lateral a").forEach(a => {
       if (a.dataset.view === menuAtivo) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
-    $("lateral").classList.remove("aberta");
-    $("menuBtn").setAttribute("aria-expanded", "false");
-    document.title = titulo + " — Painel Innomaker";
+    abrirMenu(false);
+    olhoAtual = GRUPO_DA_VIEW[menuAtivo] || "Painel";
+    document.title = titulo + " — Painel Vagas.Innomaker";
     const dlg = $("dlg");
     if (dlg.open) dlg.close();
     limpar(main);
@@ -320,12 +368,13 @@
     render(main);
     main.focus({ preventScroll: true });
   }
-  const recarregar = () => irPara();
+  const recarregar = () => { irPara(); atualizarContadores(); };
+  let olhoAtual = "Painel";
 
   function cabecalho(titulo, textoLivre, acoes, voltar) {
     return el("div", { class: "cab" },
       el("div", null,
-        voltar ? el("a", { href: voltar[0], class: "pequeno", style: "text-decoration:none" }, "← " + voltar[1]) : null,
+        voltar ? el("a", { href: voltar[0], class: "voltar" }, "← " + voltar[1]) : el("div", { class: "olho" }, olhoAtual),
         el("h1", null, titulo), textoLivre ? el("p", null, textoLivre) : null),
       acoes ? el("div", { class: "acoes" }, acoes) : null);
   }
@@ -368,39 +417,120 @@
       gerente: "Solicite vagas para a sua área e acompanhe os candidatos.",
       rh: "Solicitações, vagas, admissões e funcionários em um só lugar."
     };
-    box.append(cabecalho("Olá, " + (primeiroNome(U.nome) || U.login), textos[U.papel]));
+    const nome = primeiroNome(U.nome) || U.login;
+    box.append(el("section", { class: "boas-vindas" },
+      el("div", null,
+        el("div", { class: "olho" }, "Painel " + U.papelNome),
+        el("h1", null, "Olá, ", el("span", null, nome + ".")),
+        el("p", null, textos[U.papel])),
+      el("div", { class: "acoes" },
+        pode("solic_criar") ? el("a", { class: "bt", href: "#solicitar" }, "+ Solicitar vaga") : null,
+        el("a", { class: "bt-sec", href: "/?page=central", target: "_blank", rel: "noopener" }, "Ver vagas no site"))));
 
-    if (U.papel === "rh") {
-      const nums = el("div", { class: "numeros" }, carregando("Buscando os números…"));
-      box.append(nums);
-      resumoRH(nums);
-    }
-
-    const atalhos = visiveis().filter(v => v.id !== "inicio");
-    if (atalhos.length) {
-      box.append(el("h2", { class: "sec" }, "O que você pode fazer"));
-      box.append(el("div", { class: "grade" }, atalhos.map(v =>
-        el("a", { class: "card atalho", href: "#" + v.id }, el("h3", null, v.nome), el("p", null, v.desc || "")))));
-    }
-    if ((BOOT.links || []).length) {
-      box.append(el("h2", { class: "sec" }, "Links úteis"));
-      box.append(el("div", { class: "grade" }, BOOT.links.map(l =>
-        el("a", { class: "card atalho", href: l.url, target: "_blank", rel: "noopener" }, el("h3", null, l.titulo || l.url), l.descricao ? el("p", null, l.descricao) : null))));
-    }
+    if (U.papel === "rh") inicioRH(box);
+    else if (U.papel === "gerente") inicioGerente(box);
+    else inicioFuncionario(box);
   }
 
-  async function resumoRH(box) {
+  function linksUteis(box) {
+    if (!(BOOT.links || []).length) return;
+    box.append(el("h2", { class: "sec" }, "Links úteis"));
+    box.append(el("div", { class: "grade" }, BOOT.links.map(l =>
+      el("a", { class: "card atalho", href: l.url, target: "_blank", rel: "noopener" }, el("h3", null, (l.titulo || l.url) + " ↗"), l.descricao ? el("p", null, l.descricao) : null))));
+  }
+
+  // Cartão compacto com os botões de decisão (o mesmo fluxo da tela Solicitações)
+  function cartaoAprovar(i) {
+    return el("article", { class: "card aprovar" },
+      el("div", null,
+        el("h3", null, i.titulo),
+        el("div", { class: "meta" },
+          el("span", null, el("b", null, i.departamento)), el("span", null, i.quantidade + " vaga(s)"),
+          el("span", null, "Por ", el("b", null, i.solicitante_nome)), el("span", null, fmtData(i.criado_em)),
+          i.urgencia ? el("span", { class: /alta/i.test(i.urgencia) ? "urg-alta" : null }, "Urgência ", el("b", null, i.urgencia)) : null,
+          i.status === "REAJUSTE" ? el("span", null, el("b", null, "Reenviada após reajuste")) : null)),
+      el("div", { class: "acoes" },
+        el("a", { class: "bt-sec", href: "#solicitacao/" + i.id }, "Ver dados"),
+        el("button", { type: "button", class: "bt-perigo", onclick: () => decidirSolic(i, "recusar") }, "Recusar"),
+        el("button", { type: "button", class: "bt-alerta", onclick: () => decidirSolic(i, "reajuste") }, "Pedir reajustes"),
+        el("button", { type: "button", class: "bt", onclick: () => decidirSolic(i, "aprovar") }, "Aprovar")));
+  }
+
+  async function inicioRH(box) {
+    const nums = el("div", { class: "numeros" }, carregando("Buscando os números…"));
+    const fila = el("div", null);
+    box.append(nums, fila);
     const [s, v, a, f] = await Promise.all([api("solic_listar"), api("vagas_todas"), api("adm_listar"), api("func_listar")]);
-    limpar(box);
-    const n = (rot, val, href) => el("a", { class: "numero", href, style: "text-decoration:none;color:inherit" }, el("span", null, rot), el("b", null, val == null ? "—" : String(val)));
-    const limite = f.ok ? new Date(Date.now() + 45 * 864e5).toISOString().slice(0, 10) : "";
-    box.append(
-      n("Solicitações aguardando", s.ok ? s.itens.filter(i => i.status === "PENDENTE").length : null, "#solicitacoes"),
-      n("Aprovadas sem vaga", s.ok ? s.itens.filter(i => i.status === "APROVADA").length : null, "#solicitacoes"),
+    limpar(nums);
+    const n = (rot, val, href) => el("a", { class: "numero" + (val ? " destaque" : ""), href }, el("span", null, rot), el("b", null, val == null ? "—" : String(val)));
+    const limite = new Date(Date.now() + 45 * 864e5).toISOString().slice(0, 10);
+    const pendentes = s.ok ? s.itens.filter(i => i.status === "PENDENTE") : [];
+    nums.append(
+      n("Solicitações aguardando aprovação", s.ok ? pendentes.length : null, "#solicitacoes"),
+      n("Aprovadas sem vaga criada", s.ok ? s.itens.filter(i => i.status === "APROVADA").length : null, "#solicitacoes"),
       n("Vagas abertas no site", v.ok ? v.vagas.filter(x => x.aberta_site).length : null, "#vagas"),
       n("Cadastros para conferir", a.ok ? a.itens.filter(i => i.status === "AGUARDANDO_APROVACAO").length : null, "#admissoes"),
       n("Documentos sem assinatura", f.ok ? f.itens.reduce((t, x) => t + (x.docs_pendentes || 0), 0) : null, "#funcionarios"),
-      n("Contratos vencendo (45 dias)", f.ok ? f.itens.filter(x => x.ativo && x.data_final_contrato && x.data_final_contrato <= limite).length : null, "#funcionarios"));
+      n("Contratos vencendo em 45 dias", f.ok ? f.itens.filter(x => x.ativo && x.data_final_contrato && x.data_final_contrato <= limite).length : null, "#funcionarios"));
+
+    fila.append(el("h2", { class: "sec" }, el("span", null, "Aguardando sua aprovação"),
+      pendentes.length ? el("span", { class: "contador" }, String(pendentes.length)) : null));
+    if (!s.ok) fila.append(msg("erro", s.erro || "Não foi possível carregar as solicitações."));
+    else if (!pendentes.length) fila.append(el("div", { class: "vazio" }, "Nenhuma solicitação aguardando aprovação. Quando um gestor pedir uma vaga, ela aparece aqui."));
+    else fila.append(el("div", { class: "lista" }, pendentes.map(cartaoAprovar)));
+
+    const aprovadas = s.ok ? s.itens.filter(i => i.status === "APROVADA") : [];
+    if (aprovadas.length) {
+      fila.append(el("h2", { class: "sec" }, "Aprovadas — falta criar a vaga"),
+        el("div", { class: "card", style: "padding:0" }, el("div", { class: "lista-curta" }, aprovadas.map(i =>
+          el("a", { class: "linha", href: "#vaga-de-solicitacao/" + i.id },
+            el("span", null, el("b", null, i.titulo), el("span", { class: "pequeno suave" }, i.departamento + " · " + i.solicitante_nome)),
+            el("span", { class: "bt" }, "Criar vaga"))))));
+    }
+    linksUteis(box);
+  }
+
+  async function inicioGerente(box) {
+    const area = el("div", null, carregando());
+    box.append(area);
+    const [m, mv] = await Promise.all([api("solic_minhas"), pode("minhas_vagas") ? api("minhas_vagas") : Promise.resolve({ ok: true, vagas: [] })]);
+    limpar(area);
+    const itens = m.ok ? m.itens : [];
+    const reajuste = itens.filter(i => i.status === "REAJUSTE");
+    if (reajuste.length) area.append(el("div", { class: "nota ambar", style: "margin:0 0 18px" }, el("strong", null, "O RH pediu ajustes em " + reajuste.length + " solicitação(ões)"),
+      el("a", { href: "#editar-solicitacao/" + reajuste[0].id }, "Corrigir agora →")));
+
+    const colunas = el("div", { class: "duas" });
+    const minhas = el("div", null, el("h2", { class: "sec", style: "margin-top:8px" }, el("span", null, "Minhas solicitações"), el("a", { class: "pequeno", href: "#minhas" }, "Ver todas")));
+    if (!itens.length) minhas.append(el("div", { class: "vazio" }, "Você ainda não pediu nenhuma vaga. ", el("a", { href: "#solicitar" }, "Solicitar a primeira")));
+    else minhas.append(el("div", { class: "card", style: "padding:0" }, el("div", { class: "lista-curta" }, itens.slice(0, 6).map(i =>
+      el("a", { class: "linha", href: i.status === "REAJUSTE" ? "#editar-solicitacao/" + i.id : "#minhas" },
+        el("span", null, el("b", null, i.titulo), el("span", { class: "pequeno suave" }, i.id + " · " + fmtData(i.criado_em))), pill(i.status))))));
+    const vagas = (mv.ok ? (mv.vagas || mv.itens || []) : []);
+    const lado = el("div", null, el("h2", { class: "sec", style: "margin-top:8px" }, el("span", null, "Vagas da minha área"), pode("minhas_vagas") ? el("a", { class: "pequeno", href: "#minhas-vagas" }, "Abrir") : null));
+    if (!vagas.length) lado.append(el("div", { class: "vazio" }, "Quando o RH abrir uma vaga pedida por você, os candidatos aparecem aqui."));
+    else lado.append(el("div", { class: "card", style: "padding:0" }, el("div", { class: "lista-curta" }, vagas.slice(0, 6).map(v =>
+      el("a", { class: "linha", href: "#vaga/" + v.id }, el("span", null, el("b", null, v.titulo), el("span", { class: "pequeno suave" }, (v.inscritos || 0) + " inscrito(s)")), pill(v.status))))));
+    colunas.append(minhas, lado);
+    area.append(colunas);
+    linksUteis(box);
+  }
+
+  function inicioFuncionario(box) {
+    const area = el("div", null);
+    box.append(area);
+    viewVagasAbertasResumo(area);
+    linksUteis(box);
+  }
+
+  function viewVagasAbertasResumo(box) {
+    box.append(el("h2", { class: "sec", style: "margin-top:8px" }, el("span", null, "Vagas abertas para indicar"), el("a", { class: "pequeno", href: "#vagas-abertas" }, "Ver todas")));
+    carregarEm(box, "vagas_abertas", {}, (area, r) => {
+      if (!r.vagas.length) return area.append(el("div", { class: "vazio" }, "Não há vagas abertas no momento."));
+      area.append(el("div", { class: "card", style: "padding:0" }, el("div", { class: "lista-curta" }, r.vagas.slice(0, 6).map(v =>
+        el("div", { class: "linha" }, el("span", null, el("b", null, v.titulo), el("span", { class: "pequeno suave" }, [v.localidade, v.tipo_contratacao].filter(Boolean).join(" · "))),
+          el("button", { type: "button", class: "bt-sec", onclick: () => copiar(v.link) }, "Copiar link"))))));
+    });
   }
 
   // =================================================================
@@ -1240,13 +1370,13 @@
   // =================================================================
   //  Início do painel
   // =================================================================
-  $("logo").src = BOOT.logoUrl;
   $("uNome").textContent = U.nome || U.login;
   $("uPapel").textContent = U.papelNome;
-  $("menuBtn").addEventListener("click", () => {
-    const aberta = $("lateral").classList.toggle("aberta");
-    $("menuBtn").setAttribute("aria-expanded", String(aberta));
-  });
+  $("uAvatar").textContent = String(U.nome || U.login || "?").trim().split(/\s+/).filter(Boolean)
+    .map((p, i, a) => (i === 0 || i === a.length - 1) ? p[0] : "").join("").slice(0, 2).toUpperCase();
+  $("menuBtn").addEventListener("click", () => abrirMenu(!$("lateral").classList.contains("aberta")));
+  $("veu").addEventListener("click", () => abrirMenu(false));
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && $("lateral").classList.contains("aberta")) abrirMenu(false); });
   montarMenu();
   window.addEventListener("hashchange", irPara);
   irPara();
