@@ -3,7 +3,7 @@ import { PAPEIS } from "./config.js";
 
 export function papelDosGrupos(grupos, mapa) {
   const g = (grupos || []).map(x => String(x).trim().toLowerCase());
-  const tem = lista => lista.some(x => g.indexOf(x) >= 0);
+  const tem = l => l.some(x => g.indexOf(x) >= 0);
   if (tem(mapa.rh)) return "rh";
   if (tem(mapa.gerente)) return "gerente";
   if (tem(mapa.funcionario)) return "funcionario";
@@ -14,31 +14,44 @@ const TODOS = ["funcionario", "gerente", "rh"];
 const GESTAO = ["gerente", "rh"];
 const RH = ["rh"];
 
-// acao do painel → quem pode e para qual Apps Script vai
+// ação do painel → papéis que podem executar
 export const ACOES = {
-  me:               { papeis: TODOS },
-  vagas_abertas:    { papeis: TODOS },
+  me: TODOS,
+  vagas_abertas: TODOS,
+  opcoes: TODOS,
 
-  solic_opcoes:     { papeis: GESTAO, backend: "SOLIC", action: "opcoes" },
-  solic_criar:      { papeis: GESTAO, backend: "SOLIC", action: "solicitar" },
-  solic_minhas:     { papeis: GESTAO, backend: "SOLIC", action: "minhas" },
+  solic_criar: GESTAO,
+  solic_editar: GESTAO,
+  solic_minhas: GESTAO,
+  minhas_vagas: GESTAO,
+  vaga_detalhe: GESTAO,       // gerente: só vagas da própria área
 
-  solic_listar:     { papeis: RH, backend: "SOLIC", action: "listar" },
-  solic_decidir:    { papeis: RH, backend: "SOLIC", action: "decidir" },
-
-  vagas_todas:      { papeis: RH, backend: "VAGAS", action: "staff_vagas" },
-  vaga_atualizar:   { papeis: RH, backend: "VAGAS", action: "staff_vaga_atualizar", limpaCacheVagas: true },
-  vaga_candidatos:  { papeis: RH, backend: "VAGAS", action: "staff_candidatos" },
-
-  adm_listar:       { papeis: RH, backend: "ADM", action: "adm_listar" },
-  adm_aprovar:      { papeis: RH, backend: "ADM", action: "adm_aprovar" },
-  adm_recusar:      { papeis: RH, backend: "ADM", action: "adm_recusar" },
-  adm_reenviar:     { papeis: RH, backend: "ADM", action: "adm_reenviar" }
+  solic_listar: RH,
+  solic_decidir: RH,
+  vagas_todas: RH,
+  vaga_salvar: RH,
+  etapa_atualizar: RH,
+  candidatura_status: RH,
+  proposta_criar: RH,
+  adm_listar: RH,
+  adm_detalhe: RH,
+  adm_decidir: RH,
+  adm_reenviar: RH,
+  func_listar: RH,
+  func_detalhe: RH,
+  func_atualizar: RH,
+  doc_gerar: RH,
+  doc_cancelar: RH,
+  cfg_obter: RH,
+  cfg_salvar_geral: RH,
+  dep_salvar: RH,
+  lista_salvar: RH,
+  modelo_salvar: RH,
+  log_listar: RH
 };
 
 export function podeExecutar(papel, acao) {
-  const a = ACOES[acao];
-  return !!(a && papel && a.papeis.indexOf(papel) >= 0);
+  return !!(ACOES[acao] && papel && ACOES[acao].indexOf(papel) >= 0);
 }
 
 export function acoesDoPapel(papel) {

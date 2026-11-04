@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Site de vagas e painel interno da Innomaker (Cloudflare Worker + Authelia + Google Apps Script)",
+  "description": "Site de vagas, área do candidato e painel de RH da Innomaker (Cloudflare Worker + D1 + R2 + Authelia)",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --local-upstream localhost:8787",
+    "db:local": "wrangler d1 migrations apply vagas-db --local",
+    "db:remoto": "wrangler d1 migrations apply vagas-db --remote",
     "test": "node --test \"test/**/*.test.js\"",
     "check": "wrangler deploy --dry-run --outdir dist",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler d1 migrations apply vagas-db --remote && wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "4.151.2"

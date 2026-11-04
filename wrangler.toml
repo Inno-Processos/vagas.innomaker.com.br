@@ -1,6 +1,6 @@
 # Cloudflare Worker — vagas.innomaker.com.br
-# Deploy: conecte este repositório em Workers & Pages → vagas → Configurações → Builds
-# (ou rode `npx wrangler deploy`). Veja o README.
+# Tudo roda aqui: site, área do candidato, painel interno, banco (D1), arquivos (R2) e e-mails.
+# Primeira configuração: veja o README.
 
 name = "vagas"
 main = "src/index.js"
@@ -11,7 +11,7 @@ routes = [
   { pattern = "vagas.innomaker.com.br", custom_domain = true }
 ]
 
-# CSS/JS estáticos servidos direto da borda (pasta public/ → /assets/...)
+# CSS/JS estáticos (pasta public/ → /assets/...)
 [assets]
 directory = "./public"
 
@@ -21,42 +21,45 @@ type = "Text"
 globs = ["**/*.html"]
 fallthrough = true
 
+# Banco de dados (vagas, candidatos, etapas, solicitações, admissões, funcionários, documentos)
+# Crie com: npx wrangler d1 create vagas-db  → copie o database_id gerado para cá
+[[d1_databases]]
+binding = "DB"
+database_name = "vagas-db"
+database_id = "00000000-0000-0000-0000-000000000000"   # TROQUE pelo ID gerado no "d1 create"
+migrations_dir = "migrations"
+
+# Arquivos (currículos e documentos de admissão)
+# Crie com: npx wrangler r2 bucket create vagas-arquivos
+[[r2_buckets]]
+binding = "ARQUIVOS"
+bucket_name = "vagas-arquivos"
+
+# Rotina diária às 05:00 UTC (02:00 em Brasília): fecha vagas vencidas e avisa sobre contratos
+[triggers]
+crons = ["0 5 * * *"]
+
 [observability]
 enabled = true
 
 [vars]
 SITE_URL = "https://vagas.innomaker.com.br"
 
-# ---------- Authelia ----------
+# ---------- Authelia (login do painel interno) ----------
 AUTHELIA_URL = "https://auth.innomaker.com.br"
-# Authelia 4.38+: /api/authz/forward-auth   |   versões antigas: /api/verify
-AUTHELIA_AUTHZ_PATH = "/api/authz/forward-auth"
+AUTHELIA_AUTHZ_PATH = "/api/authz/forward-auth"   # Authelia 4.37 ou anterior: /api/verify
 AUTHELIA_COOKIE = "authelia_session"
-
-# Grupos do Authelia que dão cada papel (separados por vírgula, sem diferenciar maiúsculas)
 GRUPOS_RH = "rh"
 GRUPOS_GERENTE = "gerente,gerentes,gestor,gestores"
 GRUPOS_FUNCIONARIO = "funcionario,funcionarios,colaborador,colaboradores"
 
-# ---------- Google Apps Script (URLs /exec) ----------
-# Planilha Mãe: site de vagas, inscrições, área do candidato e vagas (RH)
-APPS_VAGAS_URL = "https://script.google.com/macros/s/AKfycbzOTXM_dJeULZHNNUEKdCJbx6YTIaV8JY-Yaf0DbTTpMdz8y6pRmlTqZ6WaxFhxWyS0/exec"
-# Solicitações de contratação (projeto da planilha de solicitações) — PREENCHER
-APPS_SOLIC_URL = ""
-# Sistema de Admissão
-APPS_ADM_URL = "https://script.google.com/macros/s/AKfycbx7w4KY0gIOMLHhTXYVq7nDLmQxkcp3IPldG15I2vMUU7KJ2FQgJcqV0DTxok3r7lQ0/exec"
+# ---------- E-mail (Resend) ----------
+EMAIL_FROM = "Innomaker Recrutamento <vagas@innomaker.com.br>"
+EMAIL_REPLY_TO = "ainnomaker@gmail.com"
 
 # Troque quando mudar CSS/JS para forçar os navegadores a baixarem a versão nova
-VERSAO_ASSETS = "2026-11-04"
+VERSAO_ASSETS = "2026-11-04b"
 
-# Links da área do colaborador (painel → Início)
-LINKS_COLABORADOR = '''
-[
-  { "titulo": "Cartilha do Colaborador", "descricao": "Regras, rotinas e benefícios (ADM-REG-2026-005).", "url": "https://docs.google.com/document/d/143viamTQDLmn5KvZ9WI9IDS_QS9AQH-Bn36QD6LdyT8/edit" },
-  { "titulo": "Site da Innomaker", "descricao": "Site institucional.", "url": "https://innomaker.com.br/" }
-]
-'''
-
-# Secret (não fica no repositório):
-#   STAFF_API_KEY — mesma chave da propriedade STAFF_API_KEY nos três projetos do Apps Script
-#   npx wrangler secret put STAFF_API_KEY
+# Segredos (não ficam no repositório) — Configurações → Variáveis e segredos, ou `npx wrangler secret put NOME`:
+#   SESSION_SECRET  — chave longa e aleatória para assinar a sessão dos candidatos
+#   RESEND_API_KEY  — chave da API do Resend (sem ela, os e-mails ficam só registrados no Histórico)

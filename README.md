@@ -1,104 +1,113 @@
 # vagas.innomaker.com.br
 
-Site de vagas da Innomaker e painel interno de RH, rodando em um **Cloudflare Worker**.
-O login dos funcionários é feito pelo **Authelia** (`auth.innomaker.com.br`) e os dados ficam nas planilhas do **Google** (Apps Script).
+Sistema de recrutamento e admissão da Innomaker, **100% dentro de um Cloudflare Worker**.
+Não usa Google Apps Script, Google Forms nem planilhas.
 
-| Quem | Onde | O que faz |
+| Peça | Onde fica |
+|---|---|
+| Site, área do candidato e painel interno | Cloudflare Worker (`src/`, `public/`) |
+| Banco de dados (vagas, candidatos, etapas, solicitações, admissões, funcionários, documentos) | Cloudflare **D1** (`migrations/`) |
+| Currículos e documentos enviados | Cloudflare **R2** (privado; só abre pelo sistema, com permissão) |
+| Termos (Compromisso, Direito de Imagem, Apêndice) | Gerados e **assinados eletronicamente** no próprio sistema |
+| E-mails | API do **Resend** |
+| Login dos funcionários | **Authelia** (`auth.innomaker.com.br`) |
+| Rotina diária (fecha vagas vencidas, avisa contratos perto do fim) | Cron Trigger do Worker |
+
+## Quem faz o quê
+
+| Perfil | Onde | O que faz |
 |---|---|---|
-| Candidato | `/` | Vê vagas, se inscreve, acompanha as candidaturas (login próprio por e-mail e senha) |
-| Funcionário | `/painel` | Área do colaborador: links úteis e vagas abertas para indicar |
-| Gerente | `/painel` | Solicita vagas e acompanha a análise do RH |
-| RH | `/painel` | Solicitações, vagas (abrir, pausar, fechar, prazos, candidatos) e admissões |
+| Candidato | `/` | Vê vagas, se inscreve (currículo em PDF), recebe senha por e-mail, acompanha todas as candidaturas, aceita a proposta, preenche o cadastro de admissão, envia documentos e assina os termos |
+| Funcionário | `/painel` | Vagas abertas para indicar e links úteis |
+| Gerente | `/painel` | Solicita vagas, corrige pedidos de reajuste e vê os candidatos das vagas da sua área |
+| RH | `/painel` | Solicitações, vagas e etapas, propostas, conferência e aprovação de admissões, funcionários, documentos, configurações e histórico |
 | Sem grupo | `/painel` | Página **403** |
 
-O botão **Entrar**, no canto superior direito do site, leva ao Authelia e volta para `/painel`.
-
-```mermaid
-flowchart LR
-  N[Navegador] --> W[Cloudflare Worker<br/>vagas.innomaker.com.br]
-  W -- cookie authelia_session --> A[Authelia<br/>auth.innomaker.com.br]
-  W -- "/api (público)" --> M[Apps Script<br/>Planilha Mãe]
-  W -- "/api/staff (RH)" --> M
-  W -- "/api/staff (gerente, RH)" --> S[Apps Script<br/>Solicitações]
-  W -- "/api/staff (RH)" --> D[Apps Script<br/>Admissão]
-```
+O fluxo segue os procedimentos RHC-PROC-2026-001, 002 e 003. Veja [docs/processos.md](docs/processos.md).
 
 ## Estrutura
 
 ```
 src/
-  index.js            rotas: /, /painel, /api, /api/staff/*, /entrar, /sair
-  lib/auth.js         login via Authelia (forward-auth) com cache de 60 s
-  lib/papeis.js       papéis (RH > gerente > funcionário) e o que cada um pode fazer
-  lib/backend.js      chamadas aos Apps Scripts (com a chave STAFF_API_KEY)
-  lib/vagas.js        lista pública de vagas com cache na borda
-  lib/paginas.js      montagem das páginas e da página 403
-  templates/          site.html e painel.html
-public/assets/        site.css, site.js, painel.css, painel.js
-apps-script/
-  vagas-mae/          Code.gs + Staff.gs     (planilha Mãe)
-  solicitacoes/       Codigo.gs + Api.gs + Decisao.html + ManualSolicitacoes.html
-  admissao/           Api.gs (acrescentar ao projeto de Admissão)
-docs/                 authelia.md, processos.md
-test/                 testes de papéis e do login
+  index.js             rotas (site, /painel, /documento, /arquivo, /api/*) e cron
+  cron.js              rotina diária
+  api/candidato.js     inscrição, login, proposta, cadastro e assinatura
+  api/staff.js         painel: solicitações, vagas, etapas, admissões, funcionários, configurações
+  lib/                 auth (Authelia), papéis, banco, senhas/sessão, e-mail, arquivos, documentos
+  templates/           site.html e painel.html
+public/assets/         site.css/js e painel.css/js
+migrations/            esquema do banco e dados iniciais
+test/                  testes de regras (papéis, login, documentos, etapas, senha, CPF)
+docs/                  authelia.md e processos.md
 ```
 
-## Como colocar no ar
+## Colocar no ar (primeira vez)
 
-### 1. Authelia
-Siga [docs/authelia.md](docs/authelia.md): cookie de sessão em `innomaker.com.br`, regra de acesso para `vagas.innomaker.com.br/painel` e grupos `rh`, `gerente` e `funcionario`.
+Pré-requisito: Node 20+ e `npx wrangler login` com a conta Cloudflare da Innomaker.
 
-### 2. Chave compartilhada
-Gere uma chave longa (ex.: `openssl rand -hex 32`). Ela vai em **quatro lugares**:
-- nos três projetos do Apps Script: *Configurações do projeto → Propriedades do script →* `STAFF_API_KEY`;
-- no Worker: *Workers & Pages → vagas → Configurações → Variáveis e segredos → Adicionar → Segredo* `STAFF_API_KEY` (ou `npx wrangler secret put STAFF_API_KEY`).
-
-### 3. Apps Script
-Veja [apps-script/README.md](apps-script/README.md). Em todos os projetos: depois de colar os arquivos, **Implantar → Gerenciar implantações → editar → Nova versão** (a URL `/exec` não muda).
-
-### 4. Cloudflare
-1. Em `wrangler.toml`, preencha `APPS_SOLIC_URL` (URL `/exec` do projeto de Solicitações) e confira as outras URLs.
-2. *Workers & Pages → vagas → Configurações → Builds → Conectar* este repositório (branch `main`).
+1. **Banco e arquivos**
+   ```bash
+   npm ci
+   npx wrangler d1 create vagas-db          # copie o database_id para o wrangler.toml
+   npx wrangler r2 bucket create vagas-arquivos
+   npm run db:remoto                        # cria as tabelas no D1
+   ```
+2. **Segredos do Worker** (*Workers & Pages → vagas → Configurações → Variáveis e segredos*, ou pelo terminal)
+   ```bash
+   npx wrangler secret put SESSION_SECRET   # cole uma chave longa e aleatória (ex.: openssl rand -hex 32)
+   npx wrangler secret put RESEND_API_KEY   # chave do Resend
+   ```
+3. **E-mail (Resend):** crie a conta em resend.com, adicione o domínio `innomaker.com.br` (os registros DNS entram no Cloudflare) e gere a chave da API.
+   Sem a chave, o sistema funciona, mas os e-mails ficam só registrados em *Painel → Histórico*.
+4. **Authelia:** siga [docs/authelia.md](docs/authelia.md) (cookie em `innomaker.com.br`, regra para `/painel`, grupos `rh`, `gerente`, `funcionario`).
+5. **Deploy automático:** em *Workers & Pages → vagas → Configurações → Builds*, conecte este repositório (branch `main`).
    - Comando de build: `npm ci`
-   - Comando de deploy: `npx wrangler deploy`
-3. A cada `git push` na `main`, o Cloudflare publica a nova versão.
+   - Comando de deploy: `npm run deploy` (aplica migrações novas e publica)
+6. **Primeiro acesso do RH** em `/painel → Configurações`:
+   - Departamentos e gestores (substitui a aba EMAIL).
+   - Listas: cargos, funções, setores, situações, auxílios, horários e etapas (substitui a aba Informações).
+   - **Modelos de documento:** cole o texto oficial do ADM-TEMP-2026-001, 007 e 005 nos modelos (os atuais são provisórios).
+   - E-mail do RH, link da cartilha, link do onboarding e links do colaborador.
 
-Para publicar sem o GitHub: `npm ci && npx wrangler login && npx wrangler deploy`.
-
-> Variáveis definidas em `wrangler.toml` substituem as do painel do Cloudflare a cada deploy. Segredos (`STAFF_API_KEY`) não são afetados.
+> **Plano do Workers:** recomendamos o *Workers Paid* (US$ 5/mês). A proteção das senhas dos candidatos (PBKDF2) usa mais que os 10 ms de CPU do plano gratuito.
+> D1 e R2 cabem com folga nas cotas gratuitas.
 
 ## Desenvolvimento local
 
 ```bash
-npm ci
-cp .dev.vars.example .dev.vars   # coloque a chave e o usuário de teste
-npm run dev                      # http://localhost:8787 e http://localhost:8787/painel
-npm test                         # testes de papéis e login
-npm run check                    # valida o bundle do Worker
+cp .dev.vars.example .dev.vars
+npm run db:local        # banco local
+npm run dev             # http://localhost:8787 e http://localhost:8787/painel
+npm test
+npm run check           # valida o bundle
 ```
 
-Em `localhost`, `DEV_USUARIO_FALSO` simula o login do Authelia. Troque o grupo para testar cada papel e o 403.
+Em `localhost`, `DEV_USUARIO_FALSO` simula o Authelia, e o cabeçalho `x-dev-grupos` troca o papel em testes automatizados.
+Os e-mails aparecem com o texto completo na tabela `emails` do banco local.
 
 ## Mudanças comuns
 
 | Quero… | Onde |
 |---|---|
-| Mudar quais grupos do Authelia viram cada papel | `GRUPOS_RH`, `GRUPOS_GERENTE`, `GRUPOS_FUNCIONARIO` no `wrangler.toml` |
-| Mudar o que cada papel pode fazer | `src/lib/papeis.js` (`ACOES`) |
-| Mudar os links da área do colaborador | `LINKS_COLABORADOR` no `wrangler.toml` |
-| Mudar textos ou visual do site | `src/templates/site.html`, `public/assets/site.*` |
-| Mudar o painel | `src/templates/painel.html`, `public/assets/painel.*` |
+| Mudar grupos do Authelia que viram cada papel | `GRUPOS_*` no `wrangler.toml` |
+| Mudar o que cada papel pode fazer | `src/lib/papeis.js` |
+| Mudar departamentos, listas, modelos e links | Painel → Configurações (sem código) |
+| Criar uma coluna nova no banco | novo arquivo em `migrations/` (ex.: `0003_...sql`); o deploy aplica |
 | Forçar navegadores a baixar CSS/JS novos | aumente `VERSAO_ASSETS` |
 
 ## Problemas comuns
 
 | Sintoma | Causa provável |
 |---|---|
-| `/painel` volta sempre para o login | Cookie do Authelia não vale para `vagas.innomaker.com.br` (domínio do cookie deve ser `innomaker.com.br`) |
-| Logado, mas aparece 403 | Usuário sem grupo `rh`, `gerente` ou `funcionario`, ou regra do Authelia negando |
-| "Integração SOLIC não configurada" | `APPS_SOLIC_URL` vazio no `wrangler.toml` |
-| "chave do painel inválida" | `STAFF_API_KEY` diferente entre Worker e Apps Script |
-| "não respondeu em JSON" | Apps Script sem a versão nova implantada ou acesso diferente de "Qualquer pessoa" |
-| Mudança na vaga não aparece no site | O site atualiza a lista em até 1 minuto |
+| `/painel` volta sempre para o login | Cookie do Authelia não vale para `vagas.innomaker.com.br` |
+| Logado, mas 403 | Usuário sem grupo `rh`, `gerente` ou `funcionario` |
+| E-mails não chegam | `RESEND_API_KEY` ausente ou domínio não verificado no Resend (veja Painel → Histórico) |
+| "SESSION_SECRET não configurado" | Falta o segredo no Worker |
+| Erro 1102 / CPU no login do candidato | Worker no plano gratuito (veja acima) |
+| Documento não gera: "campo vazio… Operação cancelada" | Preencha o campo indicado em Funcionários → dados do registro |
 
-Processos de referência: RHC-PROC-2026-001 (Contratação), 002 (Solicitação) e 003 (Admissão). Veja [docs/processos.md](docs/processos.md).
+## Dados pessoais (LGPD)
+
+Currículos, documentos e dados de admissão ficam no D1 e no R2 da conta Innomaker, sem acesso público.
+Arquivos só abrem pelo sistema: o próprio candidato, o RH, ou o gerente da vaga (apenas currículos).
+As senhas dos candidatos são guardadas com hash (PBKDF2) e as assinaturas registram nome, CPF, data, IP e o código (hash) do documento.

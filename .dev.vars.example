@@ -1,6 +1,6 @@
-# Copie para .dev.vars para testar localmente com `npm run dev` (http://localhost:8787)
-STAFF_API_KEY=coloque-a-mesma-chave-dos-apps-script
+# Copie para .dev.vars e rode: npm run db:local && npm run dev  →  http://localhost:8787
+SESSION_SECRET=troque-por-uma-chave-longa-e-aleatoria
+# RESEND_API_KEY=re_...   (sem ela, os e-mails aparecem só no Histórico, com o texto completo em modo local)
 
-# Simula um usuário logado no Authelia (só funciona em localhost).
-# Troque "rh" por "gerente", "funcionario" ou um grupo inexistente para testar o 403.
+# Simula um usuário logado no Authelia (só em localhost). Troque o grupo para testar cada papel.
 DEV_USUARIO_FALSO={"login":"teste","nome":"Pessoa Teste","email":"teste@innomaker.com.br","grupos":["rh"]}

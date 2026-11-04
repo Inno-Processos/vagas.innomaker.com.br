@@ -4,31 +4,35 @@
 
 | Etapa do processo | No sistema |
 |---|---|
-| 5.1 Gestor preenche o formulário | Painel → **Solicitar vaga** (gerente ou RH). Substitui o Google Form; grava na mesma planilha de solicitações. |
-| 5.1.1 RH recebe automaticamente | E-mail ao gestor do departamento (aba EMAIL) com RH em cópia, com os botões Aprovar / Solicitar reajustes. |
-| 5.1.2 Análise inicial do RH | Painel → **Solicitações** → "Ver todos os dados da solicitação". |
-| 5.1.3 Reunião de alinhamento | Manual. Use **Pedir reajustes** para registrar o que mudar (o gestor recebe por e-mail). |
-| 5.1.4 Alinhamento com Financeiro e Engenharia | Manual, antes de aprovar (lembrete no diálogo de aprovação). |
-| 5.1.5 Aprovação e abertura da vaga | **Aprovar** → **Criar vaga** (formulário de vaga já preenchido) → vaga na aba VAGAS e no site. |
-| 5.2–5.8 Boas práticas | Dicas ao lado do formulário e nos campos (título, obrigatórias × diferenciais, senioridade, faixa salarial). |
+| 5.1 Gestor preenche o formulário | Painel → **Solicitar vaga** (gerente ou RH), com as dicas de 5.2 a 5.8 ao lado |
+| 5.1.1 RH recebe automaticamente | E-mail para o RH + item em **Solicitações** |
+| 5.1.2 Análise inicial | **Solicitações** → "Ver todos os dados" |
+| 5.1.3 Reunião de alinhamento | Manual; o resultado vira **Pedir reajustes** (o gestor corrige e reenvia pelo painel) |
+| 5.1.4 Financeiro e Engenharia | Manual, antes de aprovar (lembrete no diálogo) |
+| 5.1.5 Aprovação e abertura | **Aprovar** → **Criar vaga** (formulário já preenchido) → publicada no site |
 
 ## RHC-PROC-2026-001 — Etapas de contratação
 
 | Etapa | No sistema |
 |---|---|
-| 5.2 Criar e divulgar a vaga | Vaga criada pelo formulário de vaga; RH controla status e prazo em **Vagas** e copia o link público. |
-| 5.3 Receber inscrições | Site público (`/`); candidatos aparecem em **Vagas → Candidatos** e na planilha da vaga. |
-| 5.4–5.6 Entrevistas e testes | Aba ETAPAS da planilha da vaga (aprovar, recusar com motivo, e-mails). O candidato acompanha em "Minhas candidaturas". |
-| 5.8 Encaminhar para contratação | Painel → **Admissões** → **Enviar nova proposta** (Site de Admissão). |
+| 5.2 Criar e divulgar a vaga | **Vagas** (status, prazo, etapas); copiar link público |
+| 5.3 Receber inscrições | Site público; currículo no R2; candidato recebe senha da Área do candidato |
+| 5.4–5.6 Entrevistas, testes, gestor | **Vaga → Candidatos → Registrar** em cada etapa. Aprovar com mensagem personalizada; reprovar exige motivo (feedback). E-mail opcional ao candidato. O gerente vê os candidatos da sua vaga |
+| 5.7 Selecionar o candidato | Todas as etapas aprovadas → "Aprovado no processo" |
+| 5.8 Encaminhar para contratação | **Enviar proposta** no candidato |
 
 ## RHC-PROC-2026-003 — Admissão
 
 | Etapa | No sistema |
 |---|---|
-| 4.1–4.2 RH solicita e envia a proposta | **Admissões → Enviar nova proposta** (Site de Admissão, modo gestor). |
-| 4.3 Candidato aceita ou recusa | Status "Proposta enviada" → "Completando cadastro" ou "Proposta recusada". **Reenviar proposta** se necessário. |
-| 4.4 Cadastro do novo funcionário | Status "Aguardando aprovação do RH"; dados e arquivos em "Ver dados e documentos". |
-| 4.5 Validação inicial | **Aprovar cadastro** só libera depois de marcar os 5 itens da conferência. Pendências: peça correção por e-mail. |
-| 4.6 Aprovação | Registra o funcionário, cria a pasta, gera Termo de Compromisso e Direito de Imagem. |
-| 4.7–4.10 Documentos, assinatura e ponto | Lembrete no cartão da admissão aprovada (etapas manuais). |
-| 6 Onboarding | Manual (lembrete no cartão). |
+| 4.1 RH solicita o novo candidato | **Enviar proposta** (bloqueia e-mail IdUFF; revisão obrigatória marcada) |
+| 4.2–4.3 Proposta e decisão | Candidato aceita ou recusa na Área do candidato; RH avisado por e-mail |
+| 4.4 Cadastro | Formulário na Área do candidato, com cartilha, dados e documentos (PDF/JPG/PNG) |
+| 4.5 Validação inicial | **Admissões → Pedir correção** com a lista exata; o candidato corrige e reenvia |
+| 4.6 Aprovação | **Aprovar cadastro** só após os 5 itens de conferência; cria matrícula e documentos |
+| 4.7 Documentos para assinatura | Gerados dos modelos e assinados eletronicamente na Área do candidato |
+| 4.8 Documentos não enviados | **Funcionários → Gerar documentos** |
+| 4.9 Conferência dos assinados | RH avisado quando tudo foi assinado; marcar "Documentos conferidos" |
+| 4.10 Aplicativo de ponto | Marcar "Cadastrado no ponto" (o cadastro no app é manual) |
+| 5 Geração e renovação | Contrato padrão de 1 ano; aviso ao RH 45 dias antes do fim; campo vazio cancela com mensagem "Matrícula X: campo vazio. Documento: Y. Operação cancelada." |
+| 6 Onboarding | Data de início = onboarding; convite de calendário (.ics) no e-mail; marcar "Onboarding realizado" |

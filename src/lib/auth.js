@@ -6,19 +6,13 @@
 // sessão é válida, 401/302 quando não há login e 403 quando as regras negam acesso.
 import { cfg } from "./config.js";
 import { papelDosGrupos, nomeDoPapel } from "./papeis.js";
+import { lerCookie } from "./http.js";
 
 const cache = new Map(); // hash do cookie → { exp, valor }
 const TTL_OK_MS = 60 * 1000;
 const TTL_OUTROS_MS = 10 * 1000;
 
-export function lerCookie(header, nome) {
-  const partes = String(header || "").split(/;\s*/);
-  for (const p of partes) {
-    const i = p.indexOf("=");
-    if (i > 0 && p.slice(0, i).trim() === nome) return p.slice(i + 1).trim();
-  }
-  return "";
-}
+export { lerCookie };
 
 export function temCookieAuthelia(request, env) {
   return !!lerCookie(request.headers.get("cookie"), cfg(env).autheliaCookie);
@@ -50,7 +44,10 @@ export async function lerSessao(request, env) {
   if (c.usuarioFalso && (url.hostname === "localhost" || url.hostname === "127.0.0.1")) {
     try {
       const f = JSON.parse(c.usuarioFalso);
-      const u = montarUsuario(f.login, f.nome, f.email, (f.grupos || []).map(g => String(g).toLowerCase()), c.grupos);
+      // nos testes locais, o cabeçalho x-dev-grupos troca o papel sem reiniciar
+      const gruposDev = request.headers.get("x-dev-grupos");
+      const grupos = (gruposDev ? gruposDev.split(",") : (f.grupos || [])).map(g => String(g).trim().toLowerCase());
+      const u = montarUsuario(request.headers.get("x-dev-login") || f.login, f.nome, request.headers.get("x-dev-email") || f.email, grupos, c.grupos);
       return u.papel ? { estado: "ok", usuario: u } : { estado: "sem_permissao", usuario: u };
     } catch (e) { /* ignora e segue o fluxo normal */ }
   }
