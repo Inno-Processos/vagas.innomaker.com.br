@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // =====================================================================
-//  Assistente de configuração — rode com:  npm run configurar
+//  Assistente de configuração — rode com:  npm run cf:configurar
 //
 //  Faz no Cloudflare, nesta ordem:
 //   1. login na conta
 //   2. banco D1 "vagas-db" (cria se não existir e grava o ID no wrangler.toml)
 //   3. armazenamento R2 "vagas-arquivos"
 //   4. tabelas do banco (migrações)
-//   5. segredos: SESSION_SECRET (gerado) e RESEND_API_KEY (você cola)
+//   5. segredos: SESSION_SECRET (gerado) e SMTP_PASS (você cola)
 //   6. publica o sistema em vagas.innomaker.com.br
 //  Pode rodar de novo quantas vezes quiser: o que já existe é mantido.
 // =====================================================================
@@ -112,16 +112,16 @@ if (existentes.indexOf("SESSION_SECRET") >= 0) {
   colocar("SESSION_SECRET", crypto.randomBytes(32).toString("hex"));
   ok("SESSION_SECRET gerado");
 }
-const temResend = existentes.indexOf("RESEND_API_KEY") >= 0;
+const temSmtp = existentes.indexOf("SMTP_PASS") >= 0;
 const chave = (await rl.question(
-  (temResend ? "RESEND_API_KEY já existe. Cole uma nova chave para trocar ou aperte Enter para manter: "
-             : "Cole a chave da API do Resend (começa com re_) ou aperte Enter para configurar depois: "))).trim();
+  (temSmtp ? "SMTP_PASS já existe. Cole uma nova senha de app para trocar ou aperte Enter para manter: "
+            : "Cole a senha de app do Gmail rh.innomaker@gmail.com (16 letras) ou aperte Enter para configurar depois: "))).replace(/\s+/g, "");
 if (chave) {
-  if (!/^re_/.test(chave)) parar("Essa não parece uma chave do Resend (deveria começar com re_).");
-  colocar("RESEND_API_KEY", chave);
-  ok("RESEND_API_KEY gravada");
-} else if (!temResend) {
-  console.log("⚠️  Sem a chave do Resend, os e-mails ficam só registrados no Histórico do painel.");
+  if (!/^[a-z]{16}$/i.test(chave)) parar("Essa não parece uma senha de app do Google (são 16 letras, ex.: abcd efgh ijkl mnop).");
+  colocar("SMTP_PASS", chave);
+  ok("SMTP_PASS gravada");
+} else if (!temSmtp) {
+  console.log("⚠️  Sem a senha de app do Gmail, os e-mails ficam só registrados no Histórico do painel.");
 }
 
 // ---------- 6. Publicar ----------

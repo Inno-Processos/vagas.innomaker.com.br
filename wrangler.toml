@@ -1,9 +1,11 @@
+# ALTERNATIVA: rodar no Cloudflare (npm run cf:deploy). O jeito principal agora é o servidor próprio, como o SAC (veja o README).
 # Cloudflare Worker — vagas.innomaker.com.br
 # Tudo roda aqui: site, área do candidato, painel interno, banco (D1), arquivos (R2) e e-mails.
 # Primeira configuração: veja o README.
 
 name = "vagas"
 main = "src/index.js"
+account_id = "4bec986ee0a44371d5762f87a7ca35cc"
 compatibility_date = "2026-09-01"
 workers_dev = false
 
@@ -26,7 +28,7 @@ fallthrough = true
 [[d1_databases]]
 binding = "DB"
 database_name = "vagas-db"
-database_id = "00000000-0000-0000-0000-000000000000"   # TROQUE pelo ID gerado no "d1 create"
+database_id = "2e642137-e374-4e86-95f8-b49803f064dd"
 migrations_dir = "migrations"
 
 # Arquivos (currículos e documentos de admissão)
@@ -53,13 +55,15 @@ GRUPOS_RH = "rh"
 GRUPOS_GERENTE = "gerente,gerentes,gestor,gestores"
 GRUPOS_FUNCIONARIO = "funcionario,funcionarios,colaborador,colaboradores"
 
-# ---------- E-mail (Resend) ----------
-EMAIL_FROM = "Innomaker Recrutamento <vagas@innomaker.com.br>"
+# ---------- E-mail (Gmail, via SMTP com senha de app — mesmas variáveis do SAC) ----------
+SMTP_USER = "rh.innomaker@gmail.com"
+SMTP_FROM = "rh.innomaker@gmail.com"
+EMAIL_NOME = "Innomaker Recrutamento"
 EMAIL_REPLY_TO = "ainnomaker@gmail.com"
 
 # Troque quando mudar CSS/JS para forçar os navegadores a baixarem a versão nova
-VERSAO_ASSETS = "2026-11-04c"
+VERSAO_ASSETS = "2026-11-04d"
 
 # Segredos (não ficam no repositório) — Configurações → Variáveis e segredos, ou `npx wrangler secret put NOME`:
 #   SESSION_SECRET  — chave longa e aleatória para assinar a sessão dos candidatos
-#   RESEND_API_KEY  — chave da API do Resend (sem ela, os e-mails ficam só registrados no Histórico)
+#   SMTP_PASS       — senha de app (16 letras) do rh.innomaker@gmail.com (sem ela, os e-mails ficam só registrados no Histórico)

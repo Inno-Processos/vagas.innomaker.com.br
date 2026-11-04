@@ -1,6 +1,6 @@
-# Copie para .dev.vars e rode: npm run db:local && npm run dev  →  http://localhost:8787
+# Só para a alternativa Cloudflare (npm run cf:dev). Para o servidor próprio use .env (copie de .env.example).
 SESSION_SECRET=troque-por-uma-chave-longa-e-aleatoria
-# RESEND_API_KEY=re_...   (sem ela, os e-mails aparecem só no Histórico, com o texto completo em modo local)
+# SMTP_PASS=abcdefghijklmnop   (senha de app do rh.innomaker@gmail.com; sem ela, os e-mails aparecem só no Histórico, com o texto completo em modo local)
 
 # Simula um usuário logado no Authelia (só em localhost). Troque o grupo para testar cada papel.
 DEV_USUARIO_FALSO={"login":"teste","nome":"Pessoa Teste","email":"teste@innomaker.com.br","grupos":["rh"]}

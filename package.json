@@ -3,20 +3,25 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Site de vagas, área do candidato e painel de RH da Innomaker (Cloudflare Worker + D1 + R2 + Authelia)",
+  "description": "Site de vagas, área do candidato e painel de RH da Innomaker (Node.js self-hosted, como o SAC: SQLite + arquivos em data/ + Authelia/LLDAP + Gmail)",
   "scripts": {
-    "dev": "wrangler dev --local-upstream localhost:8787",
-    "db:local": "wrangler d1 migrations apply vagas-db --local",
-    "db:remoto": "wrangler d1 migrations apply vagas-db --remote",
-    "test": "node --test \"test/**/*.test.js\"",
-    "check": "wrangler deploy --dry-run --outdir dist",
-    "deploy": "wrangler deploy",
-    "configurar": "node scripts/configurar.mjs"
+    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env --import ./servidor/registrar.js servidor/index.js",
+    "dev": "node --watch --disable-warning=ExperimentalWarning --env-file-if-exists=.env --import ./servidor/registrar.js servidor/index.js",
+    "backup": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env servidor/cli.js backup",
+    "migrar": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env servidor/cli.js migrar",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\"",
+    "cf:dev": "wrangler dev --local-upstream localhost:8787",
+    "cf:check": "wrangler deploy --dry-run --outdir dist",
+    "cf:deploy": "wrangler deploy",
+    "cf:configurar": "node scripts/configurar.mjs"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.14"
   },
   "devDependencies": {
     "wrangler": "4.151.2"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   }
 }

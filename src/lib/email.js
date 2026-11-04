@@ -1,7 +1,14 @@
-// Envio de e-mails pelo Resend (https://resend.com). Sem chave configurada, o e-mail
-// é só registrado na tabela "emails" com status SEM_PROVEDOR.
+// Envio de e-mails pelo Gmail (rh.innomaker@gmail.com) via SMTP com senha de app — mesmas variáveis do SAC:
+// SMTP_USER, SMTP_PASS, SMTP_FROM (e SMTP_HOST/PORT/SECURE no servidor).
+// No servidor Node, env.CORREIO (nodemailer) faz o envio; no Cloudflare, o cliente SMTP de smtp.js.
+// Sem usuário/senha, o e-mail é só registrado na tabela "emails" com status SEM_PROVEDOR.
 import { agora, esc } from "./http.js";
 import { executar } from "./db.js";
+import { enviarSmtp } from "./smtp.js";
+
+export function smtpConfigurado(env) {
+  return !!(env.SMTP_USER && env.SMTP_PASS);
+}
 
 export async function enviarEmail(env, msg) {
   const para = [].concat(msg.para || []).map(s => String(s || "").trim()).filter(Boolean);
@@ -9,24 +16,24 @@ export async function enviarEmail(env, msg) {
 
   let status = "SEM_PROVEDOR";
   let erro = "";
-  if (env.RESEND_API_KEY) {
+  if (smtpConfigurado(env)) {
     try {
-      const r = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { "authorization": "Bearer " + env.RESEND_API_KEY, "content-type": "application/json" },
-        body: JSON.stringify({
-          from: env.EMAIL_FROM || "Innomaker Recrutamento <vagas@innomaker.com.br>",
-          to: para,
-          cc: msg.cc ? [].concat(msg.cc).filter(Boolean) : undefined,
-          reply_to: msg.responderPara || env.EMAIL_REPLY_TO || undefined,
-          subject: msg.assunto,
-          html: msg.html,
-          text: msg.texto,
-          attachments: msg.anexos
-        })
-      });
-      if (r.ok) status = "ENVIADO";
-      else { status = "FALHOU"; erro = (await r.text()).slice(0, 500); }
+      const envio = {
+        usuario: String(env.SMTP_USER).trim(),
+        senha: String(env.SMTP_PASS).replace(/\s+/g, ""),
+        de: String(env.SMTP_FROM || env.SMTP_USER).trim(),
+        nomeRemetente: env.EMAIL_NOME || "Innomaker Recrutamento",
+        para,
+        cc: msg.cc ? [].concat(msg.cc).map(s => String(s || "").trim()).filter(Boolean) : [],
+        responderPara: msg.responderPara || env.EMAIL_REPLY_TO || "",
+        assunto: msg.assunto,
+        html: msg.html,
+        texto: msg.texto,
+        anexos: msg.anexos
+      };
+      if (env.CORREIO) await env.CORREIO.enviar(envio);
+      else await enviarSmtp(envio);
+      status = "ENVIADO";
     } catch (e) {
       status = "FALHOU";
       erro = String(e && e.message || e).slice(0, 500);

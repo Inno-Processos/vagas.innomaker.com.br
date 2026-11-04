@@ -1,84 +1,77 @@
-# Authelia — configuração para vagas.innomaker.com.br
+# Authelia e LLDAP — configuração para vagas.innomaker.com.br
 
-O Worker não fica atrás de um proxy reverso, então ele mesmo pergunta ao Authelia se a sessão é válida
-(endpoint *forward-auth*), repassando o cookie `authelia_session` do navegador.
+Igual ao SAC: o Traefik deixa o tráfego passar direto, e o próprio sistema pergunta ao Authelia quem está logado
+(endpoint `/api/authz/auth-request`), repassando o cookie `authelia_session` do navegador.
+O site público e a área do candidato abrem sem login; só o `/painel` exige a conta Innomaker.
+
+```
+navegador ──(cookie authelia_session)──> Traefik ──> vagas ──> auth.innomaker.com.br/api/authz/auth-request
+                                                                 200: usuário, nome, e-mail, grupos do LLDAP
+                                                                 401: sem login → tela de login do Authelia
+                                                                 403: regra nega → página 403
+```
 
 ## 1. Cookie de sessão válido para os subdomínios
 
-O cookie precisa valer para `innomaker.com.br` (assim o navegador o envia para `vagas.innomaker.com.br`):
+O mesmo do SAC: o cookie precisa valer para `innomaker.com.br`, assim o navegador o envia para `vagas.innomaker.com.br`:
 
 ```yaml
 session:
   cookies:
     - domain: 'innomaker.com.br'
       authelia_url: 'https://auth.innomaker.com.br'
-      default_redirection_url: 'https://vagas.innomaker.com.br/painel'
 ```
 
-## 2. Regra de acesso
+## 2. Regras de acesso
+
+No `access_control` do `configuration.yml`, **antes** de qualquer regra mais geral (como `*.innomaker.com.br`),
+porque o Authelia usa a primeira regra que combina:
 
 ```yaml
 access_control:
-  default_policy: 'deny'
   rules:
-    # ... suas regras atuais ...
+    # O sistema pergunta ao Authelia sobre /painel para saber quem está logado
     - domain: 'vagas.innomaker.com.br'
-      resources:
-        - '^/painel([/?].*)?$'
+      resources: ['^/painel([/?#].*)?$']
       policy: 'one_factor'        # ou 'two_factor'
-      subject:
-        - 'group:rh'
-        - 'group:gerente'
-        - 'group:funcionario'
+    # O resto (site público, área do candidato, arquivos) passa direto: o próprio sistema confere as permissões
+    - domain: 'vagas.innomaker.com.br'
+      policy: 'bypass'
 ```
 
-Quem está logado mas não pertence a nenhum desses grupos recebe a página **403** do site.
+O `bypass` é necessário quando o forward auth do Authelia está ligado para todo o entrypoint do Traefik;
+sem ele, os candidatos cairiam na tela de login da Innomaker. Não é preciso cadastrar cliente OIDC nem gerar segredo.
 
-## 3. Grupos dos usuários
+## 3. Grupos no LLDAP
 
-Com o backend de arquivo (`users_database.yml`):
+| Grupo no LLDAP | Papel no sistema de vagas |
+|---|---|
+| `rh` ou `vagas_rh` | RH |
+| `gerente`, `gestores` ou `vagas_gerente` | Gerente |
+| `funcionario`, `colaboradores` ou `vagas_funcionario` | Funcionário |
 
-```yaml
-users:
-  rebeca:
-    displayname: 'Rebeca'
-    email: 'rebeca@innomaker.com.br'
-    password: '$argon2id$...'
-    groups: ['rh']
-  joao:
-    displayname: 'João Gestor'
-    email: 'joao@innomaker.com.br'
-    password: '$argon2id$...'
-    groups: ['gerente']
-  ana:
-    displayname: 'Ana'
-    email: 'ana@innomaker.com.br'
-    password: '$argon2id$...'
-    groups: ['funcionario']
-```
+Quem está em mais de um fica com o papel mais alto (RH > Gerente > Funcionário). Quem não está em nenhum vê a página **403**.
+Os nomes aceitos ficam em `GRUPOS_RH`, `GRUPOS_GERENTE` e `GRUPOS_FUNCIONARIO` no `.env` (separados por vírgula).
 
-Com LDAP, use os grupos do diretório. Os nomes aceitos ficam em `GRUPOS_*` no `wrangler.toml`
-(ex.: `GRUPOS_GERENTE = "gerente,gestores"`).
-
-**O e-mail do usuário é obrigatório para gerentes**: é por ele que o gestor recebe a decisão do RH e
+**O e-mail do usuário no LLDAP é obrigatório para gerentes**: é por ele que o gestor recebe a decisão do RH e
 vê "Minhas solicitações".
 
-## 4. Endpoint usado pelo Worker
+## 4. `.env`
 
-| Versão do Authelia | `AUTHELIA_AUTHZ_PATH` |
-|---|---|
-| 4.38 ou mais nova | `/api/authz/forward-auth` (padrão) |
-| 4.37 ou mais antiga | `/api/verify` |
+```
+AUTHELIA_URL=https://auth.innomaker.com.br
+AUTHELIA_AUTHZ_PATH=/api/authz/auth-request
+AUTHELIA_COOKIE=authelia_session
+```
 
-Respostas: **200** com `Remote-User`, `Remote-Groups`, `Remote-Name`, `Remote-Email` → logado;
-**401/302** → sem login (o Worker manda para `https://auth.innomaker.com.br/?rd=...`);
-**403** → bloqueado pelas regras (página 403).
+Se o cookie do Authelia tiver outro nome (`session.cookies[].name`), ajuste `AUTHELIA_COOKIE`.
+O container precisa alcançar `auth.innomaker.com.br`: o `docker-compose.yml` usa o mesmo DNS interno do SAC (`192.168.0.201`).
 
 ## 5. Fluxo
 
 1. Usuário clica em **Entrar** → `/painel`.
 2. Sem sessão → `https://auth.innomaker.com.br/?rd=https://vagas.innomaker.com.br/painel`.
-3. Depois do login, o Authelia volta para `/painel` (sem o `rd`, ele mostraria `/authenticated`).
-4. **Sair** → `https://auth.innomaker.com.br/logout?rd=https://vagas.innomaker.com.br/`.
+3. Depois do login, o Authelia volta para `/painel`.
+4. **Sair** → `https://auth.innomaker.com.br/logout?rd=https://vagas.innomaker.com.br/` (sai também do SAC).
 
-O Worker guarda a resposta do Authelia por 60 segundos por sessão; mudanças de grupo valem em até 1 minuto.
+O sistema guarda a resposta do Authelia por 60 segundos por sessão; mudanças de grupo no LLDAP valem em até 1 minuto.

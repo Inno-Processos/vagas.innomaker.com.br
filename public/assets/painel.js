@@ -1224,7 +1224,7 @@
     carregarEm(box, "log_listar", {}, (area, r) => {
       const semProvedor = r.emails.some(e => e.status === "SEM_PROVEDOR");
       if (semProvedor) area.append(el("div", { class: "nota ambar", style: "margin-bottom:12px" }, el("strong", null, "E-mails não estão saindo"),
-        "Configure RESEND_API_KEY no Worker para o sistema enviar e-mails."));
+        "Configure SMTP_USER e SMTP_PASS (rh.innomaker@gmail.com e a senha de app) no .env do servidor para o sistema enviar e-mails."));
       area.append(el("h2", { class: "sec", style: "margin-top:0" }, "E-mails"), el("div", { class: "rolagem" }, el("table", { class: "tabela" },
         el("thead", null, el("tr", null, ["Quando", "Para", "Assunto", "Status"].map(t => el("th", null, t)))),
         el("tbody", null, r.emails.map(e => el("tr", null, el("td", { "data-rotulo": "Quando" }, fmtData(e.quando, true)), el("td", { "data-rotulo": "Para" }, e.para),

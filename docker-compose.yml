@@ -1,0 +1,28 @@
+services:
+  # Site de vagas, área do candidato e painel interno. O Traefik publica em vagas.innomaker.com.br.
+  vagas:
+    build: .
+    container_name: vagas
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      DATA_DIR: /data
+      PORT: 3000
+    volumes: ["./data:/data"]
+    # Mesmo DNS do SAC: resolve auth.innomaker.com.br pela rede interna
+    dns:
+      - 192.168.0.201
+      - 1.1.1.1
+    networks:
+      - proxy
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: 'proxy'
+      traefik.http.routers.vagas.rule: 'Host(`vagas.innomaker.com.br`)'
+      traefik.http.routers.vagas.entrypoints: 'https'
+      traefik.http.routers.vagas.tls.certresolver: 'cloudflare'
+      traefik.http.services.vagas.loadbalancer.server.port: '3000'
+
+networks:
+  proxy:
+    external: true

@@ -1,4 +1,4 @@
-/* Site público — Carreiras Innomaker (vagas.innomaker.com.br) */
+/* Site público — Vagas.Innomaker (vagas.innomaker.com.br) */
 /* global BOOT */
 (function(){
   const $ = id => document.getElementById(id);

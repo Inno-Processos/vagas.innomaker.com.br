@@ -67,10 +67,13 @@ export async function lerSessao(request, env) {
       headers: {
         "Cookie": c.autheliaCookie + "=" + valorCookie,
         "Accept": "application/json",
+        // /api/authz/forward-auth (Traefik) lê X-Forwarded-*; /api/authz/auth-request (o do SAC) lê X-Original-*
         "X-Forwarded-Method": "GET",
         "X-Forwarded-Proto": "https",
         "X-Forwarded-Host": new URL(c.siteUrl).host,
         "X-Forwarded-Uri": "/painel",
+        "X-Original-URL": c.siteUrl + "/painel",
+        "X-Original-Method": "GET",
         "X-Forwarded-For": request.headers.get("cf-connecting-ip") || ""
       }
     });

@@ -6,7 +6,7 @@ import {
   ErroApi, json, agora, hojeISO, dataBR, somarAnos, emailValido, texto, parseJson, ehDataISO
 } from "../lib/http.js";
 import { um, todos, executar, prep, novoId, registrarLog, lerConfig, historicoMais, quemE } from "../lib/db.js";
-import { enviarEmail, layout, textoSimples, anexoIcs } from "../lib/email.js";
+import { enviarEmail, layout, textoSimples, anexoIcs, smtpConfigurado } from "../lib/email.js";
 import { estadoDasEtapas } from "../lib/etapas.js";
 import { CAMPOS_DOCUMENTO, validarModelo, valoresDoFuncionario, preencherModelo, camposUsados } from "../lib/documentos.js";
 import { sha256Hex } from "../lib/senha.js";
@@ -726,7 +726,7 @@ async function logListar(env) {
 async function emailTeste(env, ctx, b, u) {
   const para = texto(b.para || u.email, 200);
   if (!emailValido(para)) throw new ErroApi("Informe um e-mail válido para o teste.");
-  if (!env.RESEND_API_KEY) return { ok: false, erro: "RESEND_API_KEY não está configurada no Worker. Os e-mails não estão saindo." };
+  if (!smtpConfigurado(env)) return { ok: false, erro: "SMTP_USER e SMTP_PASS (conta e senha de app do Gmail) não estão configurados. Os e-mails não estão saindo." };
   const r = await enviarEmail(env, {
     para,
     assunto: "Teste de e-mail — sistema de vagas Innomaker",
@@ -735,8 +735,9 @@ async function emailTeste(env, ctx, b, u) {
   });
   if (!r.ok) {
     let erro = r.erro || r.status;
-    try { erro = JSON.parse(r.erro).message || erro; } catch (e) { /* texto puro */ }
-    return { ok: false, erro: "O Resend recusou o envio: " + erro };
+    if (/\b535\b|Username and Password not accepted/i.test(erro))
+      erro = "usuário ou senha de app recusados. Gere uma nova senha de app em myaccount.google.com/apppasswords. (" + erro + ")";
+    return { ok: false, erro: "O Gmail recusou o envio: " + erro };
   }
   return { ok: true, para };
 }
