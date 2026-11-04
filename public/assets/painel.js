@@ -360,6 +360,7 @@
     });
     abrirMenu(false);
     olhoAtual = GRUPO_DA_VIEW[menuAtivo] || "Painel";
+    manualAtual = (rota && pode(rota.acao) && param) ? nome : menuAtivo;
     document.title = titulo + " — Painel Vagas.Innomaker";
     const dlg = $("dlg");
     if (dlg.open) dlg.close();
@@ -370,13 +371,35 @@
   }
   const recarregar = () => { irPara(); atualizarContadores(); };
   let olhoAtual = "Painel";
+  let manualAtual = "inicio";
 
   function cabecalho(titulo, textoLivre, acoes, voltar) {
-    return el("div", { class: "cab" },
+    const cab = el("div", { class: "cab" },
       el("div", null,
         voltar ? el("a", { href: voltar[0], class: "voltar" }, "← " + voltar[1]) : el("div", { class: "olho" }, olhoAtual),
         el("h1", null, titulo), textoLivre ? el("p", null, textoLivre) : null),
       acoes ? el("div", { class: "acoes" }, acoes) : null);
+    return el("div", null, cab, caixaManual(manualAtual));
+  }
+
+  // "Como usar esta tela": abre sozinho na primeira visita a cada aba; depois fica fechado (um clique abre)
+  const APELIDOS_MANUAL = { "solicitacao": "solicitacoes", "vaga-de-solicitacao": "vaga-form" };
+  function caixaManual(chave) {
+    const todos = window.MANUAL_PAINEL || {};
+    let m = todos[chave];
+    if (m === null || m === undefined) m = todos[APELIDOS_MANUAL[chave]];
+    if (m && !m.passos) m = m[U.papel] || m.rh || m.gerente || m.funcionario;
+    if (!m) return null;
+    const marca = "manual-visto:" + U.papel + ":" + chave;
+    let visto = true;
+    try { visto = localStorage.getItem(marca) === "1"; localStorage.setItem(marca, "1"); } catch (e) { /* sem armazenamento: fica fechado */ }
+    const html = s => { const sp = el("span"); sp.innerHTML = s; return sp; }; // textos fixos do manual.js (não vêm do usuário)
+    return el("details", { class: "manual", open: !visto },
+      el("summary", null, el("span", { class: "manual-icone", "aria-hidden": "true" }, "?"),
+        el("span", null, el("b", null, "Como usar esta tela"), m.resumo ? el("span", { class: "manual-resumo" }, m.resumo) : null)),
+      el("div", { class: "manual-corpo" },
+        el("ol", null, m.passos.map(p => el("li", null, html(p)))),
+        m.dicas && m.dicas.length ? el("ul", { class: "manual-dicas" }, m.dicas.map(d => el("li", null, html(d)))) : null));
   }
 
   async function carregarEm(box, acao, dados, desenhar) {
@@ -425,7 +448,8 @@
         el("p", null, textos[U.papel])),
       el("div", { class: "acoes" },
         pode("solic_criar") ? el("a", { class: "bt", href: "#solicitar" }, "+ Solicitar vaga") : null,
-        el("a", { class: "bt-sec", href: "/?page=central", target: "_blank", rel: "noopener" }, "Ver vagas no site"))));
+        el("a", { class: "bt-sec", href: "/?page=central", target: "_blank", rel: "noopener" }, "Ver vagas no site"))),
+      caixaManual("inicio"));
 
     if (U.papel === "rh") inicioRH(box);
     else if (U.papel === "gerente") inicioGerente(box);

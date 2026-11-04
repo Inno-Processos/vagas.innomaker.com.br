@@ -26,3 +26,13 @@ test("permissões por papel", () => {
   assert.equal(podeExecutar(null, "me"), false);
   assert.ok(acoesDoPapel("rh").length > acoesDoPapel("gerente").length);
 });
+
+test("grupos do LLDAP com maiúsculas (RH, Gerente, funcionarios) viram os papéis certos", () => {
+  const mapa = { rh: ["rh", "vagas_rh"], gerente: ["gerente", "vagas_gerente"], funcionario: ["funcionarios", "vagas_funcionario"] };
+  assert.equal(papelDosGrupos(["RH"], mapa), "rh");
+  assert.equal(papelDosGrupos(["Gerente"], mapa), "gerente");
+  assert.equal(papelDosGrupos(["funcionarios", "sac_admin"], mapa), "funcionario");
+  assert.equal(papelDosGrupos(["Gerente", "RH"], mapa), "rh");
+  assert.ok(podeExecutar("rh", "solic_decidir"), "RH aprova solicitações");
+  assert.ok(!podeExecutar("gerente", "solic_decidir"), "gerente não aprova");
+});
