@@ -45,7 +45,8 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, erro ? 7000 : 4000);
   }
 
-  async function api(acao, dados) {
+  async function api(acao, dados, tentativa) {
+    tentativa = tentativa || 0;
     let r;
     try {
       r = await fetch("/api/staff/" + acao, {
@@ -62,8 +63,20 @@
       setTimeout(() => { location.href = BOOT.loginUrl; }, 1200);
       return { ok: false, erro: "Sessão expirada." };
     }
-    try { return await r.json(); }
-    catch (e) { return { ok: false, erro: "Resposta inválida do servidor." }; }
+    const tipo = r.headers.get("content-type") || "";
+    if (tipo.indexOf("application/json") >= 0) {
+      try { return await r.json(); } catch (e) { /* segue para a mensagem abaixo */ }
+    }
+    // Resposta que não veio do sistema (ex.: o servidor reiniciando numa atualização: o Traefik responde 404/502/503).
+    // O pedido não chegou ao sistema, então é seguro tentar de novo sozinho.
+    if ([404, 502, 503, 504].indexOf(r.status) >= 0 && tentativa < 4) {
+      if (tentativa === 0) toast("O sistema está reiniciando. Tentando de novo…");
+      await new Promise(ok => setTimeout(ok, 3000));
+      return api(acao, dados, tentativa + 1);
+    }
+    return { ok: false, erro: [404, 502, 503, 504].indexOf(r.status) >= 0
+      ? "O sistema está sendo atualizado. Aguarde alguns segundos e recarregue a página."
+      : "Resposta inesperada do servidor (HTTP " + r.status + "). Recarregue a página; se continuar, avise o suporte." };
   }
 
   function carregando(texto) {

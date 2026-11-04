@@ -31,7 +31,9 @@
       headers: ehForm ? {} : { "content-type": "application/json" },
       body: ehForm ? dados : JSON.stringify(dados || {})
     })
-    .then(r => r.json())
+    .then(r => (r.headers.get("content-type") || "").indexOf("application/json") >= 0
+      ? r.json()
+      : { ok: false, erro: "O sistema está sendo atualizado. Aguarde alguns segundos e tente de novo." })
     .catch(() => ({ ok: false, erro: "Falha de conexão. Verifique sua internet e tente novamente." }));
   }
 

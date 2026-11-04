@@ -74,7 +74,9 @@ export default {
         staff: { temSessao: !!lerCookie(request.headers.get("cookie"), cfg(env).autheliaCookie) }
       });
     } catch (e) {
-      console.log("erro", e && e.stack);
+      console.log("erro", p, e && e.stack);
+      // Nas rotas de API a tela espera JSON: devolve a mensagem em JSON, não uma página HTML
+      if (p.startsWith("/api/")) return json({ ok: false, erro: "Erro interno no servidor. Tente novamente em instantes." }, 500);
       return paginaErro(500, "Erro interno. Tente novamente em instantes.");
     }
   },
