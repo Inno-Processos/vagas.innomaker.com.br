@@ -100,15 +100,18 @@ window.MANUAL_PAINEL = {
 
   "vaga": {
     rh: {
-      resumo: "Candidatos da vaga e as etapas do processo seletivo (RHC-PROC-2026-001).",
+      resumo: "Candidatos da vaga e a avaliação de cada etapa do processo seletivo (RHC-PROC-2026-001).",
       passos: [
-        "Use os filtros e a busca para encontrar candidatos. <b>Abrir currículo (PDF)</b> mostra o arquivo enviado.",
-        "Em cada etapa, clique em <b>Registrar</b>: escolha o resultado (Aprovado, Reprovado ou Pendente), as datas e uma observação.",
-        "Para <b>Reprovar</b>, o motivo é obrigatório (é o feedback ao candidato). Marque <b>Enviar e-mail ao candidato</b> se quiser avisá-lo.",
-        "Quando todas as etapas estiverem aprovadas, clique em <b>Enviar proposta</b>: confira os dados, use o e-mail pessoal (não pode ser @id.uff.br) e marque a conferência.",
-        "Se a pessoa desistir, use <b>Registrar desistência</b>."
+        "Na lista, a trilha mostra as etapas de cada candidato (verde = aprovada, vermelho = recusada) e a soma das estrelas. Clique em <b>Avaliar</b>.",
+        "A ficha do candidato mostra as etapas em ordem. Só a etapa atual pode ser avaliada; as seguintes liberam quando ela for aprovada.",
+        "Em <b>Avaliar</b>: dê a nota de <b>1 a 3 estrelas</b> (abaixo do esperado, dentro do esperado, acima do esperado), escreva a <b>análise</b> e escolha <b>Aprovado</b> ou <b>Recusado</b>.",
+        "<b>Recusado</b> encerra o processo e envia o texto da análise como <b>feedback ao candidato</b> por e-mail. A janela mostra a prévia do e-mail antes de confirmar.",
+        "<b>Aprovado</b> passa para a próxima etapa. Se quiser, marque <b>Avisar o candidato</b> para mandar um e-mail dizendo que ele avançou.",
+        "Quando todas as etapas estiverem aprovadas, clique em <b>Enviar proposta</b> (e-mail pessoal, não pode ser @id.uff.br)."
       ],
-      dicas: ["Depois da proposta, o acompanhamento continua em <b>Admissões</b>."]
+      dicas: ["A Triagem (análise do currículo) não tem data agendada; as outras etapas têm, para marcar entrevista ou teste.",
+        "Para corrigir uma avaliação, use <b>Editar</b> na etapa. O e-mail de recusa não é enviado de novo.",
+        "Se a pessoa desistir, use <b>Registrar desistência</b> no fim da ficha."]
     },
     gerente: {
       resumo: "Candidatos da vaga da sua área.",

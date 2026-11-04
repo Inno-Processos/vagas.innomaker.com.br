@@ -3,7 +3,7 @@
 //  POST /api/staff/<acao>   — permissões em src/lib/papeis.js
 // =====================================================================
 import {
-  ErroApi, json, agora, hojeISO, dataBR, somarAnos, emailValido, texto, parseJson, ehDataISO
+  ErroApi, json, agora, hojeISO, dataBR, somarAnos, emailValido, texto, parseJson, ehDataISO, esc
 } from "../lib/http.js";
 import { um, todos, executar, prep, novoId, registrarLog, lerConfig, historicoMais, quemE } from "../lib/db.js";
 import { enviarEmail, layout, textoSimples, anexoIcs, smtpConfigurado } from "../lib/email.js";
@@ -314,45 +314,75 @@ async function vagaDetalhe(env, ctx, b, u) {
 }
 
 // ---------- Etapas do processo seletivo ----------
+// Avaliação de uma etapa (RHC-PROC-2026-001, 5.4–5.6): estrelas, análise/feedback e decisão.
+// Recusado encerra o processo e envia o feedback ao candidato por e-mail (sempre).
 async function etapaAtualizar(env, ctx, b, u) {
   const e = await um(env, "SELECT * FROM etapas WHERE id = ?", parseInt(b.etapa_id, 10) || 0);
   if (!e) throw new ErroApi("Etapa não encontrada.");
-  const resultado = ["Pendente", "Aprovado", "Reprovado"].indexOf(b.resultado) >= 0 ? b.resultado : e.resultado;
-  const motivo = texto(b.motivo, 2000);
-  const mensagem = texto(b.mensagem, 3000);
-  if (resultado === "Reprovado" && motivo.length < 5) throw new ErroApi("Para reprovar, escreva o motivo (feedback obrigatório).");
-  for (const k of ["data_prevista", "data_realizada"]) {
-    if (b[k] && !ehDataISO(b[k])) throw new ErroApi("Data inválida.");
-  }
-
-  await executar(env,
-    "UPDATE etapas SET resultado = ?, motivo = ?, mensagem = ?, responsavel = ?, data_prevista = ?, data_realizada = ?, obs = ? WHERE id = ?",
-    resultado, motivo, mensagem, texto(b.responsavel, 150), texto(b.data_prevista, 10), texto(b.data_realizada, 10), texto(b.obs, 2000), e.id);
-
   const ca = await um(env,
     `SELECT ca.*, c.nome, c.email, v.titulo FROM candidaturas ca
        JOIN candidatos c ON c.id = ca.candidato_id JOIN vagas v ON v.id = ca.vaga_id WHERE ca.id = ?`, e.candidatura_id);
-  const todas = await todos(env, "SELECT resultado FROM etapas WHERE candidatura_id = ?", ca.id);
-  if (["Proposta", "Contratado", "Desistiu"].indexOf(ca.status) < 0) {
-    const novo = todas.some(x => x.resultado === "Reprovado") ? "Encerrado"
-      : todas.every(x => x.resultado === "Aprovado") ? "Aprovado" : "Em processo";
-    if (novo !== ca.status) await executar(env, "UPDATE candidaturas SET status = ?, atualizado_em = ? WHERE id = ?", novo, agora(), ca.id);
+  if (["Proposta", "Contratado", "Desistiu"].indexOf(ca.status) >= 0) {
+    throw new ErroApi("Este candidato já está em " + ca.status.toLowerCase() + ": as etapas não podem mais ser alteradas.");
   }
-  await registrarLog(env, quemE(u), "ETAPA_" + resultado.toUpperCase(), "candidatura", ca.id, e.nome);
 
-  if (b.enviar_email === true && resultado !== "Pendente") {
-    const primeiro = String(ca.nome).split(" ")[0];
-    const paragrafos = resultado === "Aprovado"
-      ? [`Olá, <b>${primeiro}</b>!`, mensagem ? mensagem.replace(/\n/g, "<br>") : `Você foi aprovado(a) na etapa <b>${e.nome}</b> do processo seletivo para <b>${ca.titulo}</b>. Em breve entraremos em contato com os próximos passos.`]
-      : [`Olá, <b>${primeiro}</b>.`, `Agradecemos sua participação no processo seletivo para <b>${ca.titulo}</b>. Neste momento, sua candidatura não seguirá para as próximas etapas.`,
-        "<b>Retorno do RH:</b><br>" + motivo.replace(/\n/g, "<br>")];
-    notificar(env, ctx, ca.email,
-      (resultado === "Aprovado" ? "Atualização do processo seletivo — " : "Retorno do processo seletivo — ") + ca.titulo,
-      resultado === "Aprovado" ? "Você avançou no processo seletivo" : "Retorno sobre sua candidatura",
-      paragrafos, { texto: "Ver minha candidatura", url: linkArea(env) });
-    await executar(env, "UPDATE etapas SET notificado_em = ? WHERE id = ?", agora(), e.id);
+  // Ordem do processo: só avalia a etapa atual (ou corrige uma já avaliada)
+  const todas = await todos(env, "SELECT id, ordem, nome, resultado FROM etapas WHERE candidatura_id = ? ORDER BY ordem", ca.id);
+  const anteriores = todas.filter(x => x.ordem < e.ordem);
+  const pendenteAntes = anteriores.find(x => x.resultado !== "Aprovado");
+  if (pendenteAntes) throw new ErroApi(`Avalie antes a etapa "${pendenteAntes.nome}".`);
+  const recusadaDepois = todas.find(x => x.ordem > e.ordem && x.resultado === "Reprovado");
+  if (recusadaDepois && b.resultado === "Reprovado") throw new ErroApi("O candidato já foi recusado em outra etapa.");
+
+  const resultado = ["Aprovado", "Reprovado", "Pendente"].indexOf(b.resultado) >= 0 ? b.resultado : "";
+  if (!resultado) throw new ErroApi("Escolha Aprovado ou Recusado.");
+  const nota = parseInt(b.nota, 10);
+  if (resultado !== "Pendente" && !(nota >= 1 && nota <= 3)) throw new ErroApi("Dê a nota da etapa (1 a 3 estrelas).");
+  const analise = texto(b.analise != null ? b.analise : b.motivo, 3000);
+  if (resultado !== "Pendente" && analise.length < 5) {
+    throw new ErroApi(resultado === "Reprovado" ? "Escreva o feedback: ele será enviado ao candidato." : "Escreva a análise da etapa.");
   }
-  return { ok: true };
+  for (const k of ["data_prevista", "data_realizada"]) {
+    if (b[k] && !ehDataISO(b[k])) throw new ErroApi("Data inválida.");
+  }
+  // Triagem não tem data prevista (é a análise do currículo)
+  const dataPrevista = e.ordem === 1 || /triagem/i.test(e.nome) ? "" : texto(b.data_prevista, 10);
+  const dataRealizada = resultado === "Pendente" ? texto(b.data_realizada, 10) : (texto(b.data_realizada, 10) || hojeISO());
+
+  await executar(env,
+    `UPDATE etapas SET resultado = ?, nota = ?, motivo = ?, mensagem = '', responsavel = ?, data_prevista = ?, data_realizada = ?, obs = ?, avaliado_em = ?
+      WHERE id = ?`,
+    resultado, resultado === "Pendente" ? 0 : nota, analise, texto(b.responsavel, 150) || u.nome || "", dataPrevista, dataRealizada,
+    texto(b.obs, 2000), resultado === "Pendente" ? null : agora(), e.id);
+
+  const depois = await todos(env, "SELECT resultado FROM etapas WHERE candidatura_id = ?", ca.id);
+  const novoStatus = depois.some(x => x.resultado === "Reprovado") ? "Encerrado"
+    : depois.every(x => x.resultado === "Aprovado") ? "Aprovado" : "Em processo";
+  if (novoStatus !== ca.status) await executar(env, "UPDATE candidaturas SET status = ?, atualizado_em = ? WHERE id = ?", novoStatus, agora(), ca.id);
+  await registrarLog(env, quemE(u), "ETAPA_" + resultado.toUpperCase(), "candidatura", ca.id, e.nome + (nota ? " — " + nota + " estrela(s)" : ""));
+
+  // E-mail: recusa sempre (com o feedback); aprovação se o RH marcar "avisar o candidato"
+  const primeiro = String(ca.nome).split(" ")[0];
+  const proxima = todas.find(x => x.ordem > e.ordem);
+  let emailEnviado = false;
+  if (resultado === "Reprovado" && e.resultado !== "Reprovado") {
+    notificar(env, ctx, ca.email, "Retorno do processo seletivo — " + ca.titulo, "Retorno sobre sua candidatura",
+      [`Olá, <b>${primeiro}</b>.`,
+        `Agradecemos sua participação no processo seletivo para <b>${ca.titulo}</b>. Neste momento, sua candidatura não seguirá para as próximas etapas.`,
+        "<b>Retorno sobre a etapa " + esc(e.nome) + ":</b><br>" + esc(analise).replace(/\n/g, "<br>"),
+        "Desejamos sucesso e esperamos ver você em outras oportunidades da Innomaker."],
+      { texto: "Ver minha candidatura", url: linkArea(env) });
+    emailEnviado = true;
+  } else if (resultado === "Aprovado" && b.avisar_candidato === true && e.resultado !== "Aprovado") {
+    notificar(env, ctx, ca.email, "Atualização do processo seletivo — " + ca.titulo, "Você avançou no processo seletivo",
+      [`Olá, <b>${primeiro}</b>!`,
+        `Você foi aprovado(a) na etapa <b>${e.nome}</b> do processo seletivo para <b>${ca.titulo}</b>.`,
+        proxima ? `Próxima etapa: <b>${proxima.nome}</b>. Em breve entraremos em contato com os detalhes.` : "Você concluiu todas as etapas. Em breve entraremos em contato com os próximos passos."],
+      { texto: "Ver minha candidatura", url: linkArea(env) });
+    emailEnviado = true;
+  }
+  if (emailEnviado) await executar(env, "UPDATE etapas SET notificado_em = ? WHERE id = ?", agora(), e.id);
+  return { ok: true, status: novoStatus, emailEnviado };
 }
 
 async function candidaturaStatus(env, ctx, b, u) {

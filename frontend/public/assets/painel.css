@@ -276,3 +276,62 @@ dialog::backdrop{background:rgba(6,8,7,.55);backdrop-filter:blur(2px)}
 .aviso-geral{max-width:620px;margin:40px auto;padding:34px;background:var(--sup);border:1px solid var(--linha);border-radius:22px;box-shadow:var(--sombra)}
 .aviso-geral h1{margin:0 0 10px;font-size:30px;font-weight:850;letter-spacing:-.8px;color:var(--tinta)}
 .aviso-geral p{margin:0 0 22px;color:var(--suave);line-height:1.7}
+
+/* ---------- Avaliação das etapas (estrelas, decisão, linha do tempo) ---------- */
+:root{--estrela:#f5a524}
+[data-tema="escuro"]{--estrela:#ffc24d}
+.estrelas{display:inline-flex;gap:1px;font-size:15px;line-height:1;letter-spacing:0;color:var(--linha-forte)}
+.estrelas .cheia{color:var(--estrela)}
+
+.avaliacao{display:grid;gap:18px}
+.aval-bloco{display:grid;gap:8px}
+.aval-rotulo{font-weight:800;font-size:14px;color:var(--tinta)}
+.aval-rotulo .req{color:var(--verm)}
+.estrelas-escolha{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.estrelas-escolha [role=radiogroup]{display:flex;gap:4px}
+.estrela{width:48px;height:48px;border-radius:14px;border:1px solid var(--linha-forte);background:var(--sup2);font-size:26px;line-height:1;color:var(--linha-forte);cursor:pointer;transition:transform .12s,color .12s,border-color .12s,background .12s}
+.estrela:hover{transform:translateY(-1px);border-color:var(--estrela)}
+.estrela.cheia{color:var(--estrela);border-color:var(--estrela);background:color-mix(in srgb,var(--estrela) 12%,var(--sup))}
+.estrelas-legenda{font-weight:750;font-size:13.5px;color:var(--suave)}
+
+.decisoes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.decisao{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px 16px;border-radius:14px;border:2px solid var(--linha-forte);background:var(--sup);color:var(--texto);text-align:left;cursor:pointer;transition:border-color .12s,background .12s}
+.decisao b{font-size:15.5px}
+.decisao span{font-size:12.5px;color:var(--suave)}
+.decisao.aprovar:hover,.decisao.aprovar[aria-pressed="true"]{border-color:var(--marca)}
+.decisao.aprovar[aria-pressed="true"]{background:var(--marca-suave)}
+.decisao.aprovar[aria-pressed="true"] b{color:var(--marca-forte)}
+.decisao.recusar:hover,.decisao.recusar[aria-pressed="true"]{border-color:var(--verm)}
+.decisao.recusar[aria-pressed="true"]{background:var(--verm-suave)}
+.decisao.recusar[aria-pressed="true"] b{color:var(--verm)}
+
+.previa-email{border:1px dashed var(--verm-linha);background:var(--sup2);border-radius:14px;padding:14px 16px;font-size:13.5px;color:var(--texto)}
+.previa-email p{margin:0 0 8px}
+.previa-email p:last-child{margin:0}
+.previa-cab{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--linha);font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--verm)}
+.previa-cab span{text-transform:none;letter-spacing:0;font-weight:650;color:var(--suave)}
+
+.cand-topo{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:flex-start;padding-bottom:14px;border-bottom:1px solid var(--linha)}
+.titulo-etapas{margin:18px 0 10px;font-size:15px;color:var(--tinta)}
+.linha-etapas{list-style:none;margin:0;padding:0}
+.etapa-item{position:relative;display:grid;grid-template-columns:34px 1fr;gap:14px;padding-bottom:18px}
+.etapa-item:not(:last-child)::before{content:"";position:absolute;left:16px;top:34px;bottom:0;width:2px;background:var(--linha)}
+.etapa-item.concluida:not(:last-child)::before{background:var(--marca)}
+.etapa-marca{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:850;font-size:14px;border:2px solid var(--linha-forte);background:var(--sup);color:var(--suave);z-index:1}
+.etapa-item.concluida .etapa-marca{background:var(--marca);border-color:var(--marca);color:#fff}
+.etapa-item.recusada .etapa-marca{background:#b42318;border-color:#b42318;color:#fff}
+.etapa-item.atual .etapa-marca{border-color:var(--marca);color:var(--marca-forte);box-shadow:0 0 0 4px var(--marca-suave)}
+.etapa-item.bloqueada{opacity:.6}
+.etapa-corpo{min-width:0;padding-top:5px}
+.etapa-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.etapa-topo b{font-size:15px;color:var(--tinta)}
+.etapa-topo .bt,.etapa-topo .bt-sec{margin-left:auto;min-height:34px;padding:6px 14px;font-size:13px}
+.etapa-analise{margin:8px 0 6px;padding:10px 12px;border-radius:10px;background:var(--sup2);border:1px solid var(--linha);font-size:14px;white-space:pre-line;overflow-wrap:anywhere}
+
+.progresso{display:flex;align-items:center;gap:10px}
+.trilha{display:flex;gap:4px}
+.passo{width:22px;height:8px;border-radius:999px;background:var(--linha-forte)}
+.passo.concluida{background:var(--marca)}
+.passo.recusada{background:#b42318}
+.passo.atual{background:var(--sup);box-shadow:inset 0 0 0 2px var(--marca)}
+@media(max-width:640px){.decisoes{grid-template-columns:1fr}.estrela{width:44px;height:44px}}

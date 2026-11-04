@@ -170,6 +170,45 @@ test("backend e frontend separados: telas, repasse da API, arquivos estáticos e
     assert.equal((await staff("solic_editar", Object.assign({ id: criada.id }, pedido))).ok, false, "reenviada volta a ficar travada");
     assert.equal((await staff("solic_decidir", { id: criada.id, decisao: "aprovar" })).ok, true);
 
+    // Avaliação das etapas: ordem, estrelas, análise e feedback por e-mail na recusa
+    const vg = await staff("vaga_salvar", { titulo: "Estágio Teste", data_limite: "2027-12-31", localidade: "Niterói", tipo_contratacao: "Estágio",
+      carga_horaria: "30h", descricao: "x", requisitos: "x", principais_funcoes: "x", status: "Aberta", etapas: ["Triagem", "Entrevista RH"] });
+    assert.equal(vg.ok, true, JSON.stringify(vg));
+    const fd = new FormData();
+    Object.entries({ vaga_id: vg.id, nome: "Ana Candidata", email: "ana@example.com", telefone: "21999999999", periodo_curso: "5º", previsao_formatura: "2027-12" })
+      .forEach(([k, x]) => fd.set(k, x));
+    fd.set("curriculo", new File(["%PDF-1.4 teste"], "cv.pdf", { type: "application/pdf" }));
+    const insc = await (await fetch(base + "/api/candidato/inscrever", { method: "POST", headers: { origin: base }, body: fd })).json();
+    assert.equal(insc.ok, true, JSON.stringify(insc));
+    const det = await staff("vaga_detalhe", { id: vg.id });
+    const ets = det.candidatos[0].etapas.sort((a, b) => a.ordem - b.ordem);
+    assert.ok(ets.length >= 2);
+    const avaliar = (e, extra) => staff("etapa_atualizar", Object.assign({ etapa_id: e.id }, extra));
+
+    const foraDeOrdem = await avaliar(ets[1], { resultado: "Aprovado", nota: 3, analise: "Muito bem" });
+    assert.equal(foraDeOrdem.ok, false);
+    assert.match(foraDeOrdem.erro, /Avalie antes/);
+    assert.equal((await avaliar(ets[0], { resultado: "Aprovado", analise: "Currículo bom" })).ok, false, "sem estrelas");
+    assert.equal((await avaliar(ets[0], { resultado: "Reprovado", nota: 1, analise: "" })).ok, false, "recusa sem feedback");
+    const ok1 = await avaliar(ets[0], { resultado: "Aprovado", nota: 3, analise: "Currículo alinhado à vaga", data_prevista: "2027-01-10" });
+    assert.equal(ok1.ok, true, JSON.stringify(ok1));
+    assert.equal(ok1.emailEnviado, false, "aprovação sem aviso não manda e-mail");
+    const recusa = await avaliar(ets[1], { resultado: "Reprovado", nota: 1, analise: "Faltou domínio de Python para a vaga." });
+    assert.equal(recusa.ok, true, JSON.stringify(recusa));
+    assert.equal(recusa.status, "Encerrado");
+    assert.equal(recusa.emailEnviado, true, "recusa manda o feedback");
+    const det2 = await staff("vaga_detalhe", { id: vg.id });
+    const e2 = det2.candidatos[0].etapas.sort((a, b) => a.ordem - b.ordem);
+    assert.equal(e2[0].nota, 3);
+    assert.equal(e2[0].data_prevista, "", "Triagem não tem data prevista");
+    assert.equal(e2[1].resultado, "Reprovado");
+    assert.equal(det2.candidatos[0].status, "Encerrado");
+    // editar a recusa não reenvia o e-mail
+    const reedit = await avaliar(ets[1], { resultado: "Reprovado", nota: 1, analise: "Faltou domínio de Python e Git." });
+    assert.equal(reedit.emailEnviado, false);
+    const logs = await staff("log_listar");
+    assert.equal(logs.emails.filter(m => /Retorno do processo seletivo/.test(m.assunto) && m.para === "ana@example.com").length, 1);
+
     // Planilha não configurada: o teste da tela avisa
     const tp = await staff("planilha_testar");
     assert.equal(tp.ok, true);

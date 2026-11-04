@@ -927,63 +927,216 @@
       filtros: [["processo", "Em processo"], ["aprovados", "Aprovados e propostas"], ["encerrados", "Encerrados"], ["todas", "Todos"]],
       grupo, placeholder: "Buscar candidato", texto: c => [c.nome, c.email, c.id].join(" "),
       desenhar: (alvo, vis) => alvo.append(el("div", { class: "rolagem" }, el("table", { class: "tabela" },
-        el("thead", null, el("tr", null, ["Candidato", "Inscrição", "Etapa atual", "Situação", ""].map(t => el("th", null, t)))),
+        el("thead", null, el("tr", null, ["Candidato", "Inscrição", "Etapas e notas", "Situação", ""].map(t => el("th", null, t)))),
         el("tbody", null, vis.map(c => el("tr", null,
           el("td", { class: "titulo", "data-rotulo": "Candidato" }, el("b", null, c.nome), el("span", { class: "mini" }, c.email)),
           el("td", { "data-rotulo": "Inscrição" }, fmtData(c.criado_em)),
-          el("td", { "data-rotulo": "Etapa atual" }, c.status === "Em processo" ? c.etapa_atual : "—"),
+          el("td", { "data-rotulo": "Etapas" }, c.status === "Em processo" ? el("div", { class: "mini", style: "margin-bottom:4px" }, "Atual: ", el("b", null, c.etapa_atual)) : null, progresso(c)),
           el("td", { "data-rotulo": "Situação" }, pill(c.status), c.admissao_status ? el("div", { class: "mini" }, (STATUS[c.admissao_status] || [c.admissao_status])[0]) : null),
-          el("td", { "data-rotulo": "" }, el("button", { type: "button", class: "bt-sec", onclick: () => abrirCandidato(c, v, rh) }, "Abrir")))))))),
+          el("td", { "data-rotulo": "" }, el("button", { type: "button", class: rh && c.status === "Em processo" ? "bt" : "bt-sec", onclick: () => abrirCandidato(c, v, rh) }, rh && c.status === "Em processo" ? "Avaliar" : "Abrir")))))))),
       vazio: "Nenhum candidato neste filtro."
+    });
+    // Volta para a ficha do candidato depois de salvar uma etapa
+    if (reabrirCandidato) {
+      const c = r.candidatos.find(x => x.id === reabrirCandidato);
+      reabrirCandidato = null;
+      if (c) abrirCandidato(c, v, rh);
+    }
+  }
+
+  // =================================================================
+  //  Candidato na vaga: linha do tempo das etapas e avaliação (RHC-PROC-2026-001, 5.4–5.7)
+  // =================================================================
+  const NOTAS = ["Sem nota", "Abaixo do esperado", "Dentro do esperado", "Acima do esperado"];
+  const ROT_ETAPA = { Aprovado: ["Aprovado", "verde"], Reprovado: ["Recusado", "verm"], Pendente: ["A avaliar", "cinza"] };
+  let reabrirCandidato = null; // depois de salvar uma etapa, a ficha do candidato abre de novo
+
+  function estrelas(n) {
+    return el("span", { class: "estrelas", title: n ? n + " de 3 — " + NOTAS[n] : NOTAS[0], "aria-label": n ? n + " de 3 estrelas" : NOTAS[0] },
+      [1, 2, 3].map(i => el("span", { class: i <= n ? "cheia" : "", "aria-hidden": "true" }, "★")));
+  }
+  const pillEtapa = r => { const s = ROT_ETAPA[r] || [r, "cinza"]; return el("span", { class: "pill " + s[1] }, s[0]); };
+  const ehTriagem = e => e.ordem === 1 || /triagem/i.test(e.nome);
+  const candidatoTravado = c => ["Proposta", "Contratado", "Desistiu"].indexOf(c.status) >= 0;
+
+  // Situação de cada etapa: concluída, recusada, atual (pode avaliar) ou bloqueada (espera a anterior)
+  function etapasComEstado(c) {
+    let bloqueia = false;
+    return c.etapas.slice().sort((a, b) => a.ordem - b.ordem).map(e => {
+      const estado = e.resultado === "Aprovado" ? "concluida" : e.resultado === "Reprovado" ? "recusada" : bloqueia ? "bloqueada" : "atual";
+      if (e.resultado !== "Aprovado") bloqueia = true;
+      return Object.assign({ estado }, e);
     });
   }
 
-  function abrirCandidato(c, vaga, rh) {
-    const corpo = el("div", null,
-      dados([["E-mail", c.email], ["Telefone", c.telefone], ["Período", c.periodo_curso], ["Previsão de formatura", c.previsao_formatura],
-        ["Inscrição", fmtData(c.criado_em, true)], ["Mensagem", c.mensagem], ["Observação do RH", c.obs]]),
-      el("div", { class: "acoes", style: "margin:14px 0" },
-        c.curriculo_id ? el("a", { class: "bt-sec", href: "/arquivo/" + c.curriculo_id, target: "_blank", rel: "noopener" }, "Abrir currículo (PDF)") : null,
-        rh && c.admissao_id ? el("a", { class: "bt-sec", href: "#admissao/" + c.admissao_id }, "Ver admissão") : null,
-        rh && !c.admissao_id && ["Em processo", "Aprovado"].indexOf(c.status) >= 0 ? el("button", { type: "button", class: "bt", onclick: () => abrirProposta(c, vaga) }, "Enviar proposta") : null,
-        rh && ["Em processo", "Aprovado"].indexOf(c.status) >= 0 ? el("button", { type: "button", class: "bt-sec", onclick: () => marcarDesistencia(c) }, "Registrar desistência") : null),
-      el("h3", { style: "margin:6px 0 8px;font-size:15px" }, "Etapas"),
-      el("div", { class: "rolagem" }, el("table", { class: "tabela" },
-        el("thead", null, el("tr", null, ["Etapa", "Resultado", "Detalhes", ""].map(t => el("th", null, t)))),
-        el("tbody", null, c.etapas.map(e => el("tr", null,
-          el("td", { "data-rotulo": "Etapa" }, el("b", null, e.ordem + ". " + e.nome)),
-          el("td", { "data-rotulo": "Resultado" }, pill(e.resultado)),
-          el("td", { "data-rotulo": "Detalhes", class: "pequeno" },
-            [e.data_prevista ? "Prevista " + fmtData(e.data_prevista) : "", e.data_realizada ? "Realizada " + fmtData(e.data_realizada) : "",
-              e.responsavel ? "Resp.: " + e.responsavel : "", e.motivo ? "Motivo: " + e.motivo : "", e.notificado_em ? "E-mail enviado em " + fmtData(e.notificado_em, true) : ""]
-              .filter(Boolean).join(" · ") || "—"),
-          el("td", { "data-rotulo": "" }, rh ? el("button", { type: "button", class: "bt-sec", onclick: () => editarEtapa(e, c) }, "Registrar") : null)))))));
-    dialogo({ titulo: c.nome + " — " + vaga.titulo, corpo, semOk: true, largo: true });
+  // Trilha de bolinhas + soma das estrelas (lista de candidatos)
+  function progresso(c) {
+    const ets = etapasComEstado(c);
+    const avaliadas = ets.filter(e => e.nota);
+    const soma = avaliadas.reduce((t, e) => t + e.nota, 0);
+    return el("div", { class: "progresso" },
+      el("div", { class: "trilha", "aria-hidden": "true" }, ets.map(e => el("span", {
+        class: "passo " + e.estado, title: e.ordem + ". " + e.nome + " — " + (ROT_ETAPA[e.resultado] || [e.resultado])[0] + (e.nota ? " · " + e.nota + " estrela(s)" : "")
+      }))),
+      avaliadas.length ? el("span", { class: "mini", title: "Soma das estrelas nas etapas avaliadas" }, "★ " + soma + "/" + avaliadas.length * 3) : null);
   }
 
-  async function editarEtapa(e, c) {
-    const f = el("form", { novalidate: true },
-      el("div", { class: "campos" },
-        campo("Resultado", seletor("resultado", ["Pendente", "Aprovado", "Reprovado"], e.resultado, false)),
-        campo("Responsável", entrada("responsavel", e.responsavel || U.nome)),
-        campo("Data prevista", entrada("data_prevista", e.data_prevista, { type: "date" })),
-        campo("Data realizada", entrada("data_realizada", e.data_realizada, { type: "date" })),
-        campo("Motivo (obrigatório para reprovar — vai como retorno ao candidato)", areaTexto("motivo", e.motivo), { largo: true }),
-        campo("Mensagem de aprovação (opcional — substitui o texto padrão do e-mail)", areaTexto("mensagem", e.mensagem), { largo: true }),
-        campo("Observações internas", areaTexto("obs", e.obs), { largo: true })),
-      el("label", { class: "check", style: "margin-top:12px" }, el("input", { type: "checkbox", name: "enviar_email", checked: !e.notificado_em }),
-        el("span", null, "Enviar e-mail ao candidato com o resultado" + (e.notificado_em ? " (já enviado em " + fmtData(e.notificado_em, true) + ")" : ""))));
-    await dialogo({
-      titulo: e.nome + " — " + c.nome, corpo: f, okTexto: "Salvar etapa", largo: true,
+  function abrirCandidato(c, vaga, rh) {
+    const ets = etapasComEstado(c);
+    const travado = candidatoTravado(c);
+    const atual = ets.find(e => e.estado === "atual");
+
+    const topo = el("div", { class: "cand-topo" },
+      el("div", null,
+        el("div", { class: "meta" }, pill(c.status), el("span", null, c.email), c.telefone ? el("span", null, c.telefone) : null,
+          el("span", null, "Inscrição " + fmtData(c.criado_em))),
+        el("div", { class: "meta", style: "margin-top:6px" },
+          c.periodo_curso ? el("span", null, "Período: ", el("b", null, c.periodo_curso)) : null,
+          c.previsao_formatura ? el("span", null, "Formatura: ", el("b", null, c.previsao_formatura)) : null)),
+      el("div", { class: "acoes" },
+        c.curriculo_id ? el("a", { class: "bt-sec", href: "/arquivo/" + c.curriculo_id, target: "_blank", rel: "noopener" }, "Abrir currículo (PDF)") : null,
+        rh && atual && !travado ? el("button", { type: "button", class: "bt", onclick: () => editarEtapa(atual, c, vaga) }, "Avaliar: " + atual.nome) : null,
+        rh && c.admissao_id ? el("a", { class: "bt-sec", href: "#admissao/" + c.admissao_id }, "Ver admissão") : null,
+        rh && !c.admissao_id && c.status === "Aprovado" ? el("button", { type: "button", class: "bt", onclick: () => abrirProposta(c, vaga) }, "Enviar proposta") : null));
+
+    const mensagem = c.mensagem ? el("details", { class: "mais" }, el("summary", null, "Mensagem do candidato"), el("p", { class: "pre pequeno", style: "margin:8px 0 0" }, c.mensagem)) : null;
+
+    const fim = c.status === "Aprovado" ? el("div", { class: "nota verde" }, el("strong", null, "Aprovado em todas as etapas"),
+        rh && !c.admissao_id ? "Próximo passo: enviar a proposta." : "")
+      : c.status === "Encerrado" ? el("div", { class: "nota verm" }, el("strong", null, "Processo encerrado"), "O candidato foi recusado e recebeu o feedback por e-mail.")
+      : travado ? el("div", { class: "nota azul" }, "Candidato em " + c.status.toLowerCase() + ": as etapas não podem mais ser alteradas.") : null;
+
+    const linha = el("ol", { class: "linha-etapas" }, ets.map(e => el("li", { class: "etapa-item " + e.estado },
+      el("div", { class: "etapa-marca", "aria-hidden": "true" }, e.estado === "concluida" ? "✓" : e.estado === "recusada" ? "✕" : String(e.ordem)),
+      el("div", { class: "etapa-corpo" },
+        el("div", { class: "etapa-topo" },
+          el("b", null, e.nome), pillEtapa(e.resultado), e.nota ? estrelas(e.nota) : null,
+          rh && !travado && e.estado !== "bloqueada" ? el("button", {
+            type: "button", class: e.estado === "atual" ? "bt" : "bt-sec", onclick: () => editarEtapa(e, c, vaga)
+          }, e.estado === "atual" ? "Avaliar" : "Editar") : null),
+        e.motivo ? el("p", { class: "etapa-analise" }, e.motivo) : null,
+        el("div", { class: "mini" }, [
+          e.data_prevista ? "Agendada para " + fmtData(e.data_prevista) : "",
+          e.data_realizada && e.resultado !== "Pendente" ? "Avaliada em " + fmtData(e.data_realizada) : "",
+          e.responsavel && e.resultado !== "Pendente" ? "por " + e.responsavel : "",
+          e.notificado_em ? "e-mail ao candidato em " + fmtData(e.notificado_em, true) : ""].filter(Boolean).join(" · ")),
+        e.obs ? el("div", { class: "mini" }, "Observação interna: " + e.obs) : null,
+        e.estado === "bloqueada" ? el("div", { class: "mini" }, "Libera quando a etapa anterior for aprovada.") : null))));
+
+    const rodape = rh && !travado && ["Em processo", "Aprovado"].indexOf(c.status) >= 0
+      ? el("div", { class: "acoes", style: "margin-top:16px;justify-content:flex-end" },
+          el("button", { type: "button", class: "bt-perigo", onclick: () => marcarDesistencia(c) }, "Registrar desistência"))
+      : null;
+
+    dialogo({ titulo: c.nome + " — " + vaga.titulo, corpo: el("div", null, topo, mensagem, fim, el("h3", { class: "titulo-etapas" }, "Etapas do processo"), linha, rodape),
+      semOk: true, largo: true });
+  }
+
+  async function editarEtapa(e, c, vaga) {
+    const triagem = ehTriagem(e);
+    let nota = e.nota || 0;
+    let decisao = e.resultado === "Pendente" ? "" : e.resultado;
+    const jaRecusou = e.resultado === "Reprovado" && e.notificado_em;
+
+    // Estrelas
+    const legenda = el("span", { class: "estrelas-legenda" });
+    const botoesEstrela = [1, 2, 3].map(i => el("button", {
+      type: "button", class: "estrela", role: "radio", "aria-label": i + (i > 1 ? " estrelas" : " estrela") + " — " + NOTAS[i],
+      onclick: () => { nota = i; pintar(); }
+    }, "★"));
+    const blocoNota = el("div", { class: "aval-bloco" },
+      el("div", { class: "aval-rotulo" }, "Nota da etapa", el("span", { class: "req" }, " *")),
+      el("div", { class: "estrelas-escolha" }, el("div", { role: "radiogroup", "aria-label": "Nota da etapa" }, botoesEstrela), legenda));
+
+    // Decisão
+    const btAprovar = el("button", { type: "button", class: "decisao aprovar", onclick: () => { decisao = "Aprovado"; pintar(); } },
+      el("b", null, "✓ Aprovado"), el("span", null, "Segue para a próxima etapa"));
+    const btRecusar = el("button", { type: "button", class: "decisao recusar", onclick: () => { decisao = "Reprovado"; pintar(); } },
+      el("b", null, "✕ Recusado"), el("span", null, "Encerra o processo e envia o feedback"));
+    const blocoDecisao = el("div", { class: "aval-bloco" },
+      el("div", { class: "aval-rotulo" }, "Resultado", el("span", { class: "req" }, " *")),
+      el("div", { class: "decisoes" }, btAprovar, btRecusar));
+
+    // Análise / feedback
+    const analise = el("textarea", { name: "analise", rows: "5", placeholder: "Pontos fortes, pontos a desenvolver e o que levou à decisão." });
+    analise.value = e.motivo || "";
+    analise.id = "avalAnalise";
+    const rotuloAnalise = el("label", { class: "aval-rotulo", for: "avalAnalise" });
+    const dicaAnalise = el("small", { class: "suave" });
+    const blocoAnalise = el("div", { class: "aval-bloco" }, rotuloAnalise, analise, dicaAnalise);
+
+    // Prévia do e-mail de recusa
+    const previaTexto = el("p", { class: "pre" });
+    const previa = el("div", { class: "previa-email" },
+      el("div", { class: "previa-cab" }, "O candidato vai receber este e-mail", el("span", null, c.email)),
+      el("p", null, "Olá, " + String(c.nome).split(" ")[0] + "."),
+      el("p", null, "Agradecemos sua participação no processo seletivo para " + vaga.titulo + ". Neste momento, sua candidatura não seguirá para as próximas etapas."),
+      el("p", null, el("b", null, "Retorno sobre a etapa " + e.nome + ":")), previaTexto,
+      el("p", null, "Desejamos sucesso e esperamos ver você em outras oportunidades da Innomaker."));
+
+    // Aviso de aprovação (opcional)
+    const avisar = el("input", { type: "checkbox", checked: !e.notificado_em });
+    const caixaAvisar = el("label", { class: "check" }, avisar,
+      el("span", null, "Avisar o candidato por e-mail que ele foi aprovado nesta etapa",
+        e.notificado_em ? el("span", { class: "mini" }, " (um e-mail já foi enviado em " + fmtData(e.notificado_em, true) + ")") : null));
+
+    // Datas e responsável (Triagem não tem data prevista)
+    const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const dataRealizada = entrada("data_realizada", e.data_realizada || hoje, { type: "date" });
+    const dataPrevista = triagem ? null : entrada("data_prevista", e.data_prevista, { type: "date" });
+    const responsavel = entrada("responsavel", e.responsavel || U.nome);
+    const detalhes = el("div", { class: "campos" },
+      dataPrevista ? campo("Data agendada (entrevista / teste)", dataPrevista) : null,
+      campo(triagem ? "Data da análise do currículo" : "Data em que a etapa foi feita", dataRealizada),
+      campo("Avaliado por", responsavel));
+    const obs = el("textarea", { name: "obs", rows: "2", placeholder: "Só o RH vê. Não vai para o candidato." });
+    obs.value = e.obs || "";
+    const blocoObs = el("details", { class: "mais", open: !!e.obs }, el("summary", null, "Observação interna (opcional)"), obs);
+
+    function pintar() {
+      botoesEstrela.forEach((b, i) => { b.classList.toggle("cheia", i < nota); b.setAttribute("aria-checked", String(i + 1 === nota)); });
+      legenda.textContent = nota ? NOTAS[nota] : "Clique nas estrelas";
+      btAprovar.setAttribute("aria-pressed", String(decisao === "Aprovado"));
+      btRecusar.setAttribute("aria-pressed", String(decisao === "Reprovado"));
+      const recusa = decisao === "Reprovado";
+      rotuloAnalise.textContent = recusa ? "Feedback para o candidato *" : "Análise da etapa *";
+      dicaAnalise.textContent = recusa
+        ? (jaRecusou ? "O feedback já foi enviado em " + fmtData(e.notificado_em, true) + ". Salvar de novo atualiza o registro, mas não reenvia o e-mail." : "Este texto vai no e-mail ao candidato. Seja respeitoso e objetivo.")
+        : "Registro interno do processo seletivo.";
+      previa.hidden = !recusa || !!jaRecusou;
+      previaTexto.textContent = analise.value.trim() || "(escreva o feedback acima)";
+      caixaAvisar.hidden = decisao !== "Aprovado";
+      const ok = $("dlgOk");
+      if (ok && !ok.disabled) {
+        ok.textContent = recusa && !jaRecusou ? "Recusar e enviar feedback" : "Salvar avaliação";
+        ok.className = recusa ? "bt-perigo" : "bt";
+      }
+    }
+    analise.addEventListener("input", pintar);
+
+    const corpo = el("div", { class: "avaliacao" },
+      el("p", { class: "suave pequeno", style: "margin:0" }, "Etapa " + e.ordem + " de " + c.etapas.length + " · " + vaga.titulo),
+      blocoNota, blocoDecisao, blocoAnalise, previa, caixaAvisar, detalhes, blocoObs);
+
+    const p = dialogo({
+      titulo: e.nome + " — " + c.nome, corpo, okTexto: "Salvar avaliação", largo: true,
       aoConfirmar: async () => {
-        const d = lerForm(f);
-        if (d.resultado === "Reprovado" && d.motivo.trim().length < 5) return "Para reprovar, escreva o motivo (feedback obrigatório).";
-        const r = await api("etapa_atualizar", Object.assign(d, { etapa_id: e.id }));
+        if (!nota) return "Dê a nota da etapa (1 a 3 estrelas).";
+        if (!decisao) return "Escolha Aprovado ou Recusado.";
+        if (analise.value.trim().length < 5) return decisao === "Reprovado" ? "Escreva o feedback para o candidato." : "Escreva a análise da etapa.";
+        const r = await api("etapa_atualizar", {
+          etapa_id: e.id, resultado: decisao, nota, analise: analise.value, obs: obs.value, responsavel: responsavel.value,
+          data_realizada: dataRealizada.value, data_prevista: dataPrevista ? dataPrevista.value : "", avisar_candidato: avisar.checked
+        });
         if (!r.ok) return r.erro;
-        toast("Etapa registrada" + (d.enviar_email && d.resultado !== "Pendente" ? " e e-mail enviado." : "."));
+        toast(decisao === "Reprovado"
+          ? (r.emailEnviado ? "Candidato recusado. O feedback foi enviado por e-mail." : "Avaliação salva.")
+          : "Etapa aprovada" + (r.emailEnviado ? " e candidato avisado por e-mail." : ".") + (r.status === "Aprovado" ? " Todas as etapas concluídas: envie a proposta." : ""));
         return true;
       }
-    }) && recarregar();
+    });
+    pintar();
+    if (await p) { reabrirCandidato = c.id; recarregar(); }
   }
 
   async function marcarDesistencia(c) {
