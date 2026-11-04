@@ -58,7 +58,7 @@ EMAIL_FROM = "Innomaker Recrutamento <vagas@innomaker.com.br>"
 EMAIL_REPLY_TO = "ainnomaker@gmail.com"
 
 # Troque quando mudar CSS/JS para forçar os navegadores a baixarem a versão nova
-VERSAO_ASSETS = "2026-11-04b"
+VERSAO_ASSETS = "2026-11-04c"
 
 # Segredos (não ficam no repositório) — Configurações → Variáveis e segredos, ou `npx wrangler secret put NOME`:
 #   SESSION_SECRET  — chave longa e aleatória para assinar a sessão dos candidatos

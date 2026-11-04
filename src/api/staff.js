@@ -723,6 +723,24 @@ async function logListar(env) {
   };
 }
 
+async function emailTeste(env, ctx, b, u) {
+  const para = texto(b.para || u.email, 200);
+  if (!emailValido(para)) throw new ErroApi("Informe um e-mail válido para o teste.");
+  if (!env.RESEND_API_KEY) return { ok: false, erro: "RESEND_API_KEY não está configurada no Worker. Os e-mails não estão saindo." };
+  const r = await enviarEmail(env, {
+    para,
+    assunto: "Teste de e-mail — sistema de vagas Innomaker",
+    html: layout({ titulo: "Os e-mails estão funcionando", paragrafos: [`Este é um teste enviado por ${u.nome} pelo painel.`, "Se você recebeu esta mensagem, candidatos, gestores e RH também vão receber os avisos do sistema."] }),
+    texto: "Teste de e-mail do sistema de vagas Innomaker. Os e-mails estão funcionando."
+  });
+  if (!r.ok) {
+    let erro = r.erro || r.status;
+    try { erro = JSON.parse(r.erro).message || erro; } catch (e) { /* texto puro */ }
+    return { ok: false, erro: "O Resend recusou o envio: " + erro };
+  }
+  return { ok: true, para };
+}
+
 const HANDLERS = {
   me, opcoes, vagas_abertas: vagasAbertas,
   solic_criar: solicCriar, solic_editar: solicEditar, solic_minhas: solicMinhas, solic_listar: solicListar, solic_decidir: solicDecidir,
@@ -731,7 +749,7 @@ const HANDLERS = {
   proposta_criar: propostaCriar, adm_listar: admListar, adm_detalhe: admDetalhe, adm_decidir: admDecidir, adm_reenviar: admReenviar,
   func_listar: funcListar, func_detalhe: funcDetalhe, func_atualizar: funcAtualizar, doc_gerar: docGerar, doc_cancelar: docCancelar,
   cfg_obter: cfgObter, cfg_salvar_geral: cfgSalvarGeral, dep_salvar: depSalvar, lista_salvar: listaSalvar, modelo_salvar: modeloSalvar,
-  log_listar: logListar
+  log_listar: logListar, email_teste: emailTeste
 };
 
 export { podeVerVaga };

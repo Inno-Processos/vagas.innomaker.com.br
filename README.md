@@ -43,34 +43,34 @@ docs/                  authelia.md e processos.md
 
 ## Colocar no ar (primeira vez)
 
-Pré-requisito: Node 20+ e `npx wrangler login` com a conta Cloudflare da Innomaker.
+Tudo é feito pelo assistente, que roda no seu computador e configura a conta Cloudflare:
 
-1. **Banco e arquivos**
-   ```bash
-   npm ci
-   npx wrangler d1 create vagas-db          # copie o database_id para o wrangler.toml
-   npx wrangler r2 bucket create vagas-arquivos
-   npm run db:remoto                        # cria as tabelas no D1
-   ```
-2. **Segredos do Worker** (*Workers & Pages → vagas → Configurações → Variáveis e segredos*, ou pelo terminal)
-   ```bash
-   npx wrangler secret put SESSION_SECRET   # cole uma chave longa e aleatória (ex.: openssl rand -hex 32)
-   npx wrangler secret put RESEND_API_KEY   # chave do Resend
-   ```
-3. **E-mail (Resend):** crie a conta em resend.com, adicione o domínio `innomaker.com.br` (os registros DNS entram no Cloudflare) e gere a chave da API.
-   Sem a chave, o sistema funciona, mas os e-mails ficam só registrados em *Painel → Histórico*.
-4. **Authelia:** siga [docs/authelia.md](docs/authelia.md) (cookie em `innomaker.com.br`, regra para `/painel`, grupos `rh`, `gerente`, `funcionario`).
-5. **Deploy automático:** em *Workers & Pages → vagas → Configurações → Builds*, conecte este repositório (branch `main`).
-   - Comando de build: `npm ci`
-   - Comando de deploy: `npm run deploy` (aplica migrações novas e publica)
-6. **Primeiro acesso do RH** em `/painel → Configurações`:
-   - Departamentos e gestores (substitui a aba EMAIL).
-   - Listas: cargos, funções, setores, situações, auxílios, horários e etapas (substitui a aba Informações).
-   - **Modelos de documento:** cole o texto oficial do ADM-TEMP-2026-001, 007 e 005 nos modelos (os atuais são provisórios).
-   - E-mail do RH, link da cartilha, link do onboarding e links do colaborador.
+```bash
+npm ci
+npm run configurar
+```
+
+Ele faz login no Cloudflare, cria o banco D1 e o R2, cria as tabelas, grava os segredos (`SESSION_SECRET` gerado
+automaticamente e `RESEND_API_KEY`, que você cola) e publica o sistema. Pode rodar de novo sem perder nada.
+Depois, salve no GitHub o `wrangler.toml` (ele passa a ter o ID do banco):
+
+```bash
+git add wrangler.toml && git commit -m "Configura banco D1" && git push
+```
+
+Antes de rodar:
+- **R2 ativado** na conta (painel do Cloudflare → R2 → Começar a usar; grátis até 10 GB, mas pede cartão).
+- **Chave do Resend** para os e-mails: crie a conta em resend.com, adicione o domínio `innomaker.com.br`
+  (os registros DNS entram no Cloudflare) e gere a chave em *API Keys*.
+
+Depois:
+- **Authelia:** siga [docs/authelia.md](docs/authelia.md).
+- **Deploy automático (opcional):** *Workers & Pages → vagas → Configurações → Builds* → conecte este repositório.
+  Comando de build `npm ci`, comando de deploy `npx wrangler deploy`. Migrações novas: `npm run db:remoto`.
+- **Primeiro acesso do RH** em `/painel → Configurações`: e-mail do RH e **Enviar e-mail de teste**, departamentos e
+  gestores, listas, **modelos de documento** (cole o texto oficial do ADM-TEMP-2026-001, 007 e 005) e links.
 
 > **Plano do Workers:** recomendamos o *Workers Paid* (US$ 5/mês). A proteção das senhas dos candidatos (PBKDF2) usa mais que os 10 ms de CPU do plano gratuito.
-> D1 e R2 cabem com folga nas cotas gratuitas.
 
 ## Desenvolvimento local
 

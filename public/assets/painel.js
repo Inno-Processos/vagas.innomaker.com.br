@@ -1127,7 +1127,14 @@
         campo("Link da Cartilha do Colaborador", entrada("link_cartilha", r.config.link_cartilha)),
         campo("Link de agendamento do onboarding", entrada("link_onboarding", r.config.link_onboarding), { dica: "Enviado ao candidato quando ele termina o cadastro." }),
         campo("Links úteis da área do colaborador", areaTexto("links", links, { placeholder: "Título | https://… | descrição (opcional)" }), { largo: true, dica: "Um por linha: Título | URL | descrição" })),
-        el("div", { class: "acoes", style: "margin-top:14px" }, el("button", { type: "submit", class: "bt" }, "Salvar")));
+        el("div", { class: "acoes", style: "margin-top:14px" }, el("button", { type: "submit", class: "bt" }, "Salvar"),
+          el("button", { type: "button", class: "bt-sec", onclick: async ev => {
+            const bt = ev.currentTarget;
+            bt.disabled = true; bt.textContent = "Enviando…";
+            const res = await api("email_teste", { para: U.email || geral.querySelector("[name=email_rh]").value });
+            bt.disabled = false; bt.textContent = "Enviar e-mail de teste";
+            res.ok ? toast("E-mail de teste enviado para " + res.para + ". Confira a caixa de entrada.") : toast(res.erro, true);
+          } }, "Enviar e-mail de teste")));
       geral.addEventListener("submit", async ev => {
         ev.preventDefault();
         const d = lerForm(geral);
