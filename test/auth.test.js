@@ -1,6 +1,6 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { lerSessao, lerCookie } from "../src/lib/auth.js";
+import { lerSessao, lerCookie } from "../backend/src/lib/auth.js";
 
 const env = { GRUPOS_RH: "rh", GRUPOS_GERENTE: "gerente", GRUPOS_FUNCIONARIO: "funcionario" };
 let n = 0;
@@ -33,7 +33,7 @@ test("200 com grupo rh → papel RH, repassando só o cookie do Authelia", async
   assert.equal(s.estado, "ok");
   assert.equal(s.usuario.papel, "rh");
   assert.equal(s.usuario.nome, "Maria Silva");
-  assert.match(ch[0].url, /auth\.innomaker\.com\.br\/api\/authz\/forward-auth$/);
+  assert.match(ch[0].url, /auth\.innomaker\.com\.br\/api\/authz\/auth-request$/);
   assert.equal(ch[0].opt.headers["Cookie"].indexOf("outro="), -1);
   assert.equal(ch[0].opt.headers["X-Forwarded-Host"], "vagas.innomaker.com.br");
 });

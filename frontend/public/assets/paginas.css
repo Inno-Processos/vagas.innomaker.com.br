@@ -1,0 +1,47 @@
+/* Páginas simples do frontend: documento (leitura/assinatura) e erro. Tema claro e escuro. */
+:root{color-scheme:light;--green:#41A639;--texto:#111;--suave:rgba(36,33,34,.66);--linha:rgba(0,0,0,.10);--fundo:#f4f4f2;--sup:#fff;--campo:#fff}
+[data-tema="escuro"]{color-scheme:dark;--texto:#ecefec;--suave:rgba(236,239,236,.66);--linha:rgba(255,255,255,.14);--fundo:#0b0d0c;--sup:#131715;--campo:#181d1a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--fundo);color:var(--texto);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+a{color:#2f7d29}
+[data-tema="escuro"] a{color:#7fd877}
+[hidden]{display:none!important}
+.botao{display:inline-flex;align-items:center;min-height:42px;padding:10px 20px;border-radius:999px;font:inherit;font-weight:800;font-size:14px;text-decoration:none;cursor:pointer;border:1px solid var(--linha);background:transparent;color:var(--texto)}
+.botao.prim{background:var(--green);border-color:var(--green);color:#fff}
+.tema-bt{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:999px;border:1px solid var(--linha);background:transparent;color:var(--texto);cursor:pointer}
+
+/* ---------- Erro ---------- */
+.erro-pagina{min-height:100vh;display:grid;place-items:center;padding:24px}
+.erro-caixa{max-width:560px;width:100%;background:var(--sup);border:1px solid var(--linha);border-radius:20px;padding:34px}
+.erro-caixa .codigo{font-size:13px;font-weight:800;color:var(--green);margin-bottom:10px}
+.erro-caixa h1{margin:0 0 10px;font-size:30px;letter-spacing:-.8px;line-height:1.1}
+.erro-caixa p{margin:0 0 22px;color:var(--suave);line-height:1.7;font-size:15px}
+.acoes{display:flex;gap:10px;flex-wrap:wrap}
+
+/* ---------- Documento ---------- */
+.barra{display:flex;gap:10px;justify-content:space-between;align-items:center;max-width:860px;margin:20px auto 0;padding:0 16px}
+.barra .dir{display:flex;gap:8px;align-items:center}
+.folha{max-width:860px;margin:14px auto 40px;background:#fff;color:#1b1b1b;border:1px solid rgba(0,0,0,.10);border-radius:6px;padding:56px 64px}
+.folha .topo{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid var(--green);padding-bottom:14px;margin-bottom:28px;font-weight:800;letter-spacing:3px}
+.folha .topo span{font-size:12px;letter-spacing:0;font-weight:600;color:rgba(36,33,34,.66)}
+.texto{font-family:Georgia,"Times New Roman",serif;font-size:15.5px;line-height:1.75;color:#1b1b1b}
+.texto h2{font-family:inherit;text-align:center;font-size:19px;margin:0 0 22px}
+.texto h3{font-size:16px;margin:22px 0 8px}
+.texto p{margin:0 0 14px;text-align:justify}
+.assinatura{margin-top:34px;padding:14px 16px;border:1px solid #cfe6cb;background:#eef7ec;border-radius:8px;font-size:13px;line-height:1.6;color:#1b1b1b}
+.assinatura.aviso{border-color:#f0cf8f;background:#fff6e5}
+code{font-size:11.5px;word-break:break-all}
+.assinar{max-width:860px;margin:0 auto 60px;background:var(--sup);border:2px solid var(--green);border-radius:16px;padding:24px 28px}
+.assinar h2{margin:0 0 6px;font-size:20px}
+.assinar p{margin:0 0 16px;color:var(--suave)}
+.assinar label{display:block;font-weight:700;font-size:14px;margin-bottom:12px}
+.assinar input:not([type=checkbox]){display:block;width:100%;margin-top:6px;padding:11px 12px;border:1px solid var(--linha);border-radius:10px;font:inherit;background:var(--campo);color:var(--texto)}
+.assinar .check{display:flex;gap:10px;align-items:flex-start;font-weight:600}
+.assinar .check input{width:18px;height:18px;margin-top:2px;accent-color:var(--green)}
+.assinar button[type=submit]{margin-top:8px;padding:13px 22px;border:0;border-radius:999px;background:var(--green);color:#fff;font:inherit;font-weight:800;cursor:pointer}
+.assinar button:disabled{opacity:.6;cursor:not-allowed}
+#msg{color:#b42318;font-weight:700;min-height:1.2em}
+[data-tema="escuro"] #msg{color:#ffb4ab}
+.carregando{max-width:860px;margin:60px auto;text-align:center;color:var(--suave)}
+@media(max-width:700px){.folha{padding:28px 20px}.assinar{margin:0 12px 40px}}
+@media print{body{background:#fff}.no-print,.barra{display:none!important}.folha{border:0;margin:0;padding:0;max-width:none}}

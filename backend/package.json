@@ -1,0 +1,20 @@
+{
+  "name": "vagas-backend",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Vagas.Innomaker — API HTTP com as regras de negócio, banco SQLite e arquivos em data/",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/index.js",
+    "dev": "node --watch --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/index.js",
+    "backup": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/cli.js backup",
+    "migrar": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/cli.js migrar"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.14"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

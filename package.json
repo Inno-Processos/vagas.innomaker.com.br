@@ -1,25 +1,19 @@
 {
   "name": "vagas-innomaker",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "type": "module",
-  "description": "Site de vagas, área do candidato e painel de RH da Innomaker (Node.js self-hosted, como o SAC: SQLite + arquivos em data/ + Authelia/LLDAP + Gmail)",
+  "description": "Vagas.Innomaker self-hosted em Node.js: backend (API) e frontend separados, como o SAC",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env --import ./servidor/registrar.js servidor/index.js",
-    "dev": "node --watch --disable-warning=ExperimentalWarning --env-file-if-exists=.env --import ./servidor/registrar.js servidor/index.js",
-    "backup": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env servidor/cli.js backup",
-    "migrar": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env servidor/cli.js migrar",
-    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\"",
-    "cf:dev": "wrangler dev --local-upstream localhost:8787",
-    "cf:check": "wrangler deploy --dry-run --outdir dist",
-    "cf:deploy": "wrangler deploy",
-    "cf:configurar": "node scripts/configurar.mjs"
-  },
-  "dependencies": {
-    "nodemailer": "^6.9.14"
-  },
-  "devDependencies": {
-    "wrangler": "4.151.2"
+    "start": "node scripts/iniciar.js",
+    "dev": "node scripts/iniciar.js --watch",
+    "start:backend": "npm --workspace backend start",
+    "start:frontend": "npm --workspace frontend start",
+    "backup": "npm --workspace backend run backup",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\""
   },
   "engines": {
     "node": ">=22.13"

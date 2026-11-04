@@ -1,10 +1,10 @@
 // Comandos de manutenção:  npm run backup
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { abrirBanco } from "./banco.js";
+import { abrirBanco } from "./infra/banco.js";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DADOS = path.resolve(process.env.DATA_DIR || path.join(RAIZ, "data"));
+const DADOS = path.resolve(process.env.DATA_DIR || path.join(RAIZ, "..", "data"));
 const comando = process.argv[2];
 
 if (comando === "backup") {

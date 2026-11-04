@@ -1,4 +1,4 @@
-// Arquivos no R2 (currículos e documentos de admissão).
+// Arquivos enviados (currículos e documentos de admissão), guardados em env.ARQUIVOS (pasta data/arquivos).
 import { ErroApi, agora } from "./http.js";
 import { executar, um } from "./db.js";
 

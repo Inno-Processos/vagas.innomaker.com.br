@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { preencherModelo, validarModelo, textoParaHtml, valoresDoFuncionario, camposUsados } from "../src/lib/documentos.js";
-import { estadoDasEtapas } from "../src/lib/etapas.js";
-import { hashSenha, novoSalt, gerarSenha } from "../src/lib/senha.js";
-import { cpfValido } from "../src/api/candidato.js";
+import { preencherModelo, validarModelo, textoParaHtml, valoresDoFuncionario, camposUsados } from "../backend/src/lib/documentos.js";
+import { estadoDasEtapas } from "../backend/src/lib/etapas.js";
+import { hashSenha, novoSalt, gerarSenha } from "../backend/src/lib/senha.js";
+import { cpfValido } from "../backend/src/api/candidato.js";
 
 test("modelo: campo vazio cancela com mensagem do processo (item 5.2)", () => {
   const m = { nome: "Termo de Compromisso", conteudo: "Eu, {{NOME}}, CPF {{CPF}}." };

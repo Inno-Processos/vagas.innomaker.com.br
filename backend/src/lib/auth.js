@@ -1,7 +1,7 @@
 // Login dos funcionários pelo Authelia (auth.innomaker.com.br).
 //
 // O Authelia guarda a sessão no cookie "authelia_session", válido para *.innomaker.com.br.
-// O Worker repassa esse cookie ao endpoint de autorização do Authelia (forward-auth),
+// O backend repassa esse cookie ao endpoint de autorização do Authelia (forward-auth),
 // que responde 200 + Remote-User / Remote-Groups / Remote-Name / Remote-Email quando a
 // sessão é válida, 401/302 quando não há login e 403 quando as regras negam acesso.
 import { cfg } from "./config.js";
@@ -40,7 +40,7 @@ export async function lerSessao(request, env) {
   const c = cfg(env);
   const url = new URL(request.url);
 
-  // Só para testes locais (wrangler dev em localhost)
+  // Só para testes locais (servidor em localhost)
   if (c.usuarioFalso && (url.hostname === "localhost" || url.hostname === "127.0.0.1")) {
     try {
       const f = JSON.parse(c.usuarioFalso);

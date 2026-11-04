@@ -6,11 +6,11 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { abrirBanco } from "../servidor/banco.js";
-import { criarArmazenamento } from "../servidor/arquivos.js";
+import { abrirBanco } from "../backend/src/infra/banco.js";
+import { criarArmazenamento } from "../backend/src/infra/arquivos.js";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MIGRACOES = path.join(RAIZ, "migrations");
+const MIGRACOES = path.join(RAIZ, "backend", "migrations");
 const temporarios = [];
 const pastaTemp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), "vagas-teste-")); temporarios.push(d); return d; };
 const bancos = [];
@@ -62,32 +62,64 @@ test("arquivos: grava, lê, apaga e bloqueia caminhos fora da pasta", async () =
   await assert.rejects(a.put("../fora.txt", "x"));
 });
 
-test("servidor: site, painel, API, arquivos estáticos e saúde", { timeout: 30000 }, async () => {
-  const dir = pastaTemp();
-  const filho = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", "--import", "./servidor/registrar.js", "servidor/index.js"], {
-    cwd: RAIZ,
-    env: Object.assign({}, process.env, {
-      PORT: "0", DATA_DIR: dir, SESSION_SECRET: "teste-" + "x".repeat(40), SMTP_USER: "", SMTP_PASS: "",
-      DEV_USUARIO_FALSO: JSON.stringify({ login: "teste", nome: "Pessoa Teste", email: "teste@innomaker.com.br", grupos: ["rh"] })
-    })
-  });
+// Sobe um processo e espera ele dizer em que porta está ("localhost:NNNN")
+function subir(pasta, args, env) {
+  const filho = spawn(process.execPath, args, { cwd: path.join(RAIZ, pasta), env: Object.assign({}, process.env, env) });
   let saida = "";
-  const porta = await new Promise((ok, falha) => {
-    const t = setTimeout(() => falha(new Error("servidor não subiu:\n" + saida)), 20000);
+  const porta = new Promise((ok, falha) => {
+    const t = setTimeout(() => falha(new Error(pasta + " não subiu:\n" + saida)), 20000);
     filho.stdout.on("data", d => { saida += d; const m = /localhost:(\d+)/.exec(saida); if (m) { clearTimeout(t); ok(Number(m[1])); } });
     filho.stderr.on("data", d => { saida += d; });
-    filho.on("exit", c => { clearTimeout(t); falha(new Error("servidor saiu (" + c + "):\n" + saida)); });
+    filho.on("exit", c => { clearTimeout(t); falha(new Error(pasta + " saiu (" + c + "):\n" + saida)); });
   });
+  return { filho, porta };
+}
+
+test("backend e frontend separados: telas, repasse da API, arquivos estáticos e saúde", { timeout: 40000 }, async () => {
+  const dir = pastaTemp();
+  const back = subir("backend", ["--disable-warning=ExperimentalWarning", "src/index.js"], {
+    API_PORT: "0", DATA_DIR: dir, SESSION_SECRET: "teste-" + "x".repeat(40), SMTP_USER: "", SMTP_PASS: "",
+    DEV_USUARIO_FALSO: JSON.stringify({ login: "teste", nome: "Pessoa Teste", email: "teste@innomaker.com.br", grupos: ["RH"] })
+  });
+  const portaApi = await back.porta;
+  const front = subir("frontend", ["server.js"], { WEB_PORT: "0", API_URL: `http://127.0.0.1:${portaApi}` });
+  const porta = await front.porta;
   const base = `http://localhost:${porta}`;
   try {
+    // o backend não entrega telas: só API
+    const telaNoBackend = await fetch(`http://127.0.0.1:${portaApi}/`);
+    assert.equal(telaNoBackend.status, 404);
+    assert.match(telaNoBackend.headers.get("content-type"), /json/);
+    assert.deepEqual(await (await fetch(`http://127.0.0.1:${portaApi}/saude`)).json(), { ok: true });
+
     assert.deepEqual(await (await fetch(base + "/saude")).json(), { ok: true });
 
     const site = await fetch(base + "/");
     assert.equal(site.status, 200);
-    assert.match(await site.text(), /<title>Vagas\.Innomaker<\/title>/);
+    const htmlSite = await site.text();
+    assert.match(htmlSite, /<title>Vagas\.Innomaker<\/title>/);
+    assert.ok(!/__VERSAO__|__BOOT__/.test(htmlSite), "marcadores trocados");
+
+    const inicio = await (await fetch(base + "/api/site/inicio")).json();
+    assert.equal(inicio.ok, true);
+    assert.ok(Array.isArray(inicio.vagas));
 
     const vagas = await (await fetch(base + "/api/vagas")).json();
     assert.equal(vagas.ok, true);
+
+    const sessao = await (await fetch(base + "/api/painel/sessao")).json();
+    assert.equal(sessao.ok, true, JSON.stringify(sessao));
+    assert.equal(sessao.usuario.papel, "rh");
+    assert.ok(sessao.acoes.includes("solic_decidir"), "RH pode aprovar");
+
+    const doc = await fetch(base + "/documento/nao-existe");
+    assert.equal(doc.status, 200);
+    assert.match(doc.headers.get("x-frame-options") || "", /DENY/);
+    assert.equal((await fetch(base + "/api/documento/nao-existe")).status, 404);
+
+    const arq = await fetch(base + "/arquivo/nao-existe", { redirect: "manual" });
+    assert.equal(arq.status, 302);
+    assert.equal(arq.headers.get("location"), "/erro?c=404");
 
     const css = await fetch(base + "/assets/site.css");
     assert.equal(css.status, 200);
@@ -111,7 +143,15 @@ test("servidor: site, painel, API, arquivos estáticos e saúde", { timeout: 300
       method: "POST", headers: { "content-type": "application/json", origin: "https://malicioso.example" }, body: "{}"
     });
     assert.equal(outraOrigem.status, 403);
+
+    // backend fora do ar: o frontend responde 503 "reiniciando" (as telas tentam de novo sozinhas)
+    back.filho.kill();
+    await new Promise(r => back.filho.once("exit", r));
+    const fora = await fetch(base + "/api/vagas");
+    assert.equal(fora.status, 503);
+    assert.equal((await fora.json()).reiniciando, true);
   } finally {
-    filho.kill();
+    back.filho.kill();
+    front.filho.kill();
   }
 });

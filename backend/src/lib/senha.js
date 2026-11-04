@@ -46,7 +46,7 @@ const b64url = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").re
 const deB64url = s => decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))));
 
 function segredo(env) {
-  if (!env.SESSION_SECRET) throw new Error("SESSION_SECRET não configurado no Worker.");
+  if (!env.SESSION_SECRET) throw new Error("SESSION_SECRET não configurado no backend/.env.");
   return env.SESSION_SECRET;
 }
 

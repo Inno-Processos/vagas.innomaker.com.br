@@ -1,5 +1,5 @@
-// Arquivos (currículos e documentos) na pasta data/arquivos, com a mesma interface do Cloudflare R2
-// que o código em src/ usa: env.ARQUIVOS.put / get / delete / head.
+// Arquivos (currículos e documentos) na pasta data/arquivos.
+// Interface usada pelo código: env.ARQUIVOS.put / get / delete / head.
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";

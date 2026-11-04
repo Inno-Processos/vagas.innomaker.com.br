@@ -1,0 +1,14 @@
+{
+  "name": "vagas-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Vagas.Innomaker — telas (site, painel, documento) e repasse de /api ao backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --watch --env-file-if-exists=.env server.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

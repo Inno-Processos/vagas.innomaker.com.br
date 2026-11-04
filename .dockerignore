@@ -1,9 +1,0 @@
-node_modules
-data
-dist
-.wrangler
-.git
-.env
-.dev.vars
-test
-docs

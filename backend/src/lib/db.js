@@ -1,4 +1,4 @@
-// Acesso ao D1.
+// Acesso ao banco (env.DB: SQLite em data/vagas.db, ver infra/banco.js).
 import { agora, parseJson } from "./http.js";
 
 export const um = (env, sql, ...p) => env.DB.prepare(sql).bind(...p).first();

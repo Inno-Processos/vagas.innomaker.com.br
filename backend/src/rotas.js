@@ -1,90 +1,96 @@
 // =====================================================================
-//  Cloudflare Worker — vagas.innomaker.com.br
-//  Tudo roda aqui: site, área do candidato, painel interno, banco (D1),
-//  arquivos (R2) e e-mails. Sem Google Apps Script e sem Google Forms.
+//  Rotas do BACKEND — vagas.innomaker.com.br
+//  Só API (JSON), download de arquivos e login/logout. Nenhuma página HTML:
+//  as telas ficam no frontend, que repassa estas rotas para cá.
 //
-//  /                       site público de vagas
-//  /painel                 painel interno (login Authelia: funcionário, gerente, RH; sem grupo → 403)
-//  /documento/<id>         leitura e assinatura de documentos
-//  /arquivo/<id>           download de currículos e documentos (com permissão)
-//  /api/vagas              vagas abertas (JSON)
-//  /api/candidato/<acao>   inscrição e área do candidato
-//  /api/staff/<acao>       painel interno
-//  /entrar, /sair          login e logout no Authelia
+//  GET  /api/site/inicio         dados do site público (vagas, candidato logado, se há sessão de funcionário)
+//  GET  /api/vagas               vagas abertas
+//  POST /api/candidato/<acao>    inscrição e área do candidato
+//  GET  /api/painel/sessao       quem está logado no painel (401 sem login, 403 sem grupo)
+//  POST /api/staff/<acao>        ações do painel interno
+//  GET  /api/documento/<id>      documento para leitura e assinatura (candidato dono ou RH)
+//  GET  /arquivo/<id>            currículos e documentos enviados (com permissão)
+//  GET  /entrar, /sair           login e logout no Authelia
 // =====================================================================
 import { cfg, urlsLogin } from "./lib/config.js";
 import { lerSessao, esquecerSessao } from "./lib/auth.js";
-import { ACOES, podeExecutar } from "./lib/papeis.js";
+import { ACOES, podeExecutar, acoesDoPapel } from "./lib/papeis.js";
 import { json, redirecionar, mesmaOrigem, lerJson, lerCookie } from "./lib/http.js";
 import { um, lerConfig } from "./lib/db.js";
 import { candidatoDaSessao, COOKIE_CANDIDATO } from "./lib/senha.js";
 import { respostaArquivo } from "./lib/arquivos.js";
-import { paginaSite, paginaPainel, pagina403, paginaErro, paginaDocumento } from "./lib/paginas.js";
+import { textoParaHtml } from "./lib/documentos.js";
 import { apiCandidato, vagasPublicas } from "./api/candidato.js";
 import { apiStaff, podeVerVaga } from "./api/staff.js";
-import { rotinaDiaria } from "./cron.js";
 
 const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
 
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const p = url.pathname.replace(/\/+$/, "") || "/";
+export async function rotear(request, env, ctx) {
+  const url = new URL(request.url);
+  const p = url.pathname.replace(/\/+$/, "") || "/";
+  try {
+    if (p === "/api/vagas") return json({ ok: true, vagas: await vagasPublicas(env) });
+    if (p === "/api/site/inicio") return siteInicio(request, env);
+    if (p === "/api/painel/sessao") return painelSessao(request, env);
+    if (p.startsWith("/api/documento/")) return documento(request, env, p.slice("/api/documento/".length));
 
-    try {
-      if (p === "/api/vagas") return json({ ok: true, vagas: await vagasPublicas(env) });
-
-      if (p.startsWith("/api/candidato/")) {
-        if (request.method !== "POST") return json({ ok: false, erro: "Use POST." }, 405);
-        if (!mesmaOrigem(request, url)) return json({ ok: false, erro: "Origem não permitida." }, 403);
-        if (Number(request.headers.get("content-length") || 0) > MAX_UPLOAD_BYTES) {
-          return json({ ok: false, erro: "Os arquivos passam do limite total de 60 MB." }, 413);
-        }
-        return apiCandidato(request, env, ctx, p.slice("/api/candidato/".length));
+    if (p.startsWith("/api/candidato/")) {
+      if (request.method !== "POST") return json({ ok: false, erro: "Use POST." }, 405);
+      if (!mesmaOrigem(request, url)) return json({ ok: false, erro: "Origem não permitida." }, 403);
+      if (Number(request.headers.get("content-length") || 0) > MAX_UPLOAD_BYTES) {
+        return json({ ok: false, erro: "Os arquivos passam do limite total de 60 MB." }, 413);
       }
-
-      if (p.startsWith("/api/staff/")) return staff(request, env, ctx, url, p.slice("/api/staff/".length));
-
-      if (p === "/painel") {
-        const s = await lerSessao(request, env);
-        if (s.estado === "anonimo") return redirecionar(urlsLogin(cfg(env)).loginUrl);
-        if (s.estado === "erro") return paginaErro(502, s.erro);
-        if (s.estado !== "ok") return pagina403(env, s.usuario);
-        return paginaPainel(env, s.usuario, await lerConfig(env));
-      }
-
-      if (p.startsWith("/documento/")) return documento(request, env, p.slice("/documento/".length));
-      if (p.startsWith("/arquivo/")) return arquivo(request, env, p.slice("/arquivo/".length));
-
-      if (p === "/entrar") return redirecionar(urlsLogin(cfg(env)).loginUrl);
-      if (p === "/sair") {
-        await esquecerSessao(request, env);
-        return redirecionar(urlsLogin(cfg(env)).logoutUrl);
-      }
-      if (p === "/favicon.ico") return new Response(null, { status: 204 });
-      if (p !== "/") return redirecionar(url.origin + "/" + url.search);
-
-      // ---------- Site público ----------
-      const cand = lerCookie(request.headers.get("cookie"), COOKIE_CANDIDATO) ? await candidatoDaSessao(env, request) : null;
-      return paginaSite(env, {
-        page: String(url.searchParams.get("page") || "home").toLowerCase(),
-        params: { vaga_id: url.searchParams.get("vaga_id") || "" },
-        vagas: await vagasPublicas(env),
-        candidato: cand ? { nome: cand.nome, email: cand.email, telefone: cand.telefone } : null,
-        staff: { temSessao: !!lerCookie(request.headers.get("cookie"), cfg(env).autheliaCookie) }
-      });
-    } catch (e) {
-      console.log("erro", p, e && e.stack);
-      // Nas rotas de API a tela espera JSON: devolve a mensagem em JSON, não uma página HTML
-      if (p.startsWith("/api/")) return json({ ok: false, erro: "Erro interno no servidor. Tente novamente em instantes." }, 500);
-      return paginaErro(500, "Erro interno. Tente novamente em instantes.");
+      return apiCandidato(request, env, ctx, p.slice("/api/candidato/".length));
     }
-  },
 
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(rotinaDiaria(env));
+    if (p.startsWith("/api/staff/")) return staff(request, env, ctx, url, p.slice("/api/staff/".length));
+
+    if (p.startsWith("/arquivo/")) return arquivo(request, env, p.slice("/arquivo/".length));
+
+    if (p === "/entrar") return redirecionar(urlsLogin(cfg(env)).loginUrl);
+    if (p === "/sair") {
+      await esquecerSessao(request, env);
+      return redirecionar(urlsLogin(cfg(env)).logoutUrl);
+    }
+
+    return json({ ok: false, erro: "Rota inexistente." }, 404);
+  } catch (e) {
+    console.log("erro", p, e && e.stack);
+    return json({ ok: false, erro: "Erro interno no servidor. Tente novamente em instantes." }, 500);
   }
-};
+}
+
+// Site público: vagas, candidato logado (para preencher a inscrição) e se há cookie do Authelia (botão "Painel")
+async function siteInicio(request, env) {
+  const cookies = request.headers.get("cookie");
+  const cand = lerCookie(cookies, COOKIE_CANDIDATO) ? await candidatoDaSessao(env, request) : null;
+  let vagas = [], erro = "";
+  try { vagas = await vagasPublicas(env); } catch (e) { erro = "Não foi possível carregar as vagas agora."; console.log("vagas", e && e.stack); }
+  return json({
+    ok: true, vagas, erro,
+    candidato: cand ? { nome: cand.nome, email: cand.email, telefone: cand.telefone } : null,
+    staff: { temSessao: !!lerCookie(cookies, cfg(env).autheliaCookie) }
+  });
+}
+
+// Painel: quem está logado. O frontend manda para o login (401) ou mostra a página 403.
+async function painelSessao(request, env) {
+  const c = cfg(env);
+  const login = urlsLogin(c);
+  const s = await lerSessao(request, env);
+  if (s.estado === "anonimo") return json({ ok: false, sessaoExpirada: true, loginUrl: login.loginUrl }, 401);
+  if (s.estado === "erro") return json({ ok: false, erro: s.erro }, 502);
+  if (s.estado !== "ok") return json({ ok: false, semPermissao: true, login: s.usuario && s.usuario.login || "", sairUrl: "/sair" }, 403);
+  const config = await lerConfig(env);
+  return json({
+    ok: true,
+    usuario: s.usuario,
+    acoes: acoesDoPapel(s.usuario.papel),
+    links: config.links_colaborador || [],
+    siteUrl: c.siteUrl,
+    loginUrl: login.loginUrl
+  });
+}
 
 async function staff(request, env, ctx, url, acao) {
   if (request.method !== "POST") return json({ ok: false, erro: "Use POST." }, 405);
@@ -101,27 +107,35 @@ async function staff(request, env, ctx, url, acao) {
   return apiStaff(env, ctx, acao, await lerJson(request), s.usuario);
 }
 
-// Quem pode ver: o próprio candidato ou o RH
+// Documento: o próprio candidato (pode assinar) ou o RH (só leitura)
 async function documento(request, env, id) {
   const doc = await um(env, "SELECT * FROM documentos WHERE id = ?", decodeURIComponent(id));
-  if (!doc) return paginaErro(404, "Documento não encontrado.");
+  if (!doc) return json({ ok: false, erro: "Documento não encontrado." }, 404);
+
+  const dados = (podeAssinar, voltar) => json({
+    ok: true, podeAssinar, voltar,
+    documento: {
+      id: doc.id, titulo: doc.titulo, status: doc.status, hash: doc.hash,
+      conteudo_html: textoParaHtml(doc.conteudo), // texto escapado pelo backend
+      assinado_nome: doc.assinado_nome || "", assinado_em: doc.assinado_em || "", assinado_ip: doc.assinado_ip || "",
+      assinado_cpf: String(doc.assinado_cpf || "").replace(/^(\d{3})\d{6}(\d{2})$/, "$1.***.***-$2")
+    }
+  });
 
   const cand = await candidatoDaSessao(env, request);
-  if (cand && cand.id === doc.candidato_id) {
-    return paginaDocumento(doc, { podeAssinar: true, voltar: "/?page=acompanhar" });
-  }
+  if (cand && cand.id === doc.candidato_id) return dados(true, "/?page=acompanhar");
   const s = await lerSessao(request, env);
-  if (s.estado === "ok" && s.usuario.papel === "rh") {
-    return paginaDocumento(doc, { podeAssinar: false, voltar: "/painel#funcionario/" + (doc.funcionario_matricula || "") });
-  }
-  if (s.estado === "anonimo" && !cand) return redirecionar("/?page=acompanhar");
-  return paginaErro(403, "Você não tem acesso a este documento.");
+  if (s.estado === "ok" && s.usuario.papel === "rh") return dados(false, "/painel#funcionario/" + (doc.funcionario_matricula || ""));
+  if (s.estado === "anonimo" && !cand) return json({ ok: false, entrar: "/?page=acompanhar", erro: "Entre na Área do candidato para ver o documento." }, 401);
+  return json({ ok: false, erro: "Você não tem acesso a este documento." }, 403);
 }
 
-// Currículos e documentos: dono (candidato), RH, ou gerente da vaga (só currículos)
+// Currículos e documentos: dono (candidato), RH, ou gerente da vaga (só currículos).
+// É aberto direto pelo navegador: em caso de erro, manda para a página de erro do frontend.
 async function arquivo(request, env, id) {
+  const erro = codigo => redirecionar("/erro?c=" + codigo);
   const a = await um(env, "SELECT * FROM arquivos WHERE id = ?", decodeURIComponent(id));
-  if (!a) return paginaErro(404, "Arquivo não encontrado.");
+  if (!a) return erro(404);
 
   const cand = await candidatoDaSessao(env, request);
   if (cand && cand.id === a.candidato_id) return respostaArquivo(env, a);
@@ -134,5 +148,5 @@ async function arquivo(request, env, id) {
       if (ca && await podeVerVaga(env, s.usuario, ca)) return respostaArquivo(env, a);
     }
   }
-  return paginaErro(403, "Você não tem acesso a este arquivo.");
+  return erro(403);
 }

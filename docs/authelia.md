@@ -46,17 +46,17 @@ sem ele, os candidatos cairiam na tela de login da Innomaker. Não é preciso ca
 
 | Grupo no LLDAP | Papel no sistema de vagas |
 |---|---|
-| `rh` ou `vagas_rh` | RH |
-| `gerente`, `gestores` ou `vagas_gerente` | Gerente |
-| `funcionario`, `colaboradores` ou `vagas_funcionario` | Funcionário |
+| `RH` (ou `vagas_rh`) | RH: aprova solicitações e gerencia tudo |
+| `Gerente` (ou `gestores`, `vagas_gerente`) | Gerente: solicita vagas |
+| `funcionarios` (ou `colaboradores`, `vagas_funcionario`) | Funcionário: vê vagas abertas |
 
 Quem está em mais de um fica com o papel mais alto (RH > Gerente > Funcionário). Quem não está em nenhum vê a página **403**.
-Os nomes aceitos ficam em `GRUPOS_RH`, `GRUPOS_GERENTE` e `GRUPOS_FUNCIONARIO` no `.env` (separados por vírgula).
+Os nomes aceitos ficam em `GRUPOS_RH`, `GRUPOS_GERENTE` e `GRUPOS_FUNCIONARIO` no `backend/.env` (separados por vírgula). Maiúsculas não importam: o grupo `RH` do LLDAP vale como `rh`.
 
 **O e-mail do usuário no LLDAP é obrigatório para gerentes**: é por ele que o gestor recebe a decisão do RH e
 vê "Minhas solicitações".
 
-## 4. `.env`
+## 4. `backend/.env`
 
 ```
 AUTHELIA_URL=https://auth.innomaker.com.br

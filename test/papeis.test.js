@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { papelDosGrupos, podeExecutar, acoesDoPapel } from "../src/lib/papeis.js";
+import { papelDosGrupos, podeExecutar, acoesDoPapel } from "../backend/src/lib/papeis.js";
 
 const mapa = { rh: ["rh"], gerente: ["gerente", "gestor"], funcionario: ["funcionario"] };
 

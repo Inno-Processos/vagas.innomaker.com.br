@@ -1,19 +1,29 @@
 services:
-  # Site de vagas, área do candidato e painel interno. O Traefik publica em vagas.innomaker.com.br.
-  vagas:
-    build: .
-    container_name: vagas
+  # API e regras de negócio. Não fica exposto: só o frontend fala com ele, pela rede interna.
+  backend:
+    build: ./backend
+    container_name: vagas-backend
     restart: unless-stopped
-    env_file: ./.env
+    env_file: ./backend/.env
     environment:
       DATA_DIR: /data
-      PORT: 3000
+      API_PORT: 3001
     volumes: ["./data:/data"]
     # Mesmo DNS do SAC: resolve auth.innomaker.com.br pela rede interna
     dns:
       - 192.168.0.201
       - 1.1.1.1
+
+  # Telas (site, painel, documento). É o que o Traefik publica em vagas.innomaker.com.br.
+  frontend:
+    build: ./frontend
+    container_name: vagas
+    restart: unless-stopped
+    environment:
+      API_URL: http://backend:3001
+    depends_on: [backend]
     networks:
+      - default
       - proxy
     labels:
       traefik.enable: 'true'

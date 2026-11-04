@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>Vagas.Innomaker</title>
+<script>(function(){var t;try{t=localStorage.getItem("tema")}catch(e){}if(t!=="claro"&&t!=="escuro")t=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"escuro":"claro";document.documentElement.dataset.tema=t})();</script>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%2341A639%22/></svg>">
+<link rel="stylesheet" href="/assets/paginas.css?v=__VERSAO__">
+</head>
+<body>
+<main class="erro-pagina">
+  <div class="erro-caixa">
+    <div class="codigo" id="codigo">Erro</div>
+    <h1 id="titulo">Algo deu errado</h1>
+    <p id="texto">Tente novamente em instantes.</p>
+    <div class="acoes"><a class="botao prim" href="/">Voltar ao site de vagas</a></div>
+  </div>
+</main>
+<script>
+  (function () {
+    var c = new URLSearchParams(location.search).get("c") || "";
+    var t = {
+      "403": ["Sem acesso", "Você não tem permissão para abrir este arquivo. Entre com a conta certa (Área do candidato ou painel) e tente de novo."],
+      "404": ["Não encontrado", "O endereço que você abriu não existe ou foi removido."]
+    }[c];
+    if (!t) return;
+    document.getElementById("codigo").textContent = "Erro " + c;
+    document.getElementById("titulo").textContent = t[0];
+    document.getElementById("texto").textContent = t[1];
+    document.title = t[0] + " — Vagas.Innomaker";
+  })();
+</script>
+</body>
+</html>

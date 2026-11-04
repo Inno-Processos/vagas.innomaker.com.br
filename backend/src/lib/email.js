@@ -1,13 +1,12 @@
-// Envio de e-mails pelo Gmail (rh.innomaker@gmail.com) via SMTP com senha de app — mesmas variáveis do SAC:
-// SMTP_USER, SMTP_PASS, SMTP_FROM (e SMTP_HOST/PORT/SECURE no servidor).
-// No servidor Node, env.CORREIO (nodemailer) faz o envio; no Cloudflare, o cliente SMTP de smtp.js.
+// Envio de e-mails pelo Gmail via SMTP com senha de app — mesmas variáveis do SAC:
+// SMTP_USER, SMTP_PASS, SMTP_FROM, SMTP_HOST/PORT/SECURE (backend/.env).
+// env.CORREIO (nodemailer, criado em infra/correio.js) faz o envio.
 // Sem usuário/senha, o e-mail é só registrado na tabela "emails" com status SEM_PROVEDOR.
 import { agora, esc } from "./http.js";
 import { executar } from "./db.js";
-import { enviarSmtp } from "./smtp.js";
 
 export function smtpConfigurado(env) {
-  return !!(env.SMTP_USER && env.SMTP_PASS);
+  return !!(env.CORREIO && env.SMTP_USER && env.SMTP_PASS);
 }
 
 export async function enviarEmail(env, msg) {
@@ -31,8 +30,7 @@ export async function enviarEmail(env, msg) {
         texto: msg.texto,
         anexos: msg.anexos
       };
-      if (env.CORREIO) await env.CORREIO.enviar(envio);
-      else await enviarSmtp(envio);
+      await env.CORREIO.enviar(envio);
       status = "ENVIADO";
     } catch (e) {
       status = "FALHOU";

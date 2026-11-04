@@ -271,3 +271,8 @@ dialog::backdrop{background:rgba(6,8,7,.55);backdrop-filter:blur(2px)}
 .manual-dicas{margin:12px 0 0;padding:10px 14px 10px 30px;border-radius:10px;background:var(--sup2);color:var(--suave);font-size:13.5px}
 .boas-vindas + .manual{margin-top:0}
 @media(max-width:640px){.manual-corpo{padding:0 14px 14px 18px}}
+
+/* ---------- Aviso de página inteira (sem acesso / sistema fora) ---------- */
+.aviso-geral{max-width:620px;margin:40px auto;padding:34px;background:var(--sup);border:1px solid var(--linha);border-radius:22px;box-shadow:var(--sombra)}
+.aviso-geral h1{margin:0 0 10px;font-size:30px;font-weight:850;letter-spacing:-.8px;color:var(--tinta)}
+.aviso-geral p{margin:0 0 22px;color:var(--suave);line-height:1.7}

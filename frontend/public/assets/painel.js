@@ -64,11 +64,13 @@
       return { ok: false, erro: "Sessão expirada." };
     }
     const tipo = r.headers.get("content-type") || "";
+    let j = null;
     if (tipo.indexOf("application/json") >= 0) {
-      try { return await r.json(); } catch (e) { /* segue para a mensagem abaixo */ }
+      try { j = await r.json(); } catch (e) { /* segue para a mensagem abaixo */ }
     }
-    // Resposta que não veio do sistema (ex.: o servidor reiniciando numa atualização: o Traefik responde 404/502/503).
-    // O pedido não chegou ao sistema, então é seguro tentar de novo sozinho.
+    if (j && !j.reiniciando) return j;
+    // Resposta que não veio do backend: o frontend avisa "reiniciando" (503) ou o Traefik responde 404/502/503
+    // durante uma atualização. O pedido não chegou ao backend, então é seguro tentar de novo sozinho.
     if ([404, 502, 503, 504].indexOf(r.status) >= 0 && tentativa < 4) {
       if (tentativa === 0) toast("O sistema está reiniciando. Tentando de novo…");
       await new Promise(ok => setTimeout(ok, 3000));
