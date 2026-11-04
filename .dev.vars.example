@@ -1,0 +1,6 @@
+# Copie para .dev.vars para testar localmente com `npm run dev` (http://localhost:8787)
+STAFF_API_KEY=coloque-a-mesma-chave-dos-apps-script
+
+# Simula um usuário logado no Authelia (só funciona em localhost).
+# Troque "rh" por "gerente", "funcionario" ou um grupo inexistente para testar o 403.
+DEV_USUARIO_FALSO={"login":"teste","nome":"Pessoa Teste","email":"teste@innomaker.com.br","grupos":["rh"]}

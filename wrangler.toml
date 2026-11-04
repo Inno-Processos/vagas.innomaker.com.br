@@ -1,0 +1,62 @@
+# Cloudflare Worker — vagas.innomaker.com.br
+# Deploy: conecte este repositório em Workers & Pages → vagas → Configurações → Builds
+# (ou rode `npx wrangler deploy`). Veja o README.
+
+name = "vagas"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+routes = [
+  { pattern = "vagas.innomaker.com.br", custom_domain = true }
+]
+
+# CSS/JS estáticos servidos direto da borda (pasta public/ → /assets/...)
+[assets]
+directory = "./public"
+
+# Templates HTML importados como texto
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true
+
+[observability]
+enabled = true
+
+[vars]
+SITE_URL = "https://vagas.innomaker.com.br"
+
+# ---------- Authelia ----------
+AUTHELIA_URL = "https://auth.innomaker.com.br"
+# Authelia 4.38+: /api/authz/forward-auth   |   versões antigas: /api/verify
+AUTHELIA_AUTHZ_PATH = "/api/authz/forward-auth"
+AUTHELIA_COOKIE = "authelia_session"
+
+# Grupos do Authelia que dão cada papel (separados por vírgula, sem diferenciar maiúsculas)
+GRUPOS_RH = "rh"
+GRUPOS_GERENTE = "gerente,gerentes,gestor,gestores"
+GRUPOS_FUNCIONARIO = "funcionario,funcionarios,colaborador,colaboradores"
+
+# ---------- Google Apps Script (URLs /exec) ----------
+# Planilha Mãe: site de vagas, inscrições, área do candidato e vagas (RH)
+APPS_VAGAS_URL = "https://script.google.com/macros/s/AKfycbzOTXM_dJeULZHNNUEKdCJbx6YTIaV8JY-Yaf0DbTTpMdz8y6pRmlTqZ6WaxFhxWyS0/exec"
+# Solicitações de contratação (projeto da planilha de solicitações) — PREENCHER
+APPS_SOLIC_URL = ""
+# Sistema de Admissão
+APPS_ADM_URL = "https://script.google.com/macros/s/AKfycbx7w4KY0gIOMLHhTXYVq7nDLmQxkcp3IPldG15I2vMUU7KJ2FQgJcqV0DTxok3r7lQ0/exec"
+
+# Troque quando mudar CSS/JS para forçar os navegadores a baixarem a versão nova
+VERSAO_ASSETS = "2026-11-04"
+
+# Links da área do colaborador (painel → Início)
+LINKS_COLABORADOR = '''
+[
+  { "titulo": "Cartilha do Colaborador", "descricao": "Regras, rotinas e benefícios (ADM-REG-2026-005).", "url": "https://docs.google.com/document/d/143viamTQDLmn5KvZ9WI9IDS_QS9AQH-Bn36QD6LdyT8/edit" },
+  { "titulo": "Site da Innomaker", "descricao": "Site institucional.", "url": "https://innomaker.com.br/" }
+]
+'''
+
+# Secret (não fica no repositório):
+#   STAFF_API_KEY — mesma chave da propriedade STAFF_API_KEY nos três projetos do Apps Script
+#   npx wrangler secret put STAFF_API_KEY

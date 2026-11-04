@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Painel interno — Innomaker</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%2341A639%22/></svg>">
+<link rel="stylesheet" href="/assets/painel.css?v=__VERSAO__">
+</head>
+<body>
+<header class="topo">
+  <button class="menu-btn" id="menuBtn" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="lateral">☰</button>
+  <a class="marca" href="/painel#inicio"><img id="logo" alt="Innomaker"><span>Painel interno</span></a>
+  <div class="topo-dir">
+    <div class="usuario"><span class="u-nome" id="uNome"></span><span class="u-papel" id="uPapel"></span></div>
+    <a class="bt-ghost" href="/">Ver site</a>
+    <a class="bt-ghost" id="btSair" href="/sair">Sair</a>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="lateral" id="lateral" aria-label="Seções do painel"></nav>
+  <main class="conteudo" id="conteudo" tabindex="-1"></main>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlgTitulo">
+  <div class="dlg-caixa">
+    <h2 id="dlgTitulo"></h2>
+    <div id="dlgCorpo"></div>
+    <div id="dlgMsg"></div>
+    <div class="dlg-acoes">
+      <button type="button" class="bt-sec" id="dlgCancelar">Cancelar</button>
+      <button type="button" class="bt" id="dlgOk">Confirmar</button>
+    </div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>var BOOT = __BOOT__;</script>
+<script src="/assets/painel.js?v=__VERSAO__" defer></script>
+</body>
+</html>
