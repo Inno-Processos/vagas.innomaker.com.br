@@ -1177,6 +1177,24 @@ async function entrevistasListar(env, ctx, b, u) {
   return { ok: true, hoje, itens };
 }
 
+// Aba "Agenda de entrevistas": agendas de horários de todas as vagas que a pessoa pode ver
+async function agendasTodas(env, ctx, b, u) {
+  const filtro = texto(b.vaga_id, 30);
+  const vagas = await todos(env, `SELECT * FROM vagas WHERE id IN (SELECT DISTINCT vaga_id FROM agendas)${filtro ? " AND id = ?" : ""} ORDER BY criado_em DESC`, ...(filtro ? [filtro] : []));
+  const grupos = [];
+  for (const v of vagas) {
+    if (!(await podeVerVaga(env, u, v))) continue;
+    const r = await agendaListar(env, ctx, { vaga_id: v.id });
+    grupos.push({ vaga: { id: v.id, titulo: v.titulo, status: v.status }, agendas: r.agendas, etapasAgendaveis: r.etapasAgendaveis, sugestaoParticipantes: r.sugestaoParticipantes });
+  }
+  // vagas em andamento com etapas depois da Triagem (para criar uma agenda nova)
+  const abertas = [];
+  for (const v of await todos(env, "SELECT * FROM vagas WHERE status <> 'Concluída' ORDER BY criado_em DESC")) {
+    if (parseJson(v.etapas, []).filter((n, i) => i > 0 && !/triagem/i.test(n)).length && await podeVerVaga(env, u, v)) abertas.push({ id: v.id, titulo: v.titulo });
+  }
+  return { ok: true, grupos, vagas: abertas, podeEditar: u.papel === "rh" };
+}
+
 async function logListar(env) {
   return {
     ok: true,
@@ -1225,7 +1243,7 @@ const HANDLERS = {
   indicadores, cfg_salvar_lgpd: cfgSalvarLgpd, candidato_excluir: candidatoExcluir,
   adm_proposta_salvar: admPropostaSalvar, adm_cancelar: admCancelar, adm_passo: admPasso, adm_pedir_acessos: admPedirAcessos,
   adm_area: admArea, cfg_salvar_admissao: cfgSalvarAdmissao,
-  etapa_agendar: etapaAgendar
+  etapa_agendar: etapaAgendar, agendas_todas: agendasTodas
 };
 
 export { podeVerVaga };

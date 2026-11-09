@@ -66,6 +66,7 @@ export const ACOES = {
   adm_area: GESTAO,          // gerente: admissões das vagas da área (sem dados pessoais)
   etapa_agendar: RH,
   entrevistas_listar: GESTAO, // gerente: só as das vagas da área
+  agendas_todas: GESTAO,      // gerente: só as das vagas da área (só vê)
 };
 
 export function podeExecutar(papel, acao) {

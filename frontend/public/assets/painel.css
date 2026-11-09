@@ -463,3 +463,4 @@ button.grade-slot{cursor:pointer}
 .avulso{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
 .avulso input{width:auto}
 @media(max-width:640px){.disp-dia{grid-template-columns:1fr}}
+.atalho-agenda{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;padding:14px 18px}

@@ -271,8 +271,8 @@
       desc: "Acompanhe a análise do RH e corrija as recusadas com alteração." },
     { id: "minhas-vagas", nome: "Vagas da minha área", acao: "minhas_vagas", render: viewMinhasVagas, soSe: () => !pode("vagas_todas"),
       desc: "Veja os candidatos das vagas que você pediu." },
-    { id: "entrevistas", nome: "Entrevistas", acao: "entrevistas_listar", render: viewEntrevistas,
-      desc: "Entrevistas e testes marcados, por dia." },
+    { id: "entrevistas", nome: "Agenda de entrevistas", acao: "entrevistas_listar", render: b => viewEntrevistas(b),
+      desc: "Entrevistas marcadas e agendas de horários." },
     { id: "adm-area", nome: "Admissões da área", acao: "adm_area", render: viewAdmArea, soSe: () => !pode("adm_listar"),
       desc: "Acompanhe as contratações da sua área até o primeiro dia." },
     { grupo: "RH" },
@@ -295,6 +295,7 @@
   ];
   // Rotas internas (não aparecem no menu)
   const ROTAS = {
+    "agenda": { acao: "agendas_todas", render: (b, id) => viewEntrevistas(b, "agendas", id), menu: "entrevistas" },
     "solicitacao": { acao: "solic_listar", render: (b, id) => viewSolicitacoes(b, id), menu: "solicitacoes" },
     "editar-solicitacao": { acao: "solic_editar", render: (b, id) => viewSolicitar(b, id), menu: "minhas" },
     "vaga": { acao: "vaga_detalhe", render: (b, id) => viewVagaDetalhe(b, id), menu: () => pode("vagas_todas") ? "vagas" : "minhas-vagas" },
@@ -463,29 +464,18 @@
   const hhmm = n => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
   const fmtParticipantes = l => (l || []).map(p => p.nome ? p.nome + " <" + p.email + ">" : p.email).join("\n");
 
-  function secaoAgenda(box, v) {
-    const area = el("div", null, carregando("Buscando a agenda…"));
-    box.append(el("h2", { class: "sec" }, "Agenda de entrevistas"), area);
-    carregarAgenda(area, v);
-  }
-
-  async function carregarAgenda(area, v) {
+  // Na página da vaga: só um resumo, a agenda fica na aba "Agenda de entrevistas"
+  async function atalhoAgenda(box, v) {
+    const linha = el("div", { class: "card atalho-agenda" }, el("span", { class: "pequeno suave" }, "Buscando a agenda…"));
+    box.append(linha);
     const r = await api("agenda_listar", { vaga_id: v.id });
-    limpar(area);
-    if (!r.ok) return area.append(msg("erro", r.erro || "Não foi possível carregar a agenda."));
-    const rh = r.podeEditar;
-    const recarregarAgenda = () => carregarAgenda(area, v);
-    if (rh && r.etapasAgendaveis.length) {
-      area.append(el("div", { class: "acoes", style: "margin-bottom:12px" },
-        el("button", { type: "button", class: "bt", onclick: () => editarAgenda(null, v, r, recarregarAgenda) }, "+ Nova agenda de horários")));
-    }
-    if (!r.etapasAgendaveis.length) return area.append(el("div", { class: "vazio" }, "Esta vaga só tem a Triagem. Para agendar entrevistas, inclua outras etapas em Editar vaga."));
-    if (!r.agendas.length) {
-      return area.append(el("div", { class: "vazio" }, rh
-        ? "Nenhuma agenda ainda. Crie uma agenda com a sua disponibilidade e envie o link: cada candidato escolhe um horário livre, e o horário escolhido some para os outros."
-        : "O RH ainda não abriu horários de entrevista para esta vaga."));
-    }
-    area.append(el("div", { class: "lista" }, r.agendas.map(a => cartaoAgenda(a, v, r, rh, recarregarAgenda))));
+    limpar(linha);
+    if (!r.ok) return linha.remove();
+    const livres = r.agendas.filter(a => a.ativo).reduce((t, a) => t + a.livres, 0);
+    const marcadas = r.agendas.reduce((t, a) => t + a.horarios.filter(h => h.reservado && !h.passado).length, 0);
+    linha.append(el("span", null, el("b", null, "Agenda de entrevistas: "),
+        r.agendas.length ? r.agendas.length + " agenda(s) · " + livres + " horário(s) livre(s) · " + marcadas + " entrevista(s) marcada(s)" : "nenhuma agenda de horários para esta vaga"),
+      el("a", { class: "bt-sec", href: "#agenda/" + v.id }, r.agendas.length ? "Abrir agenda" : "Criar agenda"));
   }
 
   // ---------- Grade da semana (como no Google Agenda) ----------
@@ -546,7 +536,7 @@
     return caixa;
   }
 
-  function cartaoAgenda(a, v, r, rh, recarregarAgenda) {
+  function cartaoAgenda(a, v, r, rh, recarregarAgenda, gradeAberta) {
     const reservados = a.horarios.filter(h => h.reservado);
     const semConvite = a.elegiveis.filter(e => !e.convidado_em && !e.reservado);
     const aguardando = a.elegiveis.filter(e => e.convidado_em && !e.reservado);
@@ -579,7 +569,8 @@
             toast(a.ativo ? "Agenda encerrada: o link deixa de mostrar horários livres." : "Agenda reaberta.");
             recarregarAgenda();
           } }, a.ativo ? "Encerrar" : "Reabrir")) : null),
-      slots.length ? gradeSemana(slots) : el("p", { class: "pequeno suave" }, "Nenhum horário futuro. " + (rh ? "Use Editar para definir sua disponibilidade." : "")),
+      slots.length ? el("details", { class: "mais", open: gradeAberta !== false }, el("summary", null, "Grade da semana"), gradeSemana(slots))
+        : el("p", { class: "pequeno suave" }, "Nenhum horário futuro. " + (rh ? "Use Editar para definir sua disponibilidade." : "")),
       a.elegiveis.length ? el("div", { class: "mini", style: "margin-top:10px" },
         aguardando.length ? el("div", null, "Ainda não escolheram: ", el("b", null, aguardando.map(e => e.nome).join(", "))) : null,
         semConvite.length ? el("div", null, "Sem link enviado: ", el("b", null, semConvite.map(e => e.nome).join(", "))) : null) : null);
@@ -955,21 +946,60 @@
         i.online && /^https?:/i.test(i.local) ? el("span", { class: "bt-sec", onclick: ev => { ev.preventDefault(); window.open(i.local, "_blank", "noopener"); } }, "Entrar") : null))))));
   }
 
-  function viewEntrevistas(box) {
-    box.append(cabecalho("Entrevistas", "Todas as entrevistas e testes marcados: os horários escolhidos pelos candidatos na agenda e as datas marcadas pelo RH."));
+  function viewEntrevistas(box, abaInicial, vagaFiltro) {
+    box.append(cabecalho("Agenda de entrevistas", "Entrevistas marcadas e as agendas de horários que você envia aos candidatos.",
+      pode("agenda_salvar") ? el("button", { type: "button", class: "bt", onclick: () => novaAgendaEscolhendoVaga() }, "+ Nova agenda de horários") : null));
     const alvo = el("div");
-    box.append(el("div", { class: "filtros" }, chips([{ id: "proximas", nome: "Próximas" }, { id: "passadas", nome: "Últimos 30 dias" }], "proximas", p => carregar(p))), alvo);
+    box.append(el("div", { class: "filtros" }, chips([{ id: "proximas", nome: "Próximas entrevistas" }, { id: "passadas", nome: "Últimos 30 dias" }, { id: "agendas", nome: "Agendas de horários" }],
+      abaInicial || "proximas", p => carregar(p))), alvo);
     async function carregar(periodo) {
       limpar(alvo);
       alvo.append(carregando());
+      if (periodo === "agendas") return agendasDeHorarios(alvo, vagaFiltro);
       const r = await api("entrevistas_listar", { periodo });
       limpar(alvo);
       if (!r.ok) return alvo.append(msg("erro", r.erro));
       if (!r.itens.length) return alvo.append(el("div", { class: "vazio" }, periodo === "passadas" ? "Nenhuma entrevista nos últimos 30 dias."
-        : "Nenhuma entrevista marcada. Para marcar: abra a vaga → candidato → \"Marcar data\", ou crie uma \"Agenda de entrevistas\" na vaga para o candidato escolher o horário."));
+        : "Nenhuma entrevista marcada. Crie uma agenda de horários e envie aos candidatos (Vagas → candidato → Agendar)."));
       alvo.append(listaEntrevistas(r.itens, r.hoje));
     }
-    carregar("proximas");
+    carregar(abaInicial || "proximas");
+  }
+
+  // Agendas de horários de todas as vagas (ou de uma), uma por cartão, com a grade recolhida
+  async function agendasDeHorarios(alvo, vagaFiltro) {
+    const r = await api("agendas_todas", { vaga_id: vagaFiltro || "" });
+    limpar(alvo);
+    if (!r.ok) return alvo.append(msg("erro", r.erro));
+    if (vagaFiltro) alvo.append(el("p", { class: "pequeno", style: "margin:0 0 12px" }, "Mostrando só uma vaga. ", el("a", { href: "#entrevistas" }, "Ver todas")));
+    const recarregar_ = () => { limpar(alvo); alvo.append(carregando()); agendasDeHorarios(alvo, vagaFiltro); };
+    if (!r.grupos.length) {
+      const vaga = vagaFiltro && r.vagas.find(x => x.id === vagaFiltro);
+      return alvo.append(el("div", { class: "vazio" }, "Nenhuma agenda de horários ainda. ",
+        r.podeEditar ? el("button", { type: "button", class: "bt", style: "margin-left:8px", onclick: () => vaga ? criarAgendaNaVaga(vaga, recarregar_) : novaAgendaEscolhendoVaga() }, "+ Nova agenda de horários") : null));
+    }
+    r.grupos.forEach(g => {
+      const rv = { etapasAgendaveis: g.etapasAgendaveis, sugestaoParticipantes: g.sugestaoParticipantes, podeEditar: r.podeEditar };
+      alvo.append(el("h2", { class: "sec" }, el("a", { href: "#vaga/" + g.vaga.id, style: "text-decoration:none;color:inherit" }, g.vaga.titulo), " ", pill(g.vaga.status)),
+        el("div", { class: "lista" }, g.agendas.map(a => cartaoAgenda(a, g.vaga, rv, r.podeEditar, recarregar_, !!vagaFiltro))));
+    });
+  }
+
+  async function criarAgendaNaVaga(vaga, depois) {
+    const r = await api("agenda_listar", { vaga_id: vaga.id });
+    if (!r.ok) return toast(r.erro, true);
+    if (await editarAgenda(null, vaga, r, null)) { if (depois) depois(); else location.hash = "#agenda/" + vaga.id; }
+  }
+
+  async function novaAgendaEscolhendoVaga() {
+    const r = await api("agendas_todas", {});
+    if (!r.ok) return toast(r.erro, true);
+    if (!r.vagas.length) return toast("Nenhuma vaga com etapa de entrevista. Inclua uma etapa depois da Triagem em Editar vaga.", true);
+    const sel = el("select", null, r.vagas.map(v => el("option", { value: v.id }, v.titulo + " — " + v.id)));
+    let escolhida = null;
+    await dialogo({ titulo: "Nova agenda de horários", corpo: el("div", { class: "campos" }, campo("Para qual vaga?", sel, { largo: true })), okTexto: "Continuar",
+      aoConfirmar: async () => { escolhida = r.vagas.find(v => v.id === sel.value); return true; } });
+    if (escolhida) criarAgendaNaVaga(escolhida);
   }
 
   async function carregarEm(box, acao, dados, desenhar) {
@@ -1475,7 +1505,7 @@
         el("span", null, v.inscritos + " inscrito(s)"), el("span", null, v.quantidade + " vaga(s)")),
       el("p", { class: "pequeno suave", style: "margin:10px 0 0" }, "Etapas: " + v.etapas.join(" → "))));
 
-    secaoAgenda(box, v);
+    if (v.etapas.length > 1) atalhoAgenda(box, v);
     box.append(el("h2", { class: "sec" }, "Candidatos"));
     if (!r.candidatos.length) return box.append(el("div", { class: "vazio" }, "Nenhum candidato inscrito ainda."));
     const area = el("div");
