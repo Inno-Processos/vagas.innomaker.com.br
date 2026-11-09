@@ -18,6 +18,10 @@ import {
 } from "./agendamento.js";
 import { excluirCandidato, prazosLgpd, candidatosVencidos } from "../lib/lgpd.js";
 import { ORIGENS } from "./candidato.js";
+import {
+  CAMPOS_PROPOSTA, CAMPOS_DATA_PROPOSTA, CAMPOS_CADASTRO, ADM_ENCERRADAS, ADM_ANTES_DA_APROVACAO, ADM_CANDIDATO_PREENCHE, PASSOS_MANUAIS,
+  trilha, documentosExigidos, documentosFaltando, listaDocumentos, nomeCategoria, categoriaValida
+} from "../lib/admissao.js";
 
 const STATUS_VAGA = ["Aberta", "Pausada", "Fechada", "Concluída"];
 const TIPOS_LISTA = ["etapa", "tipo_contratacao", "tipo_vaga", "horario", "situacao", "auxilio", "cargo", "funcao", "setor", "grau_instrucao"];
@@ -406,12 +410,195 @@ async function candidaturaStatus(env, ctx, b, u) {
 // =====================================================================
 //  Admissão (RHC-PROC-2026-003)
 // =====================================================================
-const CAMPOS_PROPOSTA = {
-  situacao: [80], auxilio: [120], bolsa_valor: [120, "Bolsa / remuneração"], responsavel: [150], entidade_vinculada: [150],
-  data_inicial_bolsa: [10], data_final_bolsa: [10], cargo: [120, "Cargo"], funcao: [120, "Função"], departamento: [120, "Departamento"],
-  setor: [120], horario_trabalho: [80, "Horário de trabalho"], data_inicio: [10, "Data de início"],
-  tipo_contratacao: [60, "Tipo de contratação"], observacao: [3000], gestor_nome: [150], gestor_email: [200]
-};
+
+// ---------- Proposta: ler, comparar, prazo ----------
+function lerProposta(src, base) {
+  const p = Object.assign({}, base || {});
+  Object.keys(CAMPOS_PROPOSTA).forEach(k => {
+    if (src[k] === undefined && base) return;
+    const [max, rotulo, obrig] = CAMPOS_PROPOSTA[k];
+    p[k] = texto(src[k], max);
+    if (obrig) obrigatorio(p[k], rotulo);
+  });
+  CAMPOS_DATA_PROPOSTA.forEach(k => { if (p[k] && !ehDataISO(p[k])) throw new ErroApi("Data inválida em " + CAMPOS_PROPOSTA[k][1] + "."); });
+  if (p.data_final_bolsa && p.data_inicio && p.data_final_bolsa < p.data_inicio) throw new ErroApi("O fim da bolsa / contrato não pode ser antes do início.");
+  if (p.gestor_email && !emailValido(p.gestor_email)) throw new ErroApi("E-mail do gestor inválido.");
+  return p;
+}
+
+function lerPrazo(v) {
+  const prazo = texto(v, 10) || hojeISO(5);
+  if (!ehDataISO(prazo)) throw new ErroApi("Prazo para responder inválido.");
+  if (prazo < hojeISO()) throw new ErroApi("O prazo para responder não pode ser no passado.");
+  return prazo;
+}
+
+const valorProposta = (k, v) => CAMPOS_DATA_PROPOSTA.indexOf(k) >= 0 ? dataBR(v) : v;
+// [{ campo, rotulo, antes, depois, visivel }]
+function diferencas(antes, depois) {
+  return Object.keys(CAMPOS_PROPOSTA).filter(k => String(antes[k] || "") !== String(depois[k] || "")).map(k => ({
+    campo: k, rotulo: CAMPOS_PROPOSTA[k][1], visivel: CAMPOS_PROPOSTA[k][3],
+    antes: valorProposta(k, antes[k] || "") || "(vazio)", depois: valorProposta(k, depois[k] || "") || "(vazio)"
+  }));
+}
+
+// RH edita a proposta antes da aprovação. Se o candidato já tinha aceitado e mudou algo que ele vê, ele precisa aceitar de novo
+// (o cadastro já preenchido é mantido). Proposta vencida volta a valer com o novo prazo.
+async function admPropostaSalvar(env, ctx, b, u) {
+  const a = await um(env, SELECT_ADM + " WHERE a.id = ?", texto(b.id, 30));
+  if (!a) throw new ErroApi("Admissão não encontrada.");
+  if (ADM_ANTES_DA_APROVACAO.concat(["PROPOSTA_EXPIRADA"]).indexOf(a.status) < 0) throw new ErroApi("Esta proposta não pode mais ser alterada (" + a.status + ").");
+  const antes = parseJson(a.proposta, {});
+  const p = lerProposta(b.proposta || {}, antes);
+  p.gestor_email = (p.gestor_email || "").toLowerCase();
+  const email = texto(b.email_contato || a.email_contato, 200).toLowerCase();
+  if (!emailValido(email)) throw new ErroApi("E-mail pessoal do candidato inválido.");
+  if (/@id\.uff\.br$/i.test(email)) throw new ErroApi("Não é permitido usar e-mail @id.uff.br. Use o e-mail pessoal.");
+  const difs = diferencas(antes, p);
+  const visiveis = difs.filter(d => d.visivel);
+  const reabre = a.status === "PROPOSTA_EXPIRADA";
+  const precisaAceitar = reabre || a.status === "PROPOSTA_ENVIADA" || visiveis.length > 0;
+  const prazo = precisaAceitar ? lerPrazo(b.prazo_resposta || a.prazo_resposta) : a.prazo_resposta;
+  const mudouPrazo = prazo !== a.prazo_resposta;
+  const mudouEmail = email !== a.email_contato;
+  if (!difs.length && !mudouPrazo && !mudouEmail) throw new ErroApi("Nada mudou na proposta.");
+
+  const novoStatus = precisaAceitar ? "PROPOSTA_ENVIADA" : a.status;
+  // O histórico da admissão é visto pelo candidato: só o que ele vê; os campos internos ficam no Histórico (log) do painel
+  const resumoVisivel = visiveis.map(d => `${d.rotulo}: ${d.antes} → ${d.depois}`).concat(mudouPrazo ? ["Prazo para responder: " + dataBR(prazo)] : [])
+    .concat(mudouEmail ? ["E-mail: " + a.email_contato + " → " + email] : []).join("; ");
+  const internos = difs.filter(d => !d.visivel);
+  const resumo = [resumoVisivel, internos.map(d => `${d.rotulo}: ${d.antes} → ${d.depois}`).join("; ")].filter(Boolean).join("; ");
+  const acaoHist = reabre ? "Proposta reaberta" : resumoVisivel ? "Proposta alterada" : "Proposta ajustada (interno)";
+  await env.DB.batch([
+    prep(env, `UPDATE admissoes SET proposta = ?, prazo_resposta = ?, email_contato = ?, status = ?, historico = ?, atualizado_em = ?, lembretes = 0, lembrete_em = NULL WHERE id = ?`,
+      JSON.stringify(p), prazo, email, novoStatus,
+      historicoMais(a.historico, quemE(u), acaoHist, resumoVisivel || internos.map(d => d.rotulo).join(", ")), agora(), a.id),
+    prep(env, "UPDATE candidaturas SET status = 'Proposta', atualizado_em = ? WHERE id = ?", agora(), a.candidatura_id)
+  ]);
+  await registrarLog(env, quemE(u), reabre ? "PROPOSTA_REABERTA" : "PROPOSTA_ALTERADA", "admissao", a.id, resumo);
+
+  if (visiveis.length || reabre || mudouEmail || (mudouPrazo && novoStatus === "PROPOSTA_ENVIADA")) {
+    const jaAceitou = ADM_CANDIDATO_PREENCHE.concat(["AGUARDANDO_APROVACAO"]).indexOf(a.status) >= 0;
+    notificar(env, ctx, email, "Sua proposta foi atualizada — " + a.titulo_vaga, reabre ? "Sua proposta foi reaberta" : "Sua proposta foi atualizada",
+      [`Olá, <b>${esc(String(a.candidato_nome).split(" ")[0])}</b>.`,
+        visiveis.length ? "O RH alterou a proposta para <b>" + esc(a.titulo_vaga) + "</b>:<br>" + visiveis.map(d => `• <b>${esc(d.rotulo)}:</b> ${esc(d.antes)} → <b>${esc(d.depois)}</b>`).join("<br>") : "",
+        jaAceitou ? "Como as condições mudaram, confirme de novo na Área do candidato. O cadastro que você já preencheu foi mantido." : "",
+        `Responda até <b>${dataBR(prazo)}</b>.`].filter(Boolean),
+      { texto: "Ver proposta", url: linkArea(env) });
+  }
+  return { ok: true, status: novoStatus, mudancas: difs.length, precisaAceitar };
+}
+
+// Cancela a admissão antes da aprovação (ex.: vaga suspensa, candidato errado). O candidato volta a "Aprovado no processo".
+async function admCancelar(env, ctx, b, u) {
+  const a = await um(env, SELECT_ADM + " WHERE a.id = ?", texto(b.id, 30));
+  if (!a) throw new ErroApi("Admissão não encontrada.");
+  if (ADM_ANTES_DA_APROVACAO.concat(["PROPOSTA_EXPIRADA"]).indexOf(a.status) < 0) throw new ErroApi("Só é possível cancelar antes da aprovação do cadastro.");
+  const motivo = texto(b.motivo, 2000);
+  if (motivo.length < 5) throw new ErroApi("Escreva o motivo do cancelamento.");
+  await env.DB.batch([
+    prep(env, "UPDATE admissoes SET status = 'CANCELADA', historico = ?, atualizado_em = ? WHERE id = ?",
+      historicoMais(a.historico, quemE(u), "Cancelada pelo RH", motivo), agora(), a.id),
+    prep(env, "UPDATE candidaturas SET status = 'Aprovado', atualizado_em = ? WHERE id = ? AND status = 'Proposta'", agora(), a.candidatura_id)
+  ]);
+  await registrarLog(env, quemE(u), "ADMISSAO_CANCELADA", "admissao", a.id, motivo);
+  if (b.avisar !== false) {
+    notificar(env, ctx, a.email_contato, "Atualização da sua proposta — Innomaker", "Sua proposta foi cancelada",
+      [`Olá, <b>${esc(String(a.candidato_nome).split(" ")[0])}</b>.`, `A proposta para <b>${esc(a.titulo_vaga)}</b> foi cancelada pelo RH.`,
+        "<b>Motivo:</b><br>" + esc(motivo).replace(/\n/g, "<br>"), "Se tiver dúvidas, responda este e-mail."],
+      { texto: "Abrir Área do candidato", url: linkArea(env) });
+  }
+  return { ok: true };
+}
+
+// ---------- Trilha pós-aprovação ----------
+async function contextoTrilha(env, a) {
+  const f = a.funcionario_id ? await um(env, "SELECT * FROM funcionarios WHERE matricula = ?", a.funcionario_id) : null;
+  const docs = await um(env,
+    "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'ASSINADO' THEN 1 ELSE 0 END) AS assinados FROM documentos WHERE admissao_id = ? AND status <> 'CANCELADO'", a.id);
+  return { f, docs: { total: docs.total || 0, assinados: docs.assinados || 0 } };
+}
+
+// Marca/desmarca um passo manual (conferência, ponto, acessos, onboarding). Grava no funcionário e a data na admissão.
+async function admPasso(env, ctx, b, u) {
+  const a = await um(env, "SELECT * FROM admissoes WHERE id = ?", texto(b.id, 30));
+  if (!a) throw new ErroApi("Admissão não encontrada.");
+  const coluna = PASSOS_MANUAIS[b.passo];
+  if (!coluna) throw new ErroApi("Passo inválido.");
+  if (a.status !== "APROVADA" || !a.funcionario_id) throw new ErroApi("Este passo vem depois da aprovação do cadastro.");
+  const feito = b.feito !== false;
+  await marcarPasso(env, a, b.passo, feito, u);
+  await executar(env, `UPDATE funcionarios SET ${coluna} = ?, atualizado_em = ? WHERE matricula = ?`, feito ? 1 : 0, agora(), a.funcionario_id);
+  await registrarLog(env, quemE(u), feito ? "ADMISSAO_PASSO" : "ADMISSAO_PASSO_DESFEITO", "admissao", a.id, b.passo);
+  const atual = await um(env, "SELECT * FROM admissoes WHERE id = ?", a.id);
+  const x = await contextoTrilha(env, atual);
+  return { ok: true, trilha: trilha(atual, x.f, x.docs) };
+}
+
+async function marcarPasso(env, a, passo, feito, u) {
+  const chk = parseJson(a.checklist, {});
+  if (feito) chk[passo] = { em: agora(), por: u.nome || u.login || "" }; else delete chk[passo];
+  await executar(env, "UPDATE admissoes SET checklist = ? WHERE id = ?", JSON.stringify(chk), a.id);
+}
+
+// Pede a criação de e-mail e acessos para quem cuida disso (Configurações → Admissão)
+async function admPedirAcessos(env, ctx, b, u) {
+  const a = await um(env, SELECT_ADM + " WHERE a.id = ?", texto(b.id, 30));
+  if (!a || a.status !== "APROVADA" || !a.funcionario_id) throw new ErroApi("Peça os acessos depois de aprovar o cadastro.");
+  const config = await lerConfig(env);
+  const para = texto(b.para || config.email_acessos, 200).toLowerCase();
+  if (!emailValido(para)) throw new ErroApi("Informe o e-mail de quem cria os acessos (ou cadastre em Configurações → Admissão).");
+  const f = await um(env, "SELECT * FROM funcionarios WHERE matricula = ?", a.funcionario_id);
+  const obs = texto(b.observacao, 2000);
+  const linhas = [`<b>Nome:</b> ${esc(f.nome)}`, `<b>Matrícula:</b> ${f.matricula}`, `<b>Cargo / função:</b> ${esc([f.cargo, f.funcao].filter(Boolean).join(" — "))}`,
+    `<b>Departamento:</b> ${esc([f.departamento, f.setor].filter(Boolean).join(" / "))}`, `<b>Início:</b> ${dataBR(f.data_efetivacao)}`,
+    `<b>E-mail pessoal:</b> ${esc(f.email)}`, f.email_innomaker ? `<b>E-mail Innomaker informado:</b> ${esc(f.email_innomaker)}` : ""].filter(Boolean);
+  notificar(env, ctx, para, `Novo colaborador: criar acessos — ${f.nome} (início ${dataBR(f.data_efetivacao)})`, "Criar acessos do novo colaborador",
+    [`${esc(u.nome || "O RH")} pediu a criação do e-mail Innomaker e dos acessos aos sistemas para:`, linhas.join("<br>"),
+      obs ? "<b>Observação:</b><br>" + esc(obs).replace(/\n/g, "<br>") : "", "Quando terminar, avise o RH para marcar \"Acessos criados\" na admissão."].filter(Boolean),
+    { texto: "Ver admissão no painel", url: linkPainel(env, "admissao/" + a.id) }, { responderPara: u.email || "" });
+  const chk = parseJson(a.checklist, {});
+  chk.acessos_pedido = { em: agora(), por: u.nome || u.login || "", para };
+  await executar(env, "UPDATE admissoes SET checklist = ? WHERE id = ?", JSON.stringify(chk), a.id);
+  await registrarLog(env, quemE(u), "ACESSOS_PEDIDOS", "admissao", a.id, para);
+  return { ok: true, para };
+}
+
+// Gestor: admissões das vagas da área dele (sem dados pessoais)
+async function admArea(env, ctx, b, u) {
+  const linhas = await todos(env, SELECT_ADM + " ORDER BY a.atualizado_em DESC");
+  const itens = [];
+  for (const a of linhas) {
+    const vaga = await um(env, "SELECT id, gestor_email, solicitacao_id FROM vagas WHERE id = ?", a.vaga_id);
+    if (!vaga || !(await podeVerVaga(env, u, vaga))) continue;
+    const p = parseJson(a.proposta, {});
+    const x = await contextoTrilha(env, a);
+    itens.push({ id: a.id, status: a.status, candidato_nome: a.candidato_nome, titulo_vaga: a.titulo_vaga, vaga_id: a.vaga_id,
+      funcao: p.funcao, data_inicio: p.data_inicio, prazo_resposta: a.prazo_resposta, atualizado_em: a.atualizado_em, trilha: trilha(a, x.f, x.docs) });
+  }
+  return { ok: true, itens };
+}
+
+// Configurações → Admissão: quem cria os acessos e os documentos exigidos por tipo de contrato
+async function cfgSalvarAdmissao(env, ctx, b, u) {
+  const email = texto(b.email_acessos, 200).toLowerCase();
+  if (email && !emailValido(email)) throw new ErroApi("E-mail de quem cria os acessos inválido.");
+  const vistos = new Set();
+  const docs = (Array.isArray(b.documentos) ? b.documentos : []).slice(0, 30).map((d, i) => {
+    const nome = texto(d.nome, 120);
+    let id = /^doc_[a-z0-9_]{1,30}$/.test(String(d.id || "")) ? d.id : "doc_extra_" + Date.now().toString(36) + i;
+    if (vistos.has(id) || id === "doc_pessoais") id = "doc_extra_" + Date.now().toString(36) + i;
+    vistos.add(id);
+    const para = (Array.isArray(d.obrigatorio_para) ? d.obrigatorio_para : []).map(t => texto(t, 60)).filter(Boolean).slice(0, 20);
+    return { id, nome, obrigatorio_para: para.indexOf("todos") >= 0 ? ["todos"] : para, ativo: d.ativo !== false };
+  }).filter(d => d.nome);
+  if (!docs.length) throw new ErroApi("Deixe pelo menos um documento na lista.");
+  await env.DB.batch([["email_acessos", email], ["admissao_documentos", JSON.stringify(docs)]].map(([k, v]) => prep(env,
+    "INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor", k, v)));
+  await registrarLog(env, quemE(u), "CONFIG_ADMISSAO", "config", "", docs.length + " documento(s)");
+  return { ok: true };
+}
 
 async function propostaCriar(env, ctx, b, u) {
   const ca = await um(env,
@@ -419,45 +606,37 @@ async function propostaCriar(env, ctx, b, u) {
        FROM candidaturas ca JOIN candidatos c ON c.id = ca.candidato_id JOIN vagas v ON v.id = ca.vaga_id WHERE ca.id = ?`, texto(b.candidatura_id, 30));
   if (!ca) throw new ErroApi("Candidatura não encontrada.");
   if (["Encerrado", "Desistiu", "Contratado"].indexOf(ca.status) >= 0) throw new ErroApi("Esta candidatura está " + ca.status.toLowerCase() + ".");
-  const ativa = await um(env, "SELECT id FROM admissoes WHERE candidatura_id = ? AND status NOT IN ('PROPOSTA_RECUSADA', 'RECUSADA')", ca.id);
+  const ativa = await um(env, `SELECT id FROM admissoes WHERE candidatura_id = ? AND status NOT IN (${ADM_ENCERRADAS.map(() => "?").join(",")})`, ca.id, ...ADM_ENCERRADAS);
   if (ativa) throw new ErroApi("Já existe uma admissão em andamento para este candidato (" + ativa.id + ").");
 
   const email = texto(b.email_contato || ca.email, 200).toLowerCase();
   if (!emailValido(email)) throw new ErroApi("E-mail pessoal do candidato inválido.");
   if (/@id\.uff\.br$/i.test(email)) throw new ErroApi("Não é permitido enviar proposta para e-mail @id.uff.br. Use o e-mail pessoal.");
 
-  const src = b.proposta || {};
-  const p = {};
-  Object.keys(CAMPOS_PROPOSTA).forEach(k => {
-    const [max, nome] = CAMPOS_PROPOSTA[k];
-    p[k] = texto(src[k], max);
-    if (nome) obrigatorio(p[k], nome);
-  });
-  ["data_inicio", "data_inicial_bolsa", "data_final_bolsa"].forEach(k => {
-    if (p[k] && !ehDataISO(p[k])) throw new ErroApi("Data inválida em " + k.replace(/_/g, " ") + ".");
-  });
+  const p = lerProposta(b.proposta || {});
+  const prazo = lerPrazo(b.prazo_resposta);
   p.gestor_nome = p.gestor_nome || ca.gestor_nome;
   p.gestor_email = (p.gestor_email || ca.gestor_email || "").toLowerCase();
 
   const id = await novoId(env, "ADM", 6);
   const t = agora();
   await env.DB.batch([
-    prep(env, `INSERT INTO admissoes (id, candidatura_id, candidato_id, vaga_id, status, email_contato, proposta, historico, criado_por, criado_em, atualizado_em)
-               VALUES (?, ?, ?, ?, 'PROPOSTA_ENVIADA', ?, ?, ?, ?, ?, ?)`,
-      id, ca.id, ca.candidato_id, ca.vaga_id, email, JSON.stringify(p), historicoMais("[]", quemE(u), "Proposta enviada", ""), quemE(u), t, t),
+    prep(env, `INSERT INTO admissoes (id, candidatura_id, candidato_id, vaga_id, status, email_contato, proposta, historico, criado_por, criado_em, atualizado_em, prazo_resposta)
+               VALUES (?, ?, ?, ?, 'PROPOSTA_ENVIADA', ?, ?, ?, ?, ?, ?, ?)`,
+      id, ca.id, ca.candidato_id, ca.vaga_id, email, JSON.stringify(p), historicoMais("[]", quemE(u), "Proposta enviada", "responder até " + dataBR(prazo)), quemE(u), t, t, prazo),
     prep(env, "UPDATE candidaturas SET status = 'Proposta', atualizado_em = ? WHERE id = ?", t, ca.id)
   ]);
   await registrarLog(env, quemE(u), "PROPOSTA_ENVIADA", "admissao", id, ca.nome);
-  enviarEmailProposta(env, ctx, { nome: ca.nome, email, titulo: ca.titulo, p });
+  enviarEmailProposta(env, ctx, { nome: ca.nome, email, titulo: ca.titulo, p, prazo });
   return { ok: true, id };
 }
 
-function enviarEmailProposta(env, ctx, { nome, email, titulo, p }) {
+function enviarEmailProposta(env, ctx, { nome, email, titulo, p, prazo }) {
   notificar(env, ctx, email, "Proposta — " + titulo, "Você recebeu uma proposta",
     [`Olá, <b>${String(nome).split(" ")[0]}</b>! Parabéns: você concluiu o processo seletivo e recebeu uma proposta para <b>${titulo}</b>.`,
       `<b>Contratação:</b> ${p.tipo_contratacao}<br><b>Função:</b> ${p.funcao}<br><b>Horário:</b> ${p.horario_trabalho}<br>` +
       `<b>Bolsa / remuneração:</b> ${p.bolsa_valor}<br><b>Início:</b> ${dataBR(p.data_inicio)}`,
-      "Para aceitar ou recusar, entre na Área do candidato com seu e-mail e senha. Ao aceitar, você preenche o cadastro e envia os documentos."],
+      (prazo ? `Responda até <b>${dataBR(prazo)}</b>. ` : "") + "Para aceitar ou recusar, entre na Área do candidato com seu e-mail e senha. Ao aceitar, você preenche o cadastro e envia os documentos."],
     { texto: "Ver proposta", url: linkArea(env) });
 }
 
@@ -473,25 +652,37 @@ function admPublica(a) {
 
 async function admListar(env) {
   const linhas = await todos(env, SELECT_ADM + " ORDER BY a.atualizado_em DESC");
-  return {
-    ok: true,
-    itens: linhas.map(a => {
-      const x = admPublica(a);
-      return {
-        id: x.id, status: x.status, candidato_nome: x.candidato_nome, email_contato: x.email_contato, titulo_vaga: x.titulo_vaga,
-        data_inicio: x.proposta.data_inicio, funcao: x.proposta.funcao, atualizado_em: x.atualizado_em, funcionario_id: x.funcionario_id
-      };
-    })
-  };
+  const itens = [];
+  for (const a of linhas) {
+    const x = admPublica(a);
+    const t = await contextoTrilha(env, a);
+    itens.push({
+      id: x.id, status: x.status, candidato_nome: x.candidato_nome, email_contato: x.email_contato, titulo_vaga: x.titulo_vaga,
+      data_inicio: x.proposta.data_inicio, funcao: x.proposta.funcao, atualizado_em: x.atualizado_em, funcionario_id: x.funcionario_id,
+      prazo_resposta: x.prazo_resposta || "", trilha: trilha(a, t.f, t.docs)
+    });
+  }
+  return { ok: true, hoje: hojeISO(), itens };
 }
 
 async function admDetalhe(env, ctx, b) {
   const a = await um(env, SELECT_ADM + " WHERE a.id = ?", texto(b.id, 30));
   if (!a) throw new ErroApi("Admissão não encontrada.");
   const arquivos = await todos(env, "SELECT id, nome, categoria, tamanho, criado_em FROM arquivos WHERE admissao_id = ? ORDER BY categoria, criado_em", a.id);
+  if (a.status === "PROPOSTA_ENVIADA" && a.prazo_resposta && a.prazo_resposta < hojeISO()) a.prazo_vencido = true;
   const documentos = await todos(env, "SELECT id, titulo, status, assinado_em, criado_em FROM documentos WHERE admissao_id = ? ORDER BY criado_em", a.id);
   const modelos = await todos(env, "SELECT id, nome, gerar_na_admissao FROM modelos_documento WHERE ativo = 1 ORDER BY nome");
-  return { ok: true, admissao: admPublica(a), arquivos, documentos, modelos };
+  const config = await lerConfig(env);
+  const x = admPublica(a);
+  const exigidos = documentosExigidos(config, x.proposta.tipo_contratacao);
+  const t = await contextoTrilha(env, a);
+  return {
+    ok: true, admissao: Object.assign(x, { correcoes: parseJson(a.correcoes, {}), checklist: parseJson(a.checklist, {}) }), hoje: hojeISO(),
+    arquivos: arquivos.map(f => Object.assign(f, { categoria_nome: nomeCategoria(config, f.categoria) })), documentos, modelos,
+    documentosExigidos: exigidos, documentosFaltando: documentosFaltando(exigidos, arquivos).map(d => d.id),
+    camposCadastro: Object.keys(CAMPOS_CADASTRO).map(k => ({ chave: k, rotulo: CAMPOS_CADASTRO[k][2], obrigatorio: CAMPOS_CADASTRO[k][1], etapa: CAMPOS_CADASTRO[k][3] })),
+    trilha: trilha(a, t.f, t.docs), emailAcessos: config.email_acessos || ""
+  };
 }
 
 async function admReenviar(env, ctx, b, u) {
@@ -500,7 +691,8 @@ async function admReenviar(env, ctx, b, u) {
   if (["PROPOSTA_ENVIADA", "COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA"].indexOf(a.status) < 0) {
     throw new ErroApi("Não há proposta pendente para reenviar.");
   }
-  enviarEmailProposta(env, ctx, { nome: a.candidato_nome, email: a.email_contato, titulo: a.titulo_vaga, p: parseJson(a.proposta, {}) });
+  if (a.status === "PROPOSTA_ENVIADA" && a.prazo_resposta && a.prazo_resposta < hojeISO()) throw new ErroApi("O prazo venceu. Use Editar proposta para dar um novo prazo.");
+  enviarEmailProposta(env, ctx, { nome: a.candidato_nome, email: a.email_contato, titulo: a.titulo_vaga, p: parseJson(a.proposta, {}), prazo: a.status === "PROPOSTA_ENVIADA" ? a.prazo_resposta : "" });
   await executar(env, "UPDATE admissoes SET historico = ?, atualizado_em = ? WHERE id = ?", historicoMais(a.historico, quemE(u), "Proposta reenviada", ""), agora(), a.id);
   return { ok: true };
 }
@@ -533,19 +725,36 @@ async function admDecidir(env, ctx, b, u) {
   const primeiro = String(a.candidato_nome).split(" ")[0];
 
   if (b.decisao === "correcao" || b.decisao === "recusar") {
-    if (textoLivre.length < 5) throw new ErroApi(b.decisao === "correcao" ? "Descreva exatamente o que precisa ser corrigido." : "Escreva a justificativa.");
     const correcao = b.decisao === "correcao";
-    const stmts = [prep(env, "UPDATE admissoes SET status = ?, historico = ?, atualizado_em = ? WHERE id = ?",
+    // Correção por item: campos e documentos apontados, cada um com o que ajustar
+    const cad = parseJson(a.cadastro, {});
+    const config = await lerConfig(env);
+    const itens = correcao ? (Array.isArray(b.itens) ? b.itens : []).slice(0, 60).map(i => {
+      const tipo = i.tipo === "arquivo" ? "arquivo" : "campo";
+      const chave = texto(i.chave, 40);
+      if (tipo === "campo" && !CAMPOS_CADASTRO[chave]) throw new ErroApi("Campo inválido: " + chave);
+      if (tipo === "arquivo" && !categoriaValida(config, chave)) throw new ErroApi("Documento inválido: " + chave);
+      const comentario = texto(i.comentario, 500);
+      if (comentario.length < 3) throw new ErroApi("Escreva o que ajustar em: " + (tipo === "campo" ? CAMPOS_CADASTRO[chave][2] : nomeCategoria(config, chave)) + ".");
+      return { tipo, chave, comentario, rotulo: tipo === "campo" ? CAMPOS_CADASTRO[chave][2] : nomeCategoria(config, chave), valor_antes: tipo === "campo" ? (cad[chave] || "") : "" };
+    }) : [];
+    if (correcao && !itens.length && textoLivre.length < 5) throw new ErroApi("Marque os itens a corrigir ou descreva o que precisa ser ajustado.");
+    if (!correcao && textoLivre.length < 5) throw new ErroApi("Escreva a justificativa.");
+    const resumo = correcao ? itens.map(i => i.rotulo + ": " + i.comentario).concat(textoLivre ? [textoLivre] : []).join("; ") : textoLivre;
+    const stmts = [prep(env, "UPDATE admissoes SET status = ?, historico = ?, atualizado_em = ?, correcoes = ?, rascunho = CASE WHEN rascunho = '{}' THEN cadastro ELSE rascunho END, lembretes = 0, lembrete_em = NULL WHERE id = ?",
       correcao ? "CORRECAO_SOLICITADA" : "RECUSADA",
-      historicoMais(a.historico, quemE(u), correcao ? "Correção solicitada" : "Recusada pelo RH", textoLivre), agora(), a.id)];
+      historicoMais(a.historico, quemE(u), correcao ? "Correção solicitada" : "Recusada pelo RH", resumo), agora(),
+      correcao ? JSON.stringify({ em: agora(), por: u.nome || u.login || "", texto: textoLivre, itens }) : a.correcoes || "{}", a.id)];
     if (!correcao) stmts.push(prep(env, "UPDATE candidaturas SET status = 'Encerrado', atualizado_em = ? WHERE id = ?", agora(), a.candidatura_id));
     await env.DB.batch(stmts);
-    await registrarLog(env, quemE(u), correcao ? "ADMISSAO_CORRECAO" : "ADMISSAO_RECUSADA", "admissao", a.id, textoLivre);
+    await registrarLog(env, quemE(u), correcao ? "ADMISSAO_CORRECAO" : "ADMISSAO_RECUSADA", "admissao", a.id, resumo);
     notificar(env, ctx, a.email_contato,
       correcao ? "Ajustes no seu cadastro — Innomaker" : "Atualização da sua admissão — Innomaker",
       correcao ? "Precisamos de alguns ajustes no seu cadastro" : "Sua admissão não foi aprovada",
-      [`Olá, <b>${primeiro}</b>.`, (correcao ? "<b>O que precisa ser ajustado:</b><br>" : "<b>Justificativa:</b><br>") + textoLivre.replace(/\n/g, "<br>"),
-        correcao ? "Entre na Área do candidato, corrija e envie de novo." : "Se tiver dúvidas, responda este e-mail."],
+      [`Olá, <b>${esc(primeiro)}</b>.`,
+        correcao && itens.length ? "<b>O que precisa ser ajustado:</b><br>" + itens.map(i => `• <b>${esc(i.rotulo)}:</b> ${esc(i.comentario)}`).join("<br>") : "",
+        textoLivre ? (correcao ? "<b>Observação do RH:</b><br>" : "<b>Justificativa:</b><br>") + esc(textoLivre).replace(/\n/g, "<br>") : "",
+        correcao ? "Entre na Área do candidato: os itens aparecem destacados. Corrija e envie de novo." : "Se tiver dúvidas, responda este e-mail."].filter(Boolean),
       { texto: "Abrir Área do candidato", url: linkArea(env) });
     return { ok: true };
   }
@@ -624,7 +833,7 @@ async function admDecidir(env, ctx, b, u) {
 async function funcListar(env) {
   const linhas = await todos(env,
     `SELECT f.matricula, f.nome, f.email, f.email_innomaker, f.cargo, f.funcao, f.departamento, f.tipo_contratacao,
-            f.data_efetivacao, f.data_final_contrato, f.ponto_cadastrado, f.documentos_conferidos, f.onboarding_ok, f.ativo, f.planilha_status,
+            f.data_efetivacao, f.data_final_contrato, f.ponto_cadastrado, f.documentos_conferidos, f.onboarding_ok, f.acessos_ok, f.ativo, f.planilha_status,
             (SELECT COUNT(*) FROM documentos d WHERE d.funcionario_matricula = f.matricula AND d.status = 'AGUARDANDO_ASSINATURA') AS docs_pendentes,
             (SELECT COUNT(*) FROM documentos d WHERE d.funcionario_matricula = f.matricula AND d.status = 'ASSINADO') AS docs_assinados
        FROM funcionarios f ORDER BY f.matricula DESC`);
@@ -659,7 +868,7 @@ async function funcDetalhe(env, ctx, b) {
 const CAMPOS_FUNC_TEXTO = ["nome", "email", "email_innomaker", "telefone", "situacao", "cargo", "funcao", "departamento", "setor",
   "horario_trabalho", "tipo_contratacao", "bolsa_valor", "auxilio", "responsavel", "entidade_vinculada", "principais_funcoes",
   "data_efetivacao", "data_final_contrato"];
-const CAMPOS_FUNC_FLAG = ["ponto_cadastrado", "documentos_conferidos", "onboarding_ok", "ativo"];
+const CAMPOS_FUNC_FLAG = ["ponto_cadastrado", "documentos_conferidos", "onboarding_ok", "acessos_ok", "ativo"];
 const CAMPOS_DADOS = ["cpf", "rg", "cnh", "ctps", "sexo", "data_nascimento", "cep", "endereco", "bairro", "cidade", "estado", "banco",
   "agencia", "conta", "tipo_conta", "pix_numero", "pix_banco", "grau_instrucao", "area_formacao", "instituicao_ensino", "cr",
   "matricula_uff", "curriculo_lattes", "nome_emergencia", "telefone_emergencia"];
@@ -686,6 +895,13 @@ async function funcAtualizar(env, ctx, b, u) {
   }
   if (!sets.length) return { ok: true };
   await executar(env, `UPDATE funcionarios SET ${sets.join(", ")}, atualizado_em = ? WHERE matricula = ?`, ...vals, agora(), f.matricula);
+  // mesma data na trilha da admissão
+  if (f.admissao_id) {
+    const a = await um(env, "SELECT * FROM admissoes WHERE id = ?", f.admissao_id);
+    if (a) for (const [passo, col] of Object.entries(PASSOS_MANUAIS)) {
+      if (b[col] !== undefined && !!b[col] !== !!f[col]) await marcarPasso(env, await um(env, "SELECT * FROM admissoes WHERE id = ?", a.id), passo, !!b[col], u);
+    }
+  }
   await registrarLog(env, quemE(u), "FUNCIONARIO_ATUALIZADO", "funcionario", f.matricula, Object.keys(b).filter(k => k !== "matricula").join(", "));
   return { ok: true };
 }
@@ -723,7 +939,7 @@ async function cfgObter(env) {
   (await todos(env, "SELECT tipo, valor FROM listas ORDER BY ordem, valor")).forEach(l => { (listas[l.tipo] = listas[l.tipo] || []).push(l.valor); });
   const modelos = (await todos(env, "SELECT * FROM modelos_documento ORDER BY nome")).map(m => Object.assign(m, { campos: camposUsados(m.conteudo) }));
   return { ok: true, config, departamentos, listas, tiposLista: TIPOS_LISTA, modelos, camposDocumento: CAMPOS_DOCUMENTO,
-    planilhaConfigurada: planilhaConfigurada(env), lgpd: await prazosLgpd(env),
+    planilhaConfigurada: planilhaConfigurada(env), lgpd: await prazosLgpd(env), admissaoDocumentos: listaDocumentos(config),
     lgpdVencidos: (await candidatosVencidos(env)).length,
     backup: env.BACKUP ? env.BACKUP.status() : null };
 }
@@ -1017,7 +1233,9 @@ const HANDLERS = {
   agenda_salvar: agendaSalvar, agenda_encerrar: agendaEncerrar, agenda_convidar: agendaConvidar,
   agenda_cancelar_reserva: agendaCancelarReserva, agenda_participante: agendaParticipante,
   talentos_listar: talentosListar, talento_salvar: talentoSalvar, talento_convidar: talentoConvidar,
-  indicadores, cfg_salvar_lgpd: cfgSalvarLgpd, candidato_excluir: candidatoExcluir
+  indicadores, cfg_salvar_lgpd: cfgSalvarLgpd, candidato_excluir: candidatoExcluir,
+  adm_proposta_salvar: admPropostaSalvar, adm_cancelar: admCancelar, adm_passo: admPasso, adm_pedir_acessos: admPedirAcessos,
+  adm_area: admArea, cfg_salvar_admissao: cfgSalvarAdmissao
 };
 
 export { podeVerVaga };

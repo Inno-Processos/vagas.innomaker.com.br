@@ -8,7 +8,9 @@ import { um, todos, executar, prep, registrarLog, lerConfig } from "./db.js";
 import { apagarArquivo } from "./arquivos.js";
 import { liberarReservasDaCandidatura } from "../api/agendamento.js";
 
-export const STATUS_ADM_ENCERRADOS = ["PROPOSTA_RECUSADA", "RECUSADA"];
+import { ADM_ENCERRADAS } from "./admissao.js";
+
+export const STATUS_ADM_ENCERRADOS = ADM_ENCERRADAS; // recusada, cancelada, proposta recusada ou vencida
 const ATIVAS = ["Em processo", "Aprovado", "Proposta"];
 
 const mesesAtras = meses => {

@@ -62,7 +62,7 @@ As telas chamam o backend sempre pelo frontend (mesma origem, sem CORS):
 ```
 GET  /api/site/inicio         vagas, candidato logado e se há sessão de funcionário (site público)
 GET  /api/vagas               vagas abertas
-POST /api/candidato/<acao>    inscrever, login, sair, esqueci, senha, area, proposta, cadastro, assinar, privacidade, excluir
+POST /api/candidato/<acao>    inscrever, login, sair, esqueci, senha, area, proposta, rascunho, anexar, desanexar, cadastro, assinar, privacidade, excluir
 GET  /api/painel/sessao       200 usuário e permissões · 401 sem login (com loginUrl) · 403 sem grupo
 POST /api/staff/<acao>        ações do painel (lista em backend/src/lib/papeis.js)
 GET  /api/documento/<id>      documento para ler/assinar (candidato dono ou RH)

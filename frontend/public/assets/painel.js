@@ -126,6 +126,7 @@
     "PROPOSTA_ENVIADA": ["Proposta enviada", "cinza"], "PROPOSTA_RECUSADA": ["Proposta recusada", "verm"],
     "COMPLETANDO_CADASTRO": ["Preenchendo cadastro", "azul"], "AGUARDANDO_APROVACAO": ["Aguardando aprovação", "ambar"],
     "CORRECAO_SOLICITADA": ["Correção solicitada", "ambar"], "RECUSADA_ADM": ["Recusada pelo RH", "verm"],
+    "PROPOSTA_EXPIRADA": ["Proposta vencida", "verm"], "CANCELADA": ["Cancelada", "cinza"],
     // Documentos
     "AGUARDANDO_ASSINATURA": ["Aguardando assinatura", "ambar"], "ASSINADO": ["Assinado", "verde"], "CANCELADO": ["Cancelado", "cinza"]
   };
@@ -270,6 +271,8 @@
       desc: "Acompanhe a análise do RH e corrija as recusadas com alteração." },
     { id: "minhas-vagas", nome: "Vagas da minha área", acao: "minhas_vagas", render: viewMinhasVagas, soSe: () => !pode("vagas_todas"),
       desc: "Veja os candidatos das vagas que você pediu." },
+    { id: "adm-area", nome: "Admissões da área", acao: "adm_area", render: viewAdmArea, soSe: () => !pode("adm_listar"),
+      desc: "Acompanhe as contratações da sua área até o primeiro dia." },
     { grupo: "RH" },
     { id: "solicitacoes", nome: "Solicitações", acao: "solic_listar", render: viewSolicitacoes,
       desc: "Analise os pedidos dos gestores: aprove, recuse ou recuse com alteração." },
@@ -310,6 +313,7 @@
     "solicitacoes": "M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9",
     "vagas": "M3 8h18v12H3zM8 8V5h8v3M3 13h18",
     "admissoes": "M9 4h6v3H9zM15 5h3v16H6V5h3M9 13l2 2 4-4",
+    "adm-area": "M9 4h6v3H9zM15 5h3v16H6V5h3M9 13l2 2 4-4",
     "funcionarios": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
     "talentos": "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z",
     "indicadores": "M3 3v18h18M8 17v-5M13 17V8M18 17v-8",
@@ -1563,45 +1567,101 @@
     }) && recarregar();
   }
 
+  // ---------- Proposta: formulário (enviar e editar) ----------
+  const hojeBR = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const maisDias = n => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() + n * 864e5));
+  const OBRIG_PROPOSTA = ["email_contato", "tipo_contratacao", "cargo", "funcao", "departamento", "horario_trabalho", "data_inicio", "bolsa_valor", "prazo_resposta"];
+
+  function formProposta(op, v, aviso) {
+    const deps = op.departamentos.map(d => d.nome);
+    return el("form", { novalidate: true },
+      el("p", { class: "suave", style: "margin:0 0 12px" }, aviso),
+      el("div", { class: "campos" },
+        campo("E-mail pessoal do candidato (não pode ser IdUFF)", entrada("email_contato", v.email_contato, { type: "email" }), { obrigatorio: true, nome: "email_contato" }),
+        campo("Responder até", entrada("prazo_resposta", v.prazo_resposta || maisDias(5), { type: "date", min: hojeBR() }),
+          { obrigatorio: true, nome: "prazo_resposta", dica: "Depois desse dia a proposta vence sozinha e o RH é avisado." }),
+        campo("Tipo de contratação", seletor("tipo_contratacao", lista(op, "tipo_contratacao"), v.tipo_contratacao), { obrigatorio: true, nome: "tipo_contratacao",
+          dica: "Define os documentos que o candidato precisa enviar (Configurações → Admissão)." }),
+        campo("Situação", seletor("situacao", lista(op, "situacao"), v.situacao || "")),
+        campo("Cargo", el("div", null, comLista(entrada("cargo", v.cargo || ""), lista(op, "cargo"))), { obrigatorio: true, nome: "cargo" }),
+        campo("Função", el("div", null, comLista(entrada("funcao", v.funcao || ""), lista(op, "funcao"))), { obrigatorio: true, nome: "funcao" }),
+        campo("Departamento", el("div", null, comLista(entrada("departamento", v.departamento || ""), deps)), { obrigatorio: true, nome: "departamento" }),
+        campo("Setor", el("div", null, comLista(entrada("setor", v.setor || ""), lista(op, "setor")))),
+        campo("Horário de trabalho", el("div", null, comLista(entrada("horario_trabalho", v.horario_trabalho || ""), lista(op, "horario"))), { obrigatorio: true, nome: "horario_trabalho" }),
+        campo("Data de início (onboarding)", entrada("data_inicio", v.data_inicio || "", { type: "date" }), { obrigatorio: true, nome: "data_inicio" }),
+        campo("Bolsa / remuneração", entrada("bolsa_valor", v.bolsa_valor || ""), { obrigatorio: true, nome: "bolsa_valor" }),
+        campo("Auxílio", seletor("auxilio", lista(op, "auxilio"), v.auxilio || "")),
+        campo("Responsável", entrada("responsavel", v.responsavel || "")),
+        campo("Entidade vinculada", entrada("entidade_vinculada", v.entidade_vinculada || "")),
+        campo("Início da bolsa", entrada("data_inicial_bolsa", v.data_inicial_bolsa || "", { type: "date" })),
+        campo("Fim da bolsa / contrato", entrada("data_final_bolsa", v.data_final_bolsa || "", { type: "date" }), { dica: "Se vazio, o contrato vale 1 ano a partir do início." }),
+        campo("Gestor", entrada("gestor_nome", v.gestor_nome || "")),
+        campo("E-mail do gestor", entrada("gestor_email", v.gestor_email || "", { type: "email" }), { dica: "Recebe o aviso da aprovação e da véspera do 1º dia." }),
+        campo("Observação interna", areaTexto("observacao", v.observacao || ""), { largo: true, dica: "Só o RH vê." })),
+      el("label", { class: "check", style: "margin-top:12px", dataset: { campo: "conferido" } }, el("input", { type: "checkbox", name: "conferido" }),
+        el("span", null, "Conferi todas as informações.")));
+  }
+
+  function lerFormProposta(f) {
+    const d = lerForm(f);
+    const falta = OBRIG_PROPOSTA.filter(k => !String(d[k] || "").trim());
+    if (!d.conferido) falta.push("conferido");
+    if (falta.length) { marcarFaltando(f, falta); return { erro: "Preencha os campos obrigatórios e confirme a conferência." }; }
+    if (/@id\.uff\.br$/i.test(d.email_contato)) return { erro: "Não é permitido usar e-mail @id.uff.br." };
+    const extra = { email_contato: d.email_contato, prazo_resposta: d.prazo_resposta };
+    delete d.email_contato; delete d.prazo_resposta; delete d.conferido;
+    return Object.assign(extra, { proposta: d });
+  }
+
   async function abrirProposta(c, vaga) {
     const op = await opcoes();
-    const deps = op.departamentos.map(d => d.nome);
-    const f = el("form", { novalidate: true },
-      el("p", { class: "suave", style: "margin:0 0 12px" }, "Revisão obrigatória: confira se tudo pertence ao candidato correto e à contratação autorizada. A data de início é a mesma do onboarding."),
-      el("div", { class: "campos" },
-        campo("E-mail pessoal do candidato (não pode ser IdUFF)", entrada("email_contato", c.email, { type: "email" }), { obrigatorio: true, largo: true, nome: "email_contato" }),
-        campo("Tipo de contratação", seletor("tipo_contratacao", lista(op, "tipo_contratacao"), vaga.tipo_contratacao), { obrigatorio: true, nome: "tipo_contratacao" }),
-        campo("Situação", seletor("situacao", lista(op, "situacao"), "")),
-        campo("Cargo", el("div", null, comLista(entrada("cargo", ""), lista(op, "cargo"))), { obrigatorio: true, nome: "cargo" }),
-        campo("Função", el("div", null, comLista(entrada("funcao", vaga.titulo), lista(op, "funcao"))), { obrigatorio: true, nome: "funcao" }),
-        campo("Departamento", el("div", null, comLista(entrada("departamento", vaga.departamento), deps)), { obrigatorio: true, nome: "departamento" }),
-        campo("Setor", el("div", null, comLista(entrada("setor", ""), lista(op, "setor")))),
-        campo("Horário de trabalho", el("div", null, comLista(entrada("horario_trabalho", vaga.carga_horaria), lista(op, "horario"))), { obrigatorio: true, nome: "horario_trabalho" }),
-        campo("Data de início (onboarding)", entrada("data_inicio", "", { type: "date" }), { obrigatorio: true, nome: "data_inicio" }),
-        campo("Bolsa / remuneração", entrada("bolsa_valor", vaga.remuneracao), { obrigatorio: true, nome: "bolsa_valor" }),
-        campo("Auxílio", seletor("auxilio", lista(op, "auxilio"), "")),
-        campo("Responsável", entrada("responsavel", vaga.gestor_nome)),
-        campo("Entidade vinculada", entrada("entidade_vinculada", "")),
-        campo("Início da bolsa", entrada("data_inicial_bolsa", "", { type: "date" })),
-        campo("Fim da bolsa / contrato", entrada("data_final_bolsa", "", { type: "date" }), { dica: "Se vazio, o contrato vale 1 ano a partir do início." }),
-        campo("Gestor", entrada("gestor_nome", vaga.gestor_nome)),
-        campo("E-mail do gestor", entrada("gestor_email", vaga.gestor_email, { type: "email" })),
-        campo("Observação interna", areaTexto("observacao", ""), { largo: true })),
-      el("label", { class: "check", style: "margin-top:12px", dataset: { campo: "conferido" } }, el("input", { type: "checkbox", name: "conferido" }),
-        el("span", null, "Conferi todas as informações antes de enviar.")));
+    const f = formProposta(op, { email_contato: c.email, tipo_contratacao: vaga.tipo_contratacao, funcao: vaga.titulo, departamento: vaga.departamento,
+      horario_trabalho: vaga.carga_horaria, bolsa_valor: vaga.remuneracao, responsavel: vaga.gestor_nome, gestor_nome: vaga.gestor_nome, gestor_email: vaga.gestor_email },
+      "Revisão obrigatória: confira se tudo pertence ao candidato correto e à contratação autorizada. A data de início é a mesma do onboarding.");
     await dialogo({
       titulo: "Proposta para " + c.nome, corpo: f, okTexto: "Enviar proposta", largo: true,
       aoConfirmar: async () => {
-        const d = lerForm(f);
-        const falta = ["email_contato", "tipo_contratacao", "cargo", "funcao", "departamento", "horario_trabalho", "data_inicio", "bolsa_valor"].filter(k => !String(d[k] || "").trim());
-        if (!d.conferido) falta.push("conferido");
-        if (falta.length) { marcarFaltando(f, falta); return "Preencha os campos obrigatórios e confirme a conferência."; }
-        if (/@id\.uff\.br$/i.test(d.email_contato)) return "Não é permitido enviar proposta para e-mail @id.uff.br.";
-        const email = d.email_contato;
-        delete d.email_contato; delete d.conferido;
-        const r = await api("proposta_criar", { candidatura_id: c.id, email_contato: email, proposta: d });
+        const d = lerFormProposta(f);
+        if (d.erro) return d.erro;
+        const r = await api("proposta_criar", Object.assign({ candidatura_id: c.id }, d));
         if (!r.ok) return r.erro;
         toast("Proposta " + r.id + " enviada.");
+        return true;
+      }
+    }) && recarregar();
+  }
+
+  async function editarProposta(a) {
+    const op = await opcoes();
+    const aceita = ["COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO"].indexOf(a.status) >= 0;
+    const aviso = a.status === "PROPOSTA_EXPIRADA" ? "A proposta venceu. Dê um novo prazo para reabrir: o candidato recebe um e-mail."
+      : aceita ? "O candidato já aceitou. Se mudar algo que ele vê (bolsa, horário, função, datas…), ele precisa aceitar de novo; o cadastro dele é mantido. Mudanças só no que é interno não reabrem a proposta."
+      : "O candidato ainda não respondeu. Ele recebe um e-mail com o que mudou.";
+    const f = formProposta(op, Object.assign({ email_contato: a.email_contato, prazo_resposta: a.prazo_resposta && a.prazo_resposta >= hojeBR() ? a.prazo_resposta : maisDias(5) }, a.proposta), aviso);
+    await dialogo({
+      titulo: "Editar proposta — " + a.candidato_nome, corpo: f, okTexto: "Salvar proposta", largo: true,
+      aoConfirmar: async () => {
+        const d = lerFormProposta(f);
+        if (d.erro) return d.erro;
+        const r = await api("adm_proposta_salvar", Object.assign({ id: a.id }, d));
+        if (!r.ok) return r.erro;
+        toast(r.precisaAceitar ? "Proposta salva. O candidato foi avisado e precisa aceitar." : "Proposta salva (sem mudar nada que o candidato vê).");
+        return true;
+      }
+    }) && recarregar();
+  }
+
+  async function cancelarAdm(a) {
+    const motivo = areaTexto("motivo", "", { placeholder: "Ex.: vaga suspensa pela diretoria." });
+    const avisar = el("input", { type: "checkbox", checked: true });
+    await dialogo({
+      titulo: "Cancelar admissão de " + a.candidato_nome, okTexto: "Cancelar admissão", okClasse: "bt-perigo",
+      corpo: el("div", null, el("div", { class: "nota ambar", style: "margin:0 0 12px" }, "O candidato volta a \"Aprovado no processo\": você pode enviar outra proposta depois. O cadastro e os arquivos ficam guardados no histórico."),
+        campo("Motivo", motivo, { largo: true }), el("label", { class: "check", style: "margin-top:10px" }, avisar, el("span", null, "Avisar o candidato por e-mail (com o motivo)"))),
+      aoConfirmar: async () => {
+        const r = await api("adm_cancelar", { id: a.id, motivo: motivo.value, avisar: avisar.checked });
+        if (!r.ok) return r.erro;
+        toast("Admissão cancelada.");
         return true;
       }
     }) && recarregar();
@@ -1610,32 +1670,53 @@
   // =================================================================
   //  Admissões (RHC-PROC-2026-003)
   // =================================================================
-  function viewAdmissoes(box) {
-    box.append(cabecalho("Admissões", "Envie propostas pela vaga (Candidatos → Enviar proposta). Toda ação automática deve ser conferida pelo RH."));
-    carregarEm(box, "adm_listar", {}, (area, r) => {
-      const grupo = i => ({ AGUARDANDO_APROVACAO: "conferir", PROPOSTA_ENVIADA: "andamento", COMPLETANDO_CADASTRO: "andamento", CORRECAO_SOLICITADA: "andamento",
-        APROVADA: "aprovadas", PROPOSTA_RECUSADA: "encerradas", RECUSADA: "encerradas" })[i.status];
-      if (!r.itens.length) return area.append(el("div", { class: "vazio" }, "Nenhuma admissão ainda. Envie uma proposta a partir dos candidatos de uma vaga."));
-      listaFiltrada(area, r.itens, {
-        inicial: r.itens.some(i => i.status === "AGUARDANDO_APROVACAO") ? "conferir" : "todas",
-        filtros: [["conferir", "Para conferir"], ["andamento", "Em andamento"], ["aprovadas", "Aprovadas"], ["encerradas", "Encerradas"], ["todas", "Todas"]],
-        grupo, placeholder: "Buscar por candidato, vaga ou ID", texto: i => [i.id, i.candidato_nome, i.email_contato, i.titulo_vaga].join(" "),
-        desenhar: (alvo, vis) => vis.forEach(i => alvo.append(el("a", { class: "card atalho", href: "#admissao/" + i.id },
-          el("div", { class: "item-topo" },
-            el("div", null, el("h3", null, i.candidato_nome),
-              el("div", { class: "meta" }, el("span", null, el("b", null, i.titulo_vaga)), el("span", null, i.id), i.data_inicio ? el("span", null, "Início " + fmtData(i.data_inicio)) : null,
-                el("span", null, "Atualizado " + fmtData(i.atualizado_em, true)))),
-            pillAdm(i.status)))))
-      });
+  function trilhaMini(t) {
+    return el("div", { class: "trilha-mini", title: t.passos.map(p => (p.feito ? "✓ " : "· ") + p.nome).join("\n") },
+      el("div", { class: "trilha", "aria-hidden": "true" }, t.passos.map(p => el("span", { class: "passo " + (p.feito ? "concluida" : p.encerrado ? "recusada" : p.bloqueado ? "bloqueada" : "atual") }))),
+      el("span", { class: "mini" }, t.concluida ? "Admissão concluída" : t.feitos + " de " + t.total + (t.proximo ? " · Próximo: " + t.proximo : "")));
+  }
+
+  function prazoPill(a, hoje) {
+    if (a.status !== "PROPOSTA_ENVIADA" || !a.prazo_resposta) return null;
+    const vencendo = a.prazo_resposta <= maisDias(1);
+    return el("span", { class: "pill " + (a.prazo_resposta < hoje ? "verm" : vencendo ? "ambar" : "cinza") }, "Responder até " + fmtData(a.prazo_resposta));
+  }
+
+  function listaAdmissoes(area, itens, hoje, comFiltros) {
+    const grupo = i => i.status === "AGUARDANDO_APROVACAO" ? "conferir"
+      : ["PROPOSTA_ENVIADA", "COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA"].indexOf(i.status) >= 0 ? "andamento"
+      : i.status === "APROVADA" ? (i.trilha.concluida ? "concluidas" : "pos") : "encerradas";
+    listaFiltrada(area, itens, {
+      inicial: comFiltros && itens.some(i => grupo(i) === "conferir") ? "conferir" : "todas",
+      filtros: [["conferir", "Para conferir"], ["andamento", "Com o candidato"], ["pos", "Pós-aprovação"], ["concluidas", "Concluídas"], ["encerradas", "Encerradas"], ["todas", "Todas"]],
+      grupo, placeholder: "Buscar por candidato, vaga ou ID", texto: i => [i.id, i.candidato_nome, i.email_contato, i.titulo_vaga].join(" "),
+      desenhar: (alvo, vis) => vis.forEach(i => alvo.append(el(comFiltros ? "a" : "div", { class: "card" + (comFiltros ? " atalho" : ""), href: comFiltros ? "#admissao/" + i.id : null },
+        el("div", { class: "item-topo" },
+          el("div", null, el("h3", null, i.candidato_nome),
+            el("div", { class: "meta" }, el("span", null, el("b", null, i.titulo_vaga)), el("span", null, i.id), i.data_inicio ? el("span", null, "Início " + fmtData(i.data_inicio)) : null,
+              el("span", null, "Atualizado " + fmtData(i.atualizado_em, true)))),
+          el("div", { class: "acoes" }, prazoPill(i, hoje), pillAdm(i.status))),
+        trilhaMini(i.trilha))))
     });
   }
 
-  const ROTULOS_CADASTRO = [["nome", "Nome"], ["cpf", "CPF"], ["rg", "RG"], ["cnh", "CNH"], ["ctps", "CTPS"], ["sexo", "Sexo"], ["data_nascimento", "Nascimento"],
-    ["telefone", "Telefone"], ["email_pessoal", "E-mail pessoal"], ["curriculo_lattes", "Lattes"], ["cep", "CEP"], ["endereco", "Endereço"], ["bairro", "Bairro"],
-    ["cidade", "Cidade"], ["estado", "UF"], ["grau_instrucao", "Grau de instrução"], ["area_formacao", "Curso"], ["instituicao_ensino", "Instituição"],
-    ["matricula_uff", "Matrícula UFF"], ["cr", "CR"], ["email_innomaker", "E-mail Innomaker"], ["banco", "Banco"], ["agencia", "Agência"], ["conta", "Conta"],
-    ["tipo_conta", "Tipo de conta"], ["pix_numero", "PIX"], ["pix_banco", "Banco do PIX"], ["nome_emergencia", "Contato de emergência"], ["telefone_emergencia", "Telefone de emergência"]];
-  const ROTULOS_ARQUIVO = { doc_pessoais: "Documentos pessoais", doc_curriculo: "Currículo", doc_matricula: "Matrícula", doc_cr: "Declaração de CR", doc_plano: "Plano de estudos" };
+  function viewAdmissoes(box) {
+    box.append(cabecalho("Admissões", "Envie propostas pela vaga (Candidatos → Enviar proposta). Cada admissão mostra a trilha até o onboarding."));
+    carregarEm(box, "adm_listar", {}, (area, r) => {
+      if (!r.itens.length) return area.append(el("div", { class: "vazio" }, "Nenhuma admissão ainda. Envie uma proposta a partir dos candidatos de uma vaga."));
+      listaAdmissoes(area, r.itens, r.hoje, true);
+    });
+  }
+
+  function viewAdmArea(box) {
+    box.append(cabecalho("Admissões da minha área", "Acompanhe as contratações das vagas da sua área: proposta, cadastro, documentos e primeiro dia."));
+    carregarEm(box, "adm_area", {}, (area, r) => {
+      if (!r.itens.length) return area.append(el("div", { class: "vazio" }, "Nenhuma admissão nas vagas da sua área."));
+      listaAdmissoes(area, r.itens, hojeBR(), false);
+    });
+  }
+
+  const ETAPAS_CADASTRO = [["pessoais", "Dados pessoais"], ["endereco", "Endereço e emergência"], ["formacao", "Formação"], ["banco", "Dados bancários"]];
 
   async function viewAdmissaoDetalhe(box, id) {
     const a0 = el("div", null, carregando());
@@ -1645,20 +1726,61 @@
     if (!r.ok) return box.append(msg("erro", r.erro));
     const a = r.admissao, p = a.proposta, c = a.cadastro;
     const st = a.status;
+    const conferindo = st === "AGUARDANDO_APROVACAO";
+    const marcados = new Map(); // itens marcados para correção
+    const antesAprov = ["PROPOSTA_ENVIADA", "COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO", "PROPOSTA_EXPIRADA"].indexOf(st) >= 0;
     box.append(cabecalho(a.candidato_nome, a.titulo_vaga + " · " + a.id, [
-      st === "AGUARDANDO_APROVACAO" ? el("button", { type: "button", class: "bt", onclick: () => aprovarAdm(a, r.modelos) }, "Aprovar cadastro") : null,
-      st === "AGUARDANDO_APROVACAO" ? el("button", { type: "button", class: "bt-alerta", onclick: () => decidirAdm(a, "correcao") }, "Pedir correção") : null,
-      st === "AGUARDANDO_APROVACAO" ? el("button", { type: "button", class: "bt-perigo", onclick: () => decidirAdm(a, "recusar") }, "Recusar") : null,
-      ["PROPOSTA_ENVIADA", "COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA"].indexOf(st) >= 0 ? el("button", { type: "button", class: "bt-sec", onclick: () => reenviarAdm(a) }, "Reenviar proposta") : null,
+      conferindo ? el("button", { type: "button", class: "bt", onclick: () => aprovarAdm(a, r.modelos, r.documentosFaltando) }, "Aprovar cadastro") : null,
+      antesAprov ? el("button", { type: "button", class: "bt-sec", onclick: () => editarProposta(a) }, st === "PROPOSTA_EXPIRADA" ? "Reabrir proposta" : "Editar proposta") : null,
+      ["PROPOSTA_ENVIADA", "COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA"].indexOf(st) >= 0 ? el("button", { type: "button", class: "bt-sec", onclick: () => reenviarAdm(a) }, "Reenviar e-mail") : null,
+      conferindo ? el("button", { type: "button", class: "bt-alerta", onclick: () => decidirAdm(a, "correcao", [...marcados.values()]) }, "Pedir correção") : null,
+      conferindo ? el("button", { type: "button", class: "bt-perigo", onclick: () => decidirAdm(a, "recusar") }, "Recusar") : null,
+      antesAprov ? el("button", { type: "button", class: "bt-perigo-txt", onclick: () => cancelarAdm(a) }, "Cancelar admissão") : null,
       a.funcionario_id ? el("a", { class: "bt", href: "#funcionario/" + a.funcionario_id }, "Ver funcionário") : null
     ], ["#admissoes", "Admissões"]));
 
-    box.append(el("div", { class: "card" }, el("div", { class: "meta" }, pillAdm(st), el("span", null, "E-mail: " + a.email_contato))));
-    if (st === "AGUARDANDO_APROVACAO") box.append(el("div", { class: "nota ambar" }, el("strong", null, "Conferência obrigatória (item 4.5)"),
-      "Verifique se todos os campos estão preenchidos, se os documentos obrigatórios foram enviados, se os dados conferem com os documentos e se os arquivos estão legíveis. " +
-      "Se faltar algo, use \"Pedir correção\" com a lista exata do que ajustar."));
-    if (st === "APROVADA") box.append(el("div", { class: "nota verde" }, el("strong", null, "Depois da aprovação (manual)"),
-      "• Confira se o funcionário recebeu e assinou os documentos (Funcionários).\n• Registre a conferência dos documentos assinados.\n• Cadastre no aplicativo de ponto.\n• Prepare o onboarding para o primeiro dia."));
+    box.append(el("div", { class: "card" }, el("div", { class: "meta" }, pillAdm(st), el("span", null, "E-mail: " + a.email_contato),
+      st === "PROPOSTA_ENVIADA" && a.prazo_resposta ? el("span", null, "Responder até ", el("b", null, fmtData(a.prazo_resposta))) : null,
+      a.prazo_vencido ? el("span", { class: "pill verm" }, "Prazo vencido") : null)));
+
+    // Trilha da admissão
+    box.append(el("h2", { class: "sec" }, "Trilha da admissão"), cartaoTrilha(a, r.trilha, r.emailAcessos));
+
+    // Itens corrigidos pelo candidato (depois de um pedido de correção)
+    const corr = a.correcoes || {};
+    const ultima = (a.historico || []).slice(-1)[0] || {};
+    if (conferindo && corr.itens && corr.itens.length && ultima.acao === "Cadastro corrigido") {
+      box.append(el("div", { class: "nota azul" }, el("strong", null, "O candidato corrigiu o que você pediu em " + fmtData(corr.em, true)),
+        el("ul", { class: "lista-corrigidos" }, corr.itens.map(i => el("li", null, el("b", null, i.rotulo + ": "),
+          i.tipo === "campo" ? [el("span", { class: "antes" }, i.valor_antes || "(vazio)"), " → ", el("b", null, c[i.chave] || "(vazio)")] : "novo arquivo enviado (veja abaixo)",
+          el("span", { class: "mini" }, " — pedido: " + i.comentario))))));
+    }
+
+    // Itens marcados para correção (só na conferência)
+    const barra = el("div", { class: "barra-correcao", hidden: true });
+    const pintarBarra = () => {
+      limpar(barra);
+      barra.hidden = !marcados.size;
+      if (!marcados.size) return;
+      barra.append(el("span", null, el("b", null, String(marcados.size)), " item(ns) marcado(s) para correção"),
+        el("button", { type: "button", class: "bt-alerta", onclick: () => decidirAdm(a, "correcao", [...marcados.values()]) }, "Pedir correção"));
+    };
+    const bandeira = (tipo, chave, rotulo, linha) => {
+      if (!conferindo) return null;
+      const k = tipo + ":" + chave;
+      const bt = el("button", { type: "button", class: "bt-flag", title: "Marcar para correção", "aria-pressed": "false", onclick: () => {
+        if (marcados.has(k)) marcados.delete(k); else marcados.set(k, { tipo, chave, rotulo });
+        bt.setAttribute("aria-pressed", String(marcados.has(k)));
+        bt.textContent = marcados.has(k) ? "Marcado" : "Corrigir";
+        linha.classList.toggle("marcado", marcados.has(k));
+        pintarBarra();
+      } }, "Corrigir");
+      return bt;
+    };
+
+    if (conferindo) box.append(el("div", { class: "nota ambar" }, el("strong", null, "Conferência obrigatória (item 4.5)"),
+      "Confira cada campo e documento. Clique em \"Corrigir\" no que estiver errado; depois \"Pedir correção\" com o que ajustar em cada item. " +
+      "O candidato vê só os itens marcados. Se estiver tudo certo, use \"Aprovar cadastro\"."));
 
     box.append(el("h2", { class: "sec" }, "Proposta"), el("div", { class: "card" }, dados([
       ["Contratação", p.tipo_contratacao], ["Situação", p.situacao], ["Cargo", p.cargo], ["Função", p.funcao], ["Departamento", p.departamento], ["Setor", p.setor],
@@ -1667,12 +1789,40 @@
       ["Gestor", [p.gestor_nome, p.gestor_email].filter(Boolean).join(" — ")], ["Observação interna", p.observacao]])));
 
     if (Object.keys(c).length) {
-      box.append(el("h2", { class: "sec" }, "Cadastro enviado"), el("div", { class: "card" }, dados(ROTULOS_CADASTRO.map(([k, rot]) => [rot, k === "data_nascimento" ? fmtData(c[k]) : c[k]]))));
+      const flagados = new Set((corr.itens || []).map(i => i.tipo + ":" + i.chave));
+      box.append(el("h2", { class: "sec" }, "Cadastro enviado"), el("div", { class: "card cad-rh" }, ETAPAS_CADASTRO.map(([etapa, nomeEtapa]) =>
+        el("div", { class: "cad-bloco" }, el("h3", null, nomeEtapa), el("div", { class: "cad-linhas" }, r.camposCadastro.filter(x => x.etapa === etapa).map(x => {
+          const linha = el("div", { class: "cad-linha" + (x.obrigatorio && !c[x.chave] ? " vazio" : "") + (flagados.has("campo:" + x.chave) && ultima.acao === "Cadastro corrigido" ? " corrigido" : "") });
+          linha.append(el("span", { class: "cad-rot" }, x.rotulo), el("span", { class: "cad-val" }, (x.chave === "data_nascimento" ? fmtData(c[x.chave]) : c[x.chave]) || "—"),
+            bandeira("campo", x.chave, x.rotulo, linha));
+          return linha;
+        }))))));
     }
-    box.append(el("h2", { class: "sec" }, "Documentos enviados"), r.arquivos.length
-      ? el("div", { class: "card" }, el("ul", { style: "margin:0;padding-left:18px" }, r.arquivos.map(x =>
-        el("li", null, el("b", null, (ROTULOS_ARQUIVO[x.categoria] || x.categoria) + ": "), el("a", { href: "/arquivo/" + x.id, target: "_blank", rel: "noopener" }, x.nome)))))
-      : el("div", { class: "vazio" }, "Nenhum arquivo enviado ainda."));
+
+    // Documentos: um por tipo, com os obrigatórios do contrato
+    const faltando = new Set(r.documentosFaltando || []);
+    const porCat = cat => r.arquivos.filter(x => x.categoria === cat);
+    const antigos = r.arquivos.filter(x => !r.documentosExigidos.some(d => d.id === x.categoria));
+    const flagArq = new Set((corr.itens || []).filter(i => i.tipo === "arquivo").map(i => i.chave));
+    const linhasDocs = r.documentosExigidos.filter(d => d.obrigatorio || porCat(d.id).length).map(d => {
+      const linha = el("div", { class: "doc-linha" + (faltando.has(d.id) ? " vazio" : "") });
+      const arqs = porCat(d.id);
+      linha.append(el("div", { class: "doc-info" }, el("b", null, d.nome), d.obrigatorio ? el("span", { class: "mini" }, " obrigatório") : null,
+          el("div", { class: "doc-arqs" }, arqs.length ? arqs.map(x => el("a", { href: "/arquivo/" + x.id, target: "_blank", rel: "noopener",
+            class: flagArq.has(d.id) && corr.em && x.criado_em > corr.em ? "novo" : "" }, x.nome + (flagArq.has(d.id) && corr.em && x.criado_em > corr.em ? " (novo)" : ""))) : el("span", { class: "pill verm" }, "Falta"))),
+        arqs.length ? bandeira("arquivo", d.id, d.nome, linha) : null);
+      return linha;
+    });
+    antigos.forEach(x => {
+      const linha = el("div", { class: "doc-linha" });
+      linha.append(el("div", { class: "doc-info" }, el("b", null, x.categoria_nome), el("div", { class: "doc-arqs" }, el("a", { href: "/arquivo/" + x.id, target: "_blank", rel: "noopener" }, x.nome))),
+        bandeira("arquivo", x.categoria, x.categoria_nome, linha));
+      linhasDocs.push(linha);
+    });
+    box.append(el("h2", { class: "sec" }, "Documentos enviados"),
+      linhasDocs.length ? el("div", { class: "card docs-rh" }, linhasDocs) : el("div", { class: "vazio" }, "Nenhum arquivo enviado ainda."));
+    box.append(barra);
+
     if (r.documentos.length) {
       box.append(el("h2", { class: "sec" }, "Documentos para assinatura"), el("div", { class: "lista" }, r.documentos.map(d =>
         el("div", { class: "card item-topo" }, el("a", { href: "/documento/" + d.id, target: "_blank", rel: "noopener" }, el("b", null, d.titulo)), pill(d.status)))));
@@ -1681,7 +1831,50 @@
       a.historico.map(h => el("li", null, fmtData(h.quando, true) + " — ", el("b", null, h.acao), " (" + String(h.quem).replace(/ <.*>$/, "") + ")" + (h.texto ? ": " + h.texto : ""))))));
   }
 
-  async function aprovarAdm(a, modelos) {
+  function cartaoTrilha(a, t, emailAcessos) {
+    const lista = el("ol", { class: "trilha-adm" }, t.passos.map((p, i) => {
+      const estado = p.feito ? "feito" : p.encerrado ? "encerrado" : p.bloqueado ? "bloqueado" : "pendente";
+      const acoes = [];
+      if (p.manual && !p.bloqueado) {
+        acoes.push(el("button", { type: "button", class: p.feito ? "bt-perigo-txt" : "bt-sec", onclick: async ev => {
+          ev.currentTarget.disabled = true;
+          const res = await api("adm_passo", { id: a.id, passo: p.id, feito: !p.feito });
+          if (!res.ok) { ev.currentTarget.disabled = false; return toast(res.erro, true); }
+          toast(p.nome + (p.feito ? " desmarcado." : " marcado como feito."));
+          recarregar();
+        } }, p.feito ? "Desfazer" : "Marcar como feito"));
+        if (p.id === "acessos" && !p.feito) acoes.push(el("button", { type: "button", class: "bt-sec", onclick: () => pedirAcessos(a, emailAcessos) }, "Pedir acessos"));
+      }
+      return el("li", { class: "passo-adm " + estado },
+        el("span", { class: "passo-marca", "aria-hidden": "true" }, p.feito ? "✓" : p.encerrado ? "✕" : String(i + 1)),
+        el("div", { class: "passo-corpo" },
+          el("b", null, p.nome),
+          el("span", { class: "mini" }, [p.quando ? fmtData(p.quando, true) + (p.por ? " · " + p.por : "") : "", p.detalhe || "",
+            !p.feito && p.ajuda && !p.bloqueado ? p.ajuda : "", p.bloqueado && !p.feito ? "Depois da aprovação do cadastro" : ""].filter(Boolean).join(" · "))),
+        acoes.length ? el("div", { class: "acoes" }, acoes) : null);
+    }));
+    return el("div", { class: "card" }, el("div", { class: "trilha-cab" }, el("b", null, t.concluida ? "Admissão concluída" : t.feitos + " de " + t.total + " passos"),
+      t.proximo ? el("span", { class: "pequeno suave" }, "Próximo: " + t.proximo) : null), lista);
+  }
+
+  async function pedirAcessos(a, emailPadrao) {
+    const para = entrada("para", emailPadrao || "", { type: "email", placeholder: "ti@innomaker.com.br" });
+    const obs = areaTexto("obs", "", { rows: "3", placeholder: "Ex.: precisa de acesso ao SolidWorks e ao drive da Engenharia." });
+    await dialogo({
+      titulo: "Pedir acessos para " + a.candidato_nome, okTexto: "Enviar pedido",
+      corpo: el("div", null, el("p", { class: "suave pequeno", style: "margin:0 0 12px" }, "Vai um e-mail com nome, matrícula, cargo, departamento, data de início e e-mail pessoal. O e-mail padrão fica em Configurações → Admissão."),
+        el("div", { class: "campos" }, campo("Para", para, { largo: true }), campo("Observação", obs, { largo: true }))),
+      aoConfirmar: async () => {
+        const r = await api("adm_pedir_acessos", { id: a.id, para: para.value, observacao: obs.value });
+        if (!r.ok) return r.erro;
+        toast("Pedido de acessos enviado para " + r.para + ".");
+        return true;
+      }
+    }) && recarregar();
+  }
+
+  async function aprovarAdm(a, modelos, faltando) {
+    if (faltando && faltando.length) return toast("Faltam documentos obrigatórios. Peça correção antes de aprovar.", true);
     const itens = ["Todos os campos obrigatórios estão preenchidos", "Todos os documentos obrigatórios foram recebidos", "Os dados conferem com os documentos anexados",
       "Os arquivos estão completos e legíveis", "Não há informações divergentes ou incorretas"];
     const checks = itens.map(() => el("input", { type: "checkbox" }));
@@ -1705,16 +1898,25 @@
     }) && recarregar();
   }
 
-  async function decidirAdm(a, tipo) {
+  async function decidirAdm(a, tipo, itens) {
     const correcao = tipo === "correcao";
-    const t = el("textarea", { placeholder: correcao ? "Liste exatamente o que falta ou está incorreto." : "Justificativa enviada ao candidato." });
+    itens = itens || [];
+    const comentarios = itens.map(i => el("textarea", { rows: "2", placeholder: "O que ajustar em " + i.rotulo + "?" }));
+    const t = el("textarea", { rows: "3", placeholder: correcao ? (itens.length ? "Observação geral (opcional)" : "Liste exatamente o que falta ou está incorreto.") : "Justificativa enviada ao candidato." });
+    const corpo = el("div", null,
+      correcao ? (itens.length
+        ? el("div", { class: "lista-corrigir" }, itens.map((i, k) => el("div", { class: "campo" }, el("label", null, (i.tipo === "arquivo" ? "📎 " : "") + i.rotulo, el("span", { class: "req" }, " *")), comentarios[k])))
+        : el("div", { class: "nota azul", style: "margin:0 0 12px" }, "Dica: feche esta janela e clique em \"Corrigir\" nos campos e documentos com problema. O candidato vê cada item destacado."))
+        : el("div", { class: "nota ambar", style: "margin:0 0 12px" }, "Para pendências de dados ou documentos, prefira \"Pedir correção\". A recusa encerra a admissão."),
+      correcao && itens.length ? el("label", { class: "aval-rotulo", style: "margin-top:12px" }, "Observação geral") : null, t);
     await dialogo({
-      titulo: (correcao ? "Pedir correção a " : "Recusar admissão de ") + a.candidato_nome,
-      corpo: el("div", null, correcao ? null : el("div", { class: "nota ambar", style: "margin:0 0 12px" }, "Para pendências de dados ou documentos, prefira \"Pedir correção\". A recusa encerra a admissão."), t),
+      titulo: (correcao ? "Pedir correção a " : "Recusar admissão de ") + a.candidato_nome, corpo, largo: correcao && itens.length > 0,
       okTexto: correcao ? "Enviar pedido de correção" : "Recusar e avisar", okClasse: correcao ? "bt-alerta" : "bt-perigo",
       aoConfirmar: async () => {
-        if (t.value.trim().length < 5) return "Escreva o texto para o candidato.";
-        const r = await api("adm_decidir", { id: a.id, decisao: tipo, texto: t.value.trim() });
+        if (correcao && comentarios.some(x => x.value.trim().length < 3)) return "Escreva o que ajustar em cada item marcado.";
+        if (!itens.length && t.value.trim().length < 5) return "Escreva o texto para o candidato.";
+        const r = await api("adm_decidir", { id: a.id, decisao: tipo, texto: t.value.trim(),
+          itens: itens.map((i, k) => ({ tipo: i.tipo, chave: i.chave, comentario: comentarios[k].value.trim() })) });
         if (!r.ok) return r.erro;
         toast(correcao ? "Pedido de correção enviado." : "Recusa registrada.");
         return true;
@@ -1723,8 +1925,8 @@
   }
 
   async function reenviarAdm(a) {
-    await dialogo({ titulo: "Reenviar proposta", corpo: el("p", { style: "margin:0" }, "O e-mail da proposta será enviado de novo para " + a.email_contato + "."), okTexto: "Reenviar",
-      aoConfirmar: async () => { const r = await api("adm_reenviar", { id: a.id }); if (!r.ok) return r.erro; toast("Proposta reenviada."); return true; } }) && recarregar();
+    await dialogo({ titulo: "Reenviar e-mail da proposta", corpo: el("p", { style: "margin:0" }, "O e-mail da proposta será enviado de novo para " + a.email_contato + "."), okTexto: "Reenviar",
+      aoConfirmar: async () => { const r = await api("adm_reenviar", { id: a.id }); if (!r.ok) return r.erro; toast("E-mail reenviado."); return true; } }) && recarregar();
   }
 
   // =================================================================
@@ -1735,7 +1937,7 @@
     carregarEm(box, "func_listar", {}, (area, r) => {
       if (!r.itens.length) return area.append(el("div", { class: "vazio" }, "Nenhum funcionário registrado ainda."));
       const limite = new Date(Date.now() + 45 * 864e5).toISOString().slice(0, 10);
-      const pend = f => f.docs_pendentes || !f.documentos_conferidos || !f.ponto_cadastrado || !f.onboarding_ok;
+      const pend = f => f.docs_pendentes || !f.documentos_conferidos || !f.ponto_cadastrado || !f.acessos_ok || !f.onboarding_ok;
       const grupo = f => !f.ativo ? "inativos" : (f.data_final_contrato && f.data_final_contrato <= limite) ? "vencendo" : pend(f) ? "pendentes" : "ok";
       const chk = (v, rot) => el("span", { class: "pill " + (v ? "verde" : "cinza"), title: rot }, (v ? "✓ " : "○ ") + rot);
       listaFiltrada(area, r.itens, {
@@ -1748,7 +1950,7 @@
             el("td", { "data-rotulo": "Início" }, fmtData(f.data_efetivacao)),
             el("td", { "data-rotulo": "Fim do contrato" }, fmtData(f.data_final_contrato) || "—", f.data_final_contrato && f.data_final_contrato <= limite ? el("div", null, el("span", { class: "pill verm" }, "Renovar")) : null),
             el("td", { "data-rotulo": "Documentos" }, f.docs_assinados + " assinado(s)" + (f.docs_pendentes ? " · " + f.docs_pendentes + " pendente(s)" : "")),
-            el("td", { "data-rotulo": "Checklist" }, el("div", { class: "acoes" }, chk(f.documentos_conferidos, "Docs"), chk(f.ponto_cadastrado, "Ponto"), chk(f.onboarding_ok, "Onboarding"))),
+            el("td", { "data-rotulo": "Checklist" }, el("div", { class: "acoes" }, chk(f.documentos_conferidos, "Docs"), chk(f.ponto_cadastrado, "Ponto"), chk(f.acessos_ok, "Acessos"), chk(f.onboarding_ok, "Onboarding"))),
             el("td", { "data-rotulo": "" }, el("a", { class: "bt-sec", href: "#funcionario/" + f.matricula }, "Abrir")))))))),
         vazio: "Ninguém neste filtro."
       });
@@ -1780,6 +1982,7 @@
     box.append(el("h2", { class: "sec" }, "Checklist da admissão"), el("div", { class: "card", style: "display:grid;gap:14px" },
       flag("documentos_conferidos", "Documentos assinados conferidos", "Todos devolvidos, assinados, completos e legíveis (item 4.9)."),
       flag("ponto_cadastrado", "Cadastrado no aplicativo de ponto", "Depois da conferência dos documentos (item 4.10)."),
+      flag("acessos_ok", "Acessos criados", "E-mail Innomaker e sistemas que a pessoa vai usar."),
       flag("onboarding_ok", "Onboarding realizado", "Sala, slides, camisa e crachá preparados; reunião feita no primeiro dia (item 6)."),
       flag("ativo", "Funcionário ativo", "Desmarque no desligamento.")));
 
@@ -1928,6 +2131,50 @@
               "A configuração fica no backend/.env (PLANILHA_REGISTROS_URL e PLANILHA_REGISTROS_TOKEN); o passo a passo está em docs/planilha-registros.md.")),
           btTestar),
         resPlanilha));
+
+      // Admissão: quem cria os acessos e documentos exigidos por tipo de contrato
+      const tiposContrato = (r.listas.tipo_contratacao || []);
+      const emailAc = entrada("email_acessos", r.config.email_acessos || "", { type: "email", placeholder: "ti@innomaker.com.br" });
+      const docsAlvo = el("div", { class: "docs-cfg" });
+      const docs = (r.admissaoDocumentos || []).map(d => Object.assign({}, d));
+      const pintarDocs = () => {
+        limpar(docsAlvo);
+        docs.forEach((d, i) => {
+          const nome = entrada("nome", d.nome, { "aria-label": "Nome do documento" });
+          nome.addEventListener("input", () => { d.nome = nome.value; });
+          const todos = el("input", { type: "checkbox", checked: (d.obrigatorio_para || []).indexOf("todos") >= 0 });
+          const tipos = tiposContrato.map(t => {
+            const cb = el("input", { type: "checkbox", checked: (d.obrigatorio_para || []).some(x => x.toLowerCase() === t.toLowerCase()), disabled: todos.checked });
+            cb.addEventListener("change", () => { d.obrigatorio_para = tiposContrato.filter((x, k) => cbs[k].checked); });
+            return cb;
+          });
+          const cbs = tipos;
+          todos.addEventListener("change", () => { d.obrigatorio_para = todos.checked ? ["todos"] : tiposContrato.filter((x, k) => cbs[k].checked); cbs.forEach(cb => { cb.disabled = todos.checked; }); });
+          const ativo = el("input", { type: "checkbox", checked: d.ativo !== false });
+          ativo.addEventListener("change", () => { d.ativo = ativo.checked; });
+          docsAlvo.append(el("div", { class: "doc-cfg" },
+            el("div", { class: "doc-cfg-nome" }, nome, el("label", { class: "check pequeno" }, ativo, el("span", null, "Pedir este documento")),
+              el("button", { type: "button", class: "bt-perigo-txt", onclick: () => { docs.splice(i, 1); pintarDocs(); } }, "Remover")),
+            el("div", { class: "doc-cfg-tipos" }, el("span", { class: "mini" }, "Obrigatório para:"),
+              el("label", { class: "check pequeno" }, todos, el("span", null, "Todos")),
+              tiposContrato.map((t, k) => el("label", { class: "check pequeno" }, tipos[k], el("span", null, t))))));
+        });
+      };
+      pintarDocs();
+      const fAdm = el("form", { novalidate: true },
+        el("div", { class: "campos" }, campo("E-mail de quem cria os acessos (e-mail Innomaker, sistemas)", emailAc, { largo: true, dica: "Usado pelo botão \"Pedir acessos\" na trilha da admissão." })),
+        el("h3", { class: "titulo-etapas" }, "Documentos que o candidato envia"),
+        el("p", { class: "pequeno suave", style: "margin:0 0 10px" }, "Cada documento é enviado separado. Marque para quais tipos de contratação ele é obrigatório (os tipos vêm da lista \"Tipos de contratação\" abaixo). Os não obrigatórios aparecem como opcionais."),
+        docsAlvo,
+        el("div", { class: "acoes", style: "margin-top:12px" },
+          el("button", { type: "button", class: "bt-sec", onclick: () => { docs.push({ id: "", nome: "", obrigatorio_para: [], ativo: true }); pintarDocs(); } }, "+ Documento"),
+          el("button", { type: "submit", class: "bt" }, "Salvar admissão")));
+      fAdm.addEventListener("submit", async ev => {
+        ev.preventDefault();
+        const res = await api("cfg_salvar_admissao", { email_acessos: emailAc.value, documentos: docs });
+        res.ok ? toast("Configurações da admissão salvas.") : toast(res.erro, true);
+      });
+      area.append(el("h2", { class: "sec" }, "Admissão"), el("div", { class: "card" }, fAdm));
 
       // Privacidade (LGPD)
       const ret = entrada("lgpd_meses_retencao", r.lgpd.retencao, { type: "number", min: "3", max: "120" });

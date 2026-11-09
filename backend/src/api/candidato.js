@@ -3,7 +3,7 @@
 //  POST /api/candidato/<acao>
 // =====================================================================
 import {
-  ErroApi, json, lerJson, agora, hojeISO, dataBR, emailValido, texto, normalizar, soDigitos, parseJson, ehDataISO
+  ErroApi, json, lerJson, agora, hojeISO, dataBR, emailValido, texto, normalizar, soDigitos, parseJson, ehDataISO, esc
 } from "../lib/http.js";
 import { um, todos, executar, prep, novoId, registrarLog, lerConfig, historicoMais } from "../lib/db.js";
 import { hashSenha, novoSalt, gerarSenha, cookieSessao, cookieSair, candidatoDaSessao, sha256Hex } from "../lib/senha.js";
@@ -13,6 +13,10 @@ import { estadoDasEtapas } from "../lib/etapas.js";
 import { cfg } from "../lib/config.js";
 import { excluirCandidato, bloqueioExclusao } from "../lib/lgpd.js";
 import { agoraLocal } from "../lib/agenda.js";
+import {
+  ADM_CANDIDATO_PREENCHE, CAMPOS_PROPOSTA, lerCadastro, validarCadastro, cpfValido, documentosExigidos, documentosFaltando,
+  categoriaValida, CATEGORIA_ANTIGA, nomeCategoria
+} from "../lib/admissao.js";
 
 // De onde o candidato soube da vaga (indicadores do RH)
 export const ORIGENS = { site: "Site de vagas", indicacao: "Indicação de funcionário", linkedin: "LinkedIn", instagram: "Instagram",
@@ -42,7 +46,7 @@ export async function vagasPublicas(env) {
 }
 
 // ---------- Roteamento ----------
-const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, assinar, privacidade, excluir };
+const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, assinar, privacidade, excluir, rascunho, anexar, desanexar };
 
 export async function apiCandidato(request, env, ctx, acao) {
   const fn = ACOES[acao];
@@ -268,8 +272,7 @@ async function excluir(request, env, ctx) {
 }
 
 // ---------- Área do candidato ----------
-const CAMPOS_PROPOSTA_PUBLICOS = ["tipo_contratacao", "cargo", "funcao", "departamento", "setor", "horario_trabalho",
-  "bolsa_valor", "auxilio", "data_inicio", "data_final_bolsa"];
+const CAMPOS_PROPOSTA_PUBLICOS = Object.keys(CAMPOS_PROPOSTA).filter(k => CAMPOS_PROPOSTA[k][3]);
 
 async function area(request, env) {
   const c = await exigirSessao(env, request);
@@ -307,8 +310,9 @@ async function area(request, env) {
        FROM admissoes a JOIN vagas v ON v.id = a.vaga_id
       WHERE a.candidato_id = ? ORDER BY a.criado_em DESC`, c.id);
   const arquivos = adms.length ? await todos(env,
-    `SELECT id, nome, categoria, admissao_id FROM arquivos WHERE admissao_id IN (SELECT id FROM admissoes WHERE candidato_id = ?)`, c.id) : [];
+    `SELECT id, nome, categoria, admissao_id, criado_em FROM arquivos WHERE admissao_id IN (SELECT id FROM admissoes WHERE candidato_id = ?)`, c.id) : [];
 
+  const configAdm = await lerConfig(env);
   const admissoes = adms.map(a => {
     const p = parseJson(a.proposta, {});
     const proposta = {};
@@ -317,12 +321,18 @@ async function area(request, env) {
     proposta.principais_funcoes = a.principais_funcoes;
     const hist = parseJson(a.historico, []);
     const ultimaCorrecao = hist.filter(h => h.acao === "Correção solicitada").pop();
-    const recusa = hist.filter(h => h.acao === "Recusada pelo RH").pop();
+    const recusa = hist.filter(h => h.acao === "Recusada pelo RH" || h.acao === "Cancelada pelo RH").pop();
+    const corr = parseJson(a.correcoes, {});
+    const rasc = parseJson(a.rascunho, {});
     return {
-      id: a.id, status: a.status, titulo_vaga: a.titulo, proposta,
-      cadastro: parseJson(a.cadastro, {}),
-      arquivos: arquivos.filter(x => x.admissao_id === a.id).map(x => ({ id: x.id, nome: x.nome, categoria: x.categoria })),
+      id: a.id, status: a.status, titulo_vaga: a.titulo, proposta, prazo_resposta: a.prazo_resposta || "",
+      alteracoes: hist.filter(h => h.acao === "Proposta alterada" || h.acao === "Proposta reaberta").map(h => ({ quando: h.quando, texto: h.texto })),
+      cadastro: Object.keys(rasc).length ? rasc : parseJson(a.cadastro, {}),
+      arquivos: arquivos.filter(x => x.admissao_id === a.id).map(x => ({ id: x.id, nome: x.nome, categoria: x.categoria, criado_em: x.criado_em,
+        categoria_nome: nomeCategoria(configAdm, x.categoria) })),
+      documentos_exigidos: documentosExigidos(configAdm, p.tipo_contratacao),
       correcao: ultimaCorrecao ? ultimaCorrecao.texto : "",
+      correcoes: a.status === "CORRECAO_SOLICITADA" ? { em: corr.em || "", texto: corr.texto || "", itens: (corr.itens || []).map(i => ({ tipo: i.tipo, chave: i.chave, rotulo: i.rotulo, comentario: i.comentario })) } : null,
       recusa: recusa ? recusa.texto : ""
     };
   });
@@ -364,13 +374,14 @@ async function proposta(request, env, ctx) {
   const b = await lerJson(request);
   const a = await admissaoDoCandidato(env, c, b.admissao_id);
   if (a.status !== "PROPOSTA_ENVIADA") return { ok: false, erro: "Esta proposta já foi respondida." };
+  if (a.prazo_resposta && a.prazo_resposta < hojeISO()) return { ok: false, erro: "O prazo para responder esta proposta venceu. Fale com o RH." };
 
   const aceitar = b.decisao === "aceitar";
   if (!aceitar && b.decisao !== "recusar") return { ok: false, erro: "Decisão inválida." };
   const novo = aceitar ? "COMPLETANDO_CADASTRO" : "PROPOSTA_RECUSADA";
 
   await env.DB.batch([
-    prep(env, "UPDATE admissoes SET status = ?, historico = ?, atualizado_em = ? WHERE id = ?",
+    prep(env, "UPDATE admissoes SET status = ?, historico = ?, atualizado_em = ?, lembretes = 0, lembrete_em = NULL, rascunho = CASE WHEN rascunho = '{}' THEN cadastro ELSE rascunho END WHERE id = ?",
       novo, historicoMais(a.historico, c.email, aceitar ? "Proposta aceita" : "Proposta recusada", texto(b.motivo, 1000)), agora(), a.id),
     ...(aceitar ? [] : [prep(env, "UPDATE candidaturas SET status = 'Desistiu', atualizado_em = ? WHERE id = ?", agora(), a.candidatura_id)])
   ]);
@@ -389,105 +400,99 @@ async function proposta(request, env, ctx) {
 }
 
 // ---------- Cadastro de admissão ----------
-const CAMPOS_CADASTRO = {
-  nome: [150, true], cpf: [20, true], rg: [30, true], cnh: [30], ctps: [30], sexo: [40], data_nascimento: [10, true],
-  telefone: [40, true], email_pessoal: [200, true], curriculo_lattes: [300],
-  nome_emergencia: [150, true], telefone_emergencia: [40, true],
-  cep: [12, true], endereco: [250, true], bairro: [120, true], cidade: [120, true], estado: [2, true],
-  grau_instrucao: [60, true], area_formacao: [150, true], instituicao_ensino: [150, true], cr: [20], matricula_uff: [40],
-  email_innomaker: [200],
-  banco: [80], agencia: [20], conta: [30], tipo_conta: [40], pix_numero: [120], pix_banco: [80]
-};
+// O formulário salva sozinho (rascunho) e cada documento sobe na hora em que é escolhido;
+// "cadastro" só confere tudo e envia ao RH.
+export { cpfValido };
 
-const CATEGORIAS_ARQUIVO = {
-  doc_curriculo: "Currículo atualizado",
-  doc_pessoais: "Documentos pessoais",
-  doc_matricula: "Regularização de matrícula",
-  doc_cr: "Declaração de CR",
-  doc_plano: "Plano de estudos"
-};
+async function admissaoEditavel(env, c, id) {
+  const a = await admissaoDoCandidato(env, c, id);
+  if (ADM_CANDIDATO_PREENCHE.indexOf(a.status) < 0) throw new ErroApi("Este cadastro não pode ser alterado agora.");
+  return a;
+}
 
-export function cpfValido(cpf) {
-  const d = soDigitos(cpf);
-  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
-  const dv = n => {
-    let s = 0;
-    for (let i = 0; i < n; i++) s += +d[i] * (n + 1 - i);
-    const r = (s * 10) % 11;
-    return r === 10 ? 0 : r;
-  };
-  return dv(9) === +d[9] && dv(10) === +d[10];
+async function rascunho(request, env) {
+  const c = await exigirSessao(env, request);
+  const b = await lerJson(request);
+  const a = await admissaoEditavel(env, c, b.admissao_id);
+  await executar(env, "UPDATE admissoes SET rascunho = ? WHERE id = ?", JSON.stringify(lerCadastro(b.dados || {})), a.id);
+  return { ok: true, salvo_em: agora() };
+}
+
+async function anexar(request, env) {
+  const c = await exigirSessao(env, request);
+  let fd;
+  try { fd = await request.formData(); } catch (e) { throw new ErroApi("Envio inválido. Tente de novo."); }
+  const a = await admissaoEditavel(env, c, fd.get("admissao_id"));
+  const cat = texto(fd.get("categoria"), 40);
+  const config = await lerConfig(env);
+  if (!categoriaValida(config, cat) || CATEGORIA_ANTIGA[cat]) throw new ErroApi("Tipo de documento inválido.");
+  const ja = await um(env, "SELECT COUNT(*) AS n FROM arquivos WHERE admissao_id = ?", a.id);
+  const files = fd.getAll("arquivo").filter(ehArquivo);
+  if (!files.length) throw new ErroApi("Escolha um arquivo.");
+  if (ja.n + files.length > 30) throw new ErroApi("Limite de 30 arquivos por admissão. Remova algum antes de enviar outro.");
+  const salvos = [];
+  for (const f of files) salvos.push(Object.assign(await salvarArquivo(env, f, { categoria: cat, candidatoId: c.id, admissaoId: a.id }), { categoria: cat }));
+  return { ok: true, arquivos: salvos };
+}
+
+async function desanexar(request, env) {
+  const c = await exigirSessao(env, request);
+  const b = await lerJson(request);
+  const a = await admissaoEditavel(env, c, b.admissao_id);
+  const arq = await um(env, "SELECT id FROM arquivos WHERE id = ? AND admissao_id = ?", texto(b.arquivo_id, 60), a.id);
+  if (!arq) throw new ErroApi("Arquivo não encontrado.");
+  await apagarArquivo(env, arq.id);
+  return { ok: true };
 }
 
 async function cadastro(request, env, ctx) {
   const c = await exigirSessao(env, request);
-  let fd;
-  try { fd = await request.formData(); } catch (e) { throw new ErroApi("Envio inválido. Recarregue a página e tente de novo."); }
-  const a = await admissaoDoCandidato(env, c, fd.get("admissao_id"));
-  if (a.status !== "COMPLETANDO_CADASTRO" && a.status !== "CORRECAO_SOLICITADA") {
-    return { ok: false, erro: "Este cadastro não pode ser alterado agora." };
-  }
+  const b = await lerJson(request);
+  const a = await admissaoEditavel(env, c, b.admissao_id);
+  const dados = lerCadastro(b.dados || {});
+  // guarda o que foi digitado, mesmo se faltar algo
+  await executar(env, "UPDATE admissoes SET rascunho = ? WHERE id = ?", JSON.stringify(dados), a.id);
+  const v = validarCadastro(dados);
+  if (!v.ok) return { ok: false, erro: v.erro, campos: v.campos };
 
-  const dados = {};
-  const faltando = [];
-  Object.keys(CAMPOS_CADASTRO).forEach(k => {
-    const [max, obrig] = CAMPOS_CADASTRO[k];
-    dados[k] = texto(fd.get(k), max);
-    if (obrig && !dados[k]) faltando.push(k);
-  });
-  if (faltando.length) return { ok: false, erro: "Preencha os campos obrigatórios.", campos: faltando };
-  if (!cpfValido(dados.cpf)) return { ok: false, erro: "CPF inválido.", campos: ["cpf"] };
-  if (!ehDataISO(dados.data_nascimento)) return { ok: false, erro: "Data de nascimento inválida.", campos: ["data_nascimento"] };
-  if (!emailValido(dados.email_pessoal)) return { ok: false, erro: "E-mail pessoal inválido.", campos: ["email_pessoal"] };
-  if (/@id\.uff\.br$/i.test(dados.email_pessoal)) return { ok: false, erro: "Use um e-mail pessoal, não o IdUFF.", campos: ["email_pessoal"] };
-  if (dados.email_innomaker && !emailValido(dados.email_innomaker)) return { ok: false, erro: "E-mail Innomaker inválido.", campos: ["email_innomaker"] };
-  dados.estado = dados.estado.toUpperCase();
+  const config = await lerConfig(env);
+  const p = parseJson(a.proposta, {});
+  const arquivos = await todos(env, "SELECT categoria, criado_em FROM arquivos WHERE admissao_id = ?", a.id);
+  const faltam = documentosFaltando(documentosExigidos(config, p.tipo_contratacao), arquivos);
+  if (faltam.length) return { ok: false, erro: "Anexe: " + faltam.map(d => d.nome).join("; ") + ".", campos: faltam.map(d => d.id) };
 
-  // Remover arquivos marcados
-  const remover = fd.getAll("remover").map(String);
-  if (remover.length) {
-    const meus = await todos(env, "SELECT id FROM arquivos WHERE admissao_id = ?", a.id);
-    for (const id of remover) if (meus.some(m => m.id === id)) await apagarArquivo(env, id);
-  }
-
-  // Novos arquivos
-  let qtd = 0;
-  for (const cat of Object.keys(CATEGORIAS_ARQUIVO)) {
-    for (const f of fd.getAll(cat)) {
-      if (!ehArquivo(f)) continue;
-      if (++qtd > 15) throw new ErroApi("Envie no máximo 15 arquivos por vez.");
-      await salvarArquivo(env, f, { categoria: cat, candidatoId: c.id, admissaoId: a.id });
+  // Correção: documentos apontados pelo RH precisam de um arquivo novo
+  const eraCorrecao = a.status === "CORRECAO_SOLICITADA";
+  const corr = parseJson(a.correcoes, {});
+  if (eraCorrecao && corr.em) {
+    const semNovo = (corr.itens || []).filter(i => i.tipo === "arquivo" && !arquivos.some(x => x.categoria === i.chave && x.criado_em > corr.em));
+    if (semNovo.length) {
+      return { ok: false, erro: "Envie um arquivo novo para: " + semNovo.map(i => i.rotulo).join("; ") + ".", campos: semNovo.map(i => i.chave) };
     }
   }
 
-  const temPessoais = await um(env, "SELECT id FROM arquivos WHERE admissao_id = ? AND categoria = 'doc_pessoais' LIMIT 1", a.id);
-  if (!temPessoais) return { ok: false, erro: "Anexe seus documentos pessoais (RG, CPF e comprovante de residência).", campos: ["doc_pessoais"] };
-
-  const eraCorrecao = a.status === "CORRECAO_SOLICITADA";
-  await executar(env, "UPDATE admissoes SET status = 'AGUARDANDO_APROVACAO', cadastro = ?, historico = ?, atualizado_em = ? WHERE id = ?",
+  await executar(env, "UPDATE admissoes SET status = 'AGUARDANDO_APROVACAO', cadastro = ?, historico = ?, atualizado_em = ?, lembretes = 0, lembrete_em = NULL WHERE id = ?",
     JSON.stringify(dados), historicoMais(a.historico, c.email, eraCorrecao ? "Cadastro corrigido" : "Cadastro enviado", ""), agora(), a.id);
   await registrarLog(env, c.email, eraCorrecao ? "CADASTRO_CORRIGIDO" : "CADASTRO_ENVIADO", "admissao", a.id, "");
 
-  await emailRH(env, ctx, "Cadastro para conferir — " + dados.nome, "Cadastro aguardando aprovação",
-    [`<b>${dados.nome}</b> ${eraCorrecao ? "corrigiu" : "enviou"} o cadastro de admissão (${a.id}).`,
-      "Revise todos os campos e documentos antes de aprovar (RHC-PROC-2026-003, item 4.5)."],
+  await emailRH(env, ctx, (eraCorrecao ? "Cadastro corrigido — " : "Cadastro para conferir — ") + dados.nome, "Cadastro aguardando aprovação",
+    [`<b>${esc(dados.nome)}</b> ${eraCorrecao ? "corrigiu" : "enviou"} o cadastro de admissão (${a.id}).`,
+      eraCorrecao ? "Os itens que você apontou aparecem destacados, com o valor anterior e o novo." : "Revise todos os campos e documentos antes de aprovar (RHC-PROC-2026-003, item 4.5)."],
     "admissao/" + a.id);
 
-  const config = await lerConfig(env);
   if (config.link_onboarding && !eraCorrecao) {
     ctx.waitUntil(enviarEmail(env, {
       para: dados.email_pessoal,
       assunto: "Cadastro recebido — próximos passos na Innomaker",
       html: layout({
         titulo: "Cadastro recebido",
-        paragrafos: [`Olá, <b>${dados.nome.split(" ")[0]}</b>! Recebemos seu cadastro e seus documentos. O RH vai conferir tudo.`,
+        paragrafos: [`Olá, <b>${esc(dados.nome.split(" ")[0])}</b>! Recebemos seu cadastro e seus documentos. O RH vai conferir tudo.`,
           "Enquanto isso, você já pode agendar seu onboarding:"],
         botao: { texto: "Agendar onboarding", url: config.link_onboarding }
       }),
       texto: textoSimples("Cadastro recebido", ["Agende seu onboarding:"], config.link_onboarding)
     }));
   }
-
   return { ok: true, status: "AGUARDANDO_APROVACAO" };
 }
 

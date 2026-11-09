@@ -310,3 +310,38 @@ select.input{appearance:auto}
 [data-tema="escuro"] .link-btn,[data-tema="escuro"] .cand summary{color:#7fd877}
 [data-tema="escuro"] .loading{background:rgba(12,14,13,.9)}
 [data-tema="escuro"] .footer{background:#050605}
+
+/* ---------- Cadastro de admissão em etapas ---------- */
+.assistente{margin-top:14px}
+.passos-cad{list-style:none;margin:6px 0 18px;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.passo-cad button{width:100%;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 4px;border:0;background:transparent;font:inherit;cursor:pointer;color:var(--muted)}
+.passo-num{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:13px;border:2px solid var(--border);background:var(--white,#fff)}
+.passo-nome{font-size:12px;font-weight:700;text-align:center;line-height:1.25}
+.passo-cad.ok .passo-num{background:var(--green);border-color:var(--green);color:#fff}
+.passo-cad.atual .passo-num{border-color:var(--green);color:var(--green-dark);box-shadow:0 0 0 4px rgba(65,166,57,.15)}
+.passo-cad.atual .passo-nome{color:var(--text)}
+.passo-cad.ajuste .passo-num{border-color:#d08a00;box-shadow:0 0 0 3px rgba(240,170,60,.25)}
+.passo-cad-rodape{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:18px}
+.salvo{margin-left:auto}
+.field.ajuste .input{border-color:#d08a00;box-shadow:0 0 0 3px rgba(240,170,60,.2)}
+.ajuste-txt{color:#8a5a00;font-weight:700}
+.lista-ajustes{margin:8px 0 0;padding-left:18px}
+.lista-ajustes .link-btn{font-weight:800;padding:0}
+.doc-cand{border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:12px}
+.doc-cand.ajuste{border-color:#d08a00}
+.doc-cand.erro{border-color:var(--red)}
+.doc-cand-topo{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}
+.doc-cand .status{font-size:12px}
+.arq-lista .link-btn{margin-left:10px;font-size:12px}
+.rev-secao{border-top:1px solid var(--border);padding:12px 0}
+.rev-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rev-cab .cad-titulo{margin:0;flex:1}
+.rev-docs{margin:8px 0 0;padding-left:0;list-style:none;font-size:14px;display:grid;gap:4px}
+.rev-docs .falta{color:var(--red);font-weight:700}
+[data-tema="escuro"] .passo-num{background:var(--sup)}
+[data-tema="escuro"] .ajuste-txt{color:#f5c97a}
+@media(max-width:640px){.passos-cad{grid-template-columns:repeat(3,minmax(0,1fr))}.salvo{margin-left:0;width:100%}}
+.lista-ajustes .link-btn,.arq-lista .link-btn,.rev-cab .link-btn{display:inline;margin:0 0 0 10px;padding:0}
+.lista-ajustes .link-btn{margin:0}
+.passo-cad.ok.atual .passo-num{color:#fff}
+.rev-cab .status{font-size:12px;padding:4px 10px}

@@ -139,27 +139,39 @@ window.MANUAL_PAINEL = {
   "vaga-de-solicitacao": null, // usa o de "vaga-form"
 
   "admissoes": {
-    resumo: "Propostas e admissões (RHC-PROC-2026-003).",
+    resumo: "Propostas e admissões, do envio da proposta ao onboarding (RHC-PROC-2026-003).",
     passos: [
-      "<b>Proposta enviada:</b> esperando o candidato aceitar ou recusar na Área do candidato.",
-      "<b>Completando cadastro:</b> o candidato aceitou e está preenchendo dados e documentos.",
-      "<b>Aguardando aprovação:</b> o cadastro chegou. Abra para conferir.",
-      "<b>Correção solicitada:</b> o candidato está corrigindo o que você pediu.",
-      "<b>Aprovada:</b> virou funcionário (veja em Funcionários)."
+      "<b>Para conferir:</b> o cadastro chegou. Abra para conferir campo a campo.",
+      "<b>Com o candidato:</b> proposta esperando resposta (com o prazo), cadastro sendo preenchido ou correção pedida.",
+      "<b>Pós-aprovação:</b> já tem matrícula; faltam assinaturas, conferência, ponto, acessos ou onboarding.",
+      "<b>Concluídas:</b> todos os passos feitos. <b>Encerradas:</b> recusadas, canceladas ou com proposta vencida.",
+      "A barrinha em cada admissão mostra a trilha e o próximo passo."
     ],
-    dicas: ["As propostas são enviadas pela vaga: <b>Vagas → candidato → Enviar proposta</b>."]
+    dicas: ["As propostas são enviadas pela vaga: <b>Vagas → candidato → Enviar proposta</b>.",
+      "Proposta sem resposta até o prazo vence sozinha; você recebe um e-mail e pode reabrir com <b>Editar proposta</b>."]
   },
 
   "admissao": {
-    resumo: "Conferência do cadastro e dos documentos do candidato.",
+    resumo: "Proposta, conferência do cadastro e trilha até o primeiro dia.",
     passos: [
-      "Confira os dados e abra cada documento enviado.",
-      "Se faltar algo ou estiver errado, clique em <b>Pedir correção</b> e liste exatamente o que precisa ser corrigido.",
-      "Se estiver tudo certo, clique em <b>Aprovar cadastro</b> e marque os 5 itens de conferência.",
-      "Escolha os documentos para assinatura e confirme. O sistema pega a <b>próxima matrícula da planilha de Registros</b>, cria o funcionário e envia os termos ao candidato.",
-      "Em seguida, a linha do funcionário é preenchida na planilha de Registros (veja o quadro <b>Planilha de Registros</b> na tela do funcionário)."
+      "<b>Editar proposta</b> (antes da aprovação): mude valores, datas ou o prazo para responder. Se o candidato já tinha aceitado e você mudar algo que ele vê, ele aceita de novo; o cadastro dele é mantido.",
+      "<b>Conferência:</b> confira cada campo e documento. No que estiver errado, clique em <b>Corrigir</b>; depois em <b>Pedir correção</b> escreva o que ajustar em cada item. O candidato vê só esses itens destacados.",
+      "Quando ele reenviar, aparece o quadro <b>O candidato corrigiu</b> com o valor antigo e o novo.",
+      "Se estiver tudo certo, <b>Aprovar cadastro</b>: marque os 5 itens de conferência e escolha os documentos para assinatura. O sistema pega a próxima matrícula da planilha de Registros e cria o funcionário.",
+      "Depois, siga a <b>Trilha da admissão</b>: as assinaturas se marcam sozinhas; conferência, ponto, acessos e onboarding você marca em <b>Marcar como feito</b>.",
+      "<b>Pedir acessos</b> manda um e-mail para quem cria o e-mail Innomaker e os sistemas (configure em Configurações → Admissão)."
     ],
-    dicas: ["<b>Reenviar proposta</b> manda o e-mail da proposta de novo.", "<b>Recusar</b> encerra a admissão e envia a justificativa ao candidato."]
+    dicas: ["Os documentos exigidos dependem do tipo de contratação (Configurações → Admissão). Sem os obrigatórios, não dá para aprovar.",
+      "Na véspera do primeiro dia, o gestor e o RH recebem um e-mail com o que ainda falta, e o novo colaborador recebe as boas-vindas.",
+      "<b>Cancelar admissão</b> devolve o candidato a “Aprovado no processo”, para você mandar outra proposta.",
+      "<b>Recusar</b> encerra a admissão e envia a justificativa ao candidato."]
+  },
+
+  "adm-area": {
+    resumo: "Contratações das vagas da sua área.",
+    passos: ["Veja em que pé está cada admissão: proposta, cadastro, aprovação, documentos e primeiro dia.",
+      "Na véspera do primeiro dia você recebe um e-mail com o que ainda falta."],
+    dicas: ["Os dados pessoais do novo colaborador ficam só com o RH."]
   },
 
   "funcionarios": {
@@ -190,7 +202,8 @@ window.MANUAL_PAINEL = {
       "<b>Modelos de documento:</b> cole o texto oficial dos termos. Use os campos entre chaves, como {{NOME}} e {{CPF}}.",
       "<b>Planilha de Registros:</b> clique em <b>Testar planilha</b> para conferir a ligação com a planilha (mostra a próxima matrícula).",
       "<b>Privacidade (LGPD):</b> defina por quantos meses guardar as candidaturas e o banco de talentos. Passado o prazo, os dados são apagados sozinhos.",
-      "<b>Backup:</b> mostra se a cópia diária para fora do servidor está em dia. Se aparecer em vermelho, avise quem cuida do servidor."
+      "<b>Backup:</b> mostra se a cópia diária para fora do servidor está em dia. Se aparecer em vermelho, avise quem cuida do servidor.",
+      "<b>Admissão:</b> e-mail de quem cria os acessos e a lista de documentos que o candidato envia, com os obrigatórios por tipo de contratação."
     ],
     dicas: ["<b>Links úteis</b> aparecem no início do painel para todos.",
       "Candidatos em processo, admissões e funcionários nunca são apagados pelo prazo de guarda."]

@@ -62,7 +62,13 @@ export const ACOES = {
   talento_convidar: RH,
   indicadores: RH,
   cfg_salvar_lgpd: RH,
-  candidato_excluir: RH
+  candidato_excluir: RH,
+  adm_proposta_salvar: RH,
+  adm_cancelar: RH,
+  adm_passo: RH,
+  adm_pedir_acessos: RH,
+  cfg_salvar_admissao: RH,
+  adm_area: GESTAO           // gerente: admissões das vagas da área (sem dados pessoais)
 };
 
 export function podeExecutar(papel, acao) {

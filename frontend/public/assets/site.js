@@ -459,7 +459,8 @@
     const rotulos = {
       PROPOSTA_ENVIADA: ["Aguardando sua resposta", "pend"], COMPLETANDO_CADASTRO: ["Preencha seu cadastro", "pend"],
       CORRECAO_SOLICITADA: ["Ajustes solicitados", "fim"], AGUARDANDO_APROVACAO: ["Em análise pelo RH", ""],
-      APROVADA: ["Admissão aprovada", "ok"], PROPOSTA_RECUSADA: ["Proposta recusada", "fim"], RECUSADA: ["Não aprovada", "fim"]
+      APROVADA: ["Admissão aprovada", "ok"], PROPOSTA_RECUSADA: ["Proposta recusada", "fim"], RECUSADA: ["Não aprovada", "fim"],
+      PROPOSTA_EXPIRADA: ["Prazo vencido", "fim"], CANCELADA: ["Cancelada", "fim"]
     };
     const r = rotulos[a.status] || [a.status, ""];
     top.append(info, el("div", "status " + r[1], r[0]));
@@ -468,11 +469,14 @@
     const resumo = dl([
       ["Contratação", p.tipo_contratacao], ["Cargo", p.cargo], ["Função", p.funcao], ["Departamento", p.departamento],
       ["Setor", p.setor], ["Horário", p.horario_trabalho], ["Bolsa / remuneração", p.bolsa_valor], ["Auxílio", p.auxilio],
-      ["Início", fmtData(p.data_inicio)], ["Local", p.localidade]
+      ["Início", fmtData(p.data_inicio)], ["Fim da bolsa / contrato", fmtData(p.data_final_bolsa)], ["Local", p.localidade]
     ]);
 
     if (a.status === "PROPOSTA_ENVIADA") {
+      const alt = (a.alteracoes || []).slice(-1)[0];
+      if (alt) card.append(caixa("warn", "A proposta foi atualizada em " + fmtData(alt.quando), alt.texto.split("; ").join("\n")));
       card.append(el("p", null, "Parabéns! Você concluiu o processo seletivo e recebeu esta proposta. Confira as condições:"));
+      if (a.prazo_resposta) card.append(caixa("info", null, "Responda até " + fmtData(a.prazo_resposta) + ". Depois dessa data a proposta deixa de valer."));
       card.append(resumo);
       if (p.principais_funcoes) {
         const det = el("details"); det.open = true;
@@ -505,19 +509,19 @@
     }
 
     if (a.status === "COMPLETANDO_CADASTRO" || a.status === "CORRECAO_SOLICITADA") {
-      if (a.status === "CORRECAO_SOLICITADA" && a.correcao) card.append(caixa("warn", "O RH pediu ajustes", a.correcao));
-      card.append(el("p", null, "Preencha seus dados e envie os documentos. Use o e-mail pessoal (não use o IdUFF)."));
-      if (d.links && d.links.cartilha) {
-        const c = caixa("info", "Antes de enviar", "Leia a Cartilha do Colaborador: ");
+      if (d.links && d.links.cartilha && a.status === "COMPLETANDO_CADASTRO") {
+        const c = caixa("info", "Antes de começar", "Leia a Cartilha do Colaborador: ");
         const l = el("a", null, "abrir cartilha");
         l.href = d.links.cartilha; l.target = "_blank"; l.rel = "noopener";
         c.append(l);
         card.append(c);
       }
-      card.append(formCadastro(a, d));
+      card.append(assistenteCadastro(a, d));
       return card;
     }
 
+    if (a.status === "PROPOSTA_EXPIRADA") { card.append(caixa("warn", "O prazo para responder terminou", "Esta proposta não está mais valendo. Se ainda tiver interesse, fale com o RH.")); return card; }
+    if (a.status === "CANCELADA") { card.append(caixa("warn", "Proposta cancelada pelo RH", a.recusa || "")); return card; }
     card.append(resumo);
     if (a.status === "AGUARDANDO_APROVACAO") card.append(caixa("info", null, "Recebemos seu cadastro. O RH está conferindo seus dados e documentos. Você recebe um e-mail com a decisão."));
     if (a.status === "APROVADA") {
@@ -532,51 +536,132 @@
     return card;
   }
 
-  const CAD_SECOES = [
-    ["Dados pessoais", [
-      ["nome", "Nome completo", "text", 1, { largo: 1 }], ["cpf", "CPF", "text", 1, { ph: "000.000.000-00", modo: "numeric" }],
-      ["rg", "RG", "text", 1], ["data_nascimento", "Data de nascimento", "date", 1], ["sexo", "Sexo", "select", 0, { op: ["Feminino", "Masculino", "Prefiro não informar"] }],
-      ["cnh", "CNH", "text", 0], ["ctps", "CTPS", "text", 0],
-      ["telefone", "Telefone / WhatsApp", "tel", 1], ["email_pessoal", "E-mail pessoal", "email", 1],
-      ["curriculo_lattes", "Link do Currículo Lattes", "url", 0, { largo: 1 }]
-    ]],
-    ["Endereço", [
-      ["cep", "CEP", "text", 1, { modo: "numeric" }], ["endereco", "Endereço (rua, número, complemento)", "text", 1, { largo: 1 }],
-      ["bairro", "Bairro", "text", 1], ["cidade", "Cidade", "text", 1], ["estado", "UF", "text", 1, { max: 2 }]
-    ]],
-    ["Formação", [
-      ["grau_instrucao", "Grau de instrução", "select", 1, { op: ["Graduando", "Graduado", "Mestrando", "Mestre", "Doutorando", "Doutor"] }],
-      ["area_formacao", "Curso / área de formação", "text", 1], ["instituicao_ensino", "Instituição de ensino", "text", 1],
-      ["matricula_uff", "Matrícula UFF", "text", 0, { dica: "Obrigatória para estágio ou bolsa vinculados à UFF." }], ["cr", "CR acadêmico", "text", 0],
-      ["email_innomaker", "E-mail Innomaker", "email", 0, { largo: 1, dica: "Crie no formato nomesobrenome.innomaker@gmail.com e cole aqui." }]
-    ]],
-    ["Dados bancários", [
-      ["banco", "Banco", "text", 0], ["agencia", "Agência", "text", 0], ["conta", "Conta", "text", 0],
-      ["tipo_conta", "Tipo de conta", "select", 0, { op: ["Corrente", "Poupança", "Pagamento"] }],
-      ["pix_numero", "Chave PIX", "text", 0], ["pix_banco", "Banco do PIX", "text", 0]
-    ]],
-    ["Contato de emergência", [
-      ["nome_emergencia", "Nome", "text", 1], ["telefone_emergencia", "Telefone", "tel", 1]
-    ]]
+  // ---------- Cadastro de admissão em etapas (salva sozinho) ----------
+  // [campo, rótulo, tipo, obrigatório, etapa, opções]
+  const CAD_CAMPOS = [
+    ["nome", "Nome completo", "text", 1, "pessoais", { largo: 1, auto: "name" }], ["cpf", "CPF", "text", 1, "pessoais", { ph: "000.000.000-00", modo: "numeric" }],
+    ["rg", "RG", "text", 1, "pessoais"], ["data_nascimento", "Data de nascimento", "date", 1, "pessoais"],
+    ["sexo", "Sexo", "select", 0, "pessoais", { op: ["Feminino", "Masculino", "Prefiro não informar"] }],
+    ["cnh", "CNH", "text", 0, "pessoais"], ["ctps", "CTPS", "text", 0, "pessoais"],
+    ["telefone", "Telefone / WhatsApp", "tel", 1, "pessoais", { auto: "tel" }], ["email_pessoal", "E-mail pessoal", "email", 1, "pessoais", { dica: "Não use o IdUFF.", auto: "email" }],
+    ["curriculo_lattes", "Link do Currículo Lattes", "url", 0, "pessoais", { largo: 1 }],
+    ["cep", "CEP", "text", 1, "endereco", { modo: "numeric", auto: "postal-code", dica: "O endereço é preenchido sozinho pelo CEP." }],
+    ["endereco", "Endereço (rua, número, complemento)", "text", 1, "endereco", { largo: 1, auto: "street-address" }],
+    ["bairro", "Bairro", "text", 1, "endereco"], ["cidade", "Cidade", "text", 1, "endereco"], ["estado", "UF", "text", 1, "endereco", { max: 2 }],
+    ["nome_emergencia", "Contato de emergência (nome)", "text", 1, "endereco"], ["telefone_emergencia", "Telefone do contato de emergência", "tel", 1, "endereco"],
+    ["grau_instrucao", "Grau de instrução", "select", 1, "formacao", { op: ["Graduando", "Graduado", "Mestrando", "Mestre", "Doutorando", "Doutor"] }],
+    ["area_formacao", "Curso / área de formação", "text", 1, "formacao"], ["instituicao_ensino", "Instituição de ensino", "text", 1, "formacao"],
+    ["matricula_uff", "Matrícula UFF", "text", 0, "formacao", { dica: "Obrigatória para estágio ou bolsa vinculados à UFF." }], ["cr", "CR acadêmico", "text", 0, "formacao"],
+    ["email_innomaker", "E-mail Innomaker", "email", 0, "formacao", { largo: 1, dica: "Se já tiver: nomesobrenome.innomaker@gmail.com." }],
+    ["pix_numero", "Chave PIX", "text", 0, "banco", { largo: 1, dica: "Informe a chave PIX ou banco, agência e conta." }], ["pix_banco", "Banco do PIX", "text", 0, "banco"],
+    ["banco", "Banco", "text", 0, "banco"], ["agencia", "Agência", "text", 0, "banco"], ["conta", "Conta", "text", 0, "banco"],
+    ["tipo_conta", "Tipo de conta", "select", 0, "banco", { op: ["Corrente", "Poupança", "Pagamento"] }]
   ];
+  const CAD_ETAPAS = [["pessoais", "Dados pessoais"], ["endereco", "Endereço e emergência"], ["formacao", "Formação"], ["banco", "Dados bancários"],
+    ["documentos", "Documentos"], ["revisar", "Revisar e enviar"]];
+  const etapaDoCampo = k => { const c = CAD_CAMPOS.find(x => x[0] === k); return c ? c[4] : "documentos"; };
 
-  const CAD_ARQUIVOS = [
-    ["doc_pessoais", "Documentos pessoais (RG, CPF, comprovante de residência)", 1],
-    ["doc_curriculo", "Currículo atualizado", 0],
-    ["doc_matricula", "Regularização de matrícula", 0],
-    ["doc_cr", "Declaração de CR", 0],
-    ["doc_plano", "Plano de estudos", 0]
-  ];
-
-  function formCadastro(a, d){
+  function assistenteCadastro(a, d){
     const v = Object.assign({ nome: d.conta.nome, email_pessoal: d.conta.email }, a.cadastro || {});
-    const form = el("form", "cadastro");
-    form.noValidate = true;
+    let arqs = (a.arquivos || []).slice();
+    const corr = a.correcoes && a.correcoes.itens ? a.correcoes : null;
+    const apontado = new Map((corr ? corr.itens : []).map(i => [i.chave, i]));
+    const exigidos = a.documentos_exigidos || [];
+    const caixaW = el("div", "assistente");
+    let etapa = corr && corr.itens.length ? etapaDoCampo(corr.itens[0].chave) : "pessoais";
+    const marcadosErro = new Set();
 
-    CAD_SECOES.forEach(([titulo, campos]) => {
-      form.append(el("h3", "cad-titulo", titulo));
+    // Rascunho: salva 1,2 s depois de parar de digitar
+    const estado = el("span", "small salvo");
+    let timer = null, salvando = Promise.resolve();
+    const salvar = () => {
+      clearTimeout(timer);
+      estado.textContent = "Salvando…";
+      salvando = api("rascunho", { admissao_id: a.id, dados: v }).then(r => {
+        estado.textContent = r && r.ok ? "Rascunho salvo às " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "Não foi possível salvar o rascunho. Verifique sua internet.";
+      });
+      return salvando;
+    };
+    const agendarSalvar = () => { clearTimeout(timer); estado.textContent = "Alterações não salvas…"; timer = setTimeout(salvar, 1200); };
+
+    if (corr) {
+      const box = caixa("warn", "O RH pediu ajustes", corr.itens.length ? "Corrija os itens abaixo (eles aparecem destacados no formulário):" : "");
+      if (corr.itens.length) {
+        const ul = el("ul", "lista-ajustes");
+        corr.itens.forEach(i => {
+          const li = el("li");
+          const bt = el("button", "link-btn", i.rotulo);
+          bt.type = "button";
+          bt.onclick = () => { etapa = etapaDoCampo(i.chave); desenhar(); };
+          li.append(bt, document.createTextNode(": " + i.comentario));
+          ul.append(li);
+        });
+        box.append(ul);
+      }
+      if (corr.texto) box.append(el("p", "small", corr.texto));
+      caixaW.append(box);
+    }
+
+    const passos = el("ol", "passos-cad");
+    const corpo = el("div", "passo-cad-corpo");
+    const msgBox = el("div");
+    const rodape = el("div", "passo-cad-rodape");
+    caixaW.append(passos, corpo, msgBox, rodape);
+
+    const faltandoNaEtapa = et => {
+      const f = CAD_CAMPOS.filter(c => c[4] === et && c[3] && !String(v[c[0]] || "").trim()).map(c => c[0]);
+      if (et === "banco" && !String(v.pix_numero || "").trim() && !(v.banco && v.agencia && v.conta)) f.push("pix_numero", "banco", "agencia", "conta");
+      if (et === "documentos") {
+        docsFaltando().forEach(x => f.push(x.id));
+        // documento apontado pelo RH precisa de arquivo novo
+        if (corr) corr.itens.filter(i => i.tipo === "arquivo" && !docNovo(i.chave) && f.indexOf(i.chave) < 0).forEach(i => f.push(i.chave));
+      }
+      return f;
+    };
+    const docsFaltando = () => {
+      const tem = new Set(arqs.map(x => x.categoria));
+      return exigidos.filter(x => x.obrigatorio && !tem.has(x.id) && !(tem.has("doc_pessoais") && ["doc_rg", "doc_cpf", "doc_comprovante"].indexOf(x.id) >= 0));
+    };
+    const docNovo = id => !corr || !apontado.has(id) || arqs.some(x => x.categoria === id && x.criado_em > corr.em);
+
+    function desenhar(){
+      passos.innerHTML = "";
+      CAD_ETAPAS.forEach(([id, nome], i) => {
+        const li = el("li", "passo-cad" + (id === etapa ? " atual" : "") + (id !== "revisar" && !faltandoNaEtapa(id).length ? " ok" : "")
+          + (corr && corr.itens.some(x => etapaDoCampo(x.chave) === id) ? " ajuste" : ""));
+        const bt = el("button", null, null);
+        bt.type = "button";
+        bt.append(el("span", "passo-num", String(i + 1)), el("span", "passo-nome", nome));
+        bt.onclick = () => { etapa = id; desenhar(); };
+        if (id === etapa) bt.setAttribute("aria-current", "step");
+        li.append(bt);
+        passos.append(li);
+      });
+      corpo.innerHTML = "";
+      msgBox.innerHTML = "";
+      if (etapa === "documentos") desenharDocumentos();
+      else if (etapa === "revisar") desenharRevisao();
+      else desenharCampos(etapa);
+      rodape.innerHTML = "";
+      const i = CAD_ETAPAS.findIndex(x => x[0] === etapa);
+      if (i > 0) { const b = el("button", "btn-line", "Voltar"); b.type = "button"; b.onclick = () => { etapa = CAD_ETAPAS[i - 1][0]; desenhar(); scrollTopo(); }; rodape.append(b); }
+      if (etapa !== "revisar") {
+        const b = el("button", "btn", "Salvar e continuar"); b.type = "button";
+        b.onclick = async () => {
+          const f = faltandoNaEtapa(etapa);
+          if (f.length) return marcarErros(corpo, msgBox, f, etapa === "documentos" ? "Envie os documentos obrigatórios marcados." : etapa === "banco" ? "Informe a chave PIX ou banco, agência e conta." : "Preencha os campos obrigatórios marcados.");
+          if (etapa !== "documentos") await salvar();
+          etapa = CAD_ETAPAS[i + 1][0]; desenhar(); scrollTopo();
+        };
+        rodape.append(b);
+      }
+      rodape.append(estado);
+    }
+    const scrollTopo = () => caixaW.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    function desenharCampos(et){
       const g = el("div", "cad-grid");
-      campos.forEach(([nome, rotulo, tipo, obrig, o]) => {
+      CAD_CAMPOS.filter(c => c[4] === et).forEach(([nome, rotulo, tipo, obrig, , o]) => {
         o = o || {};
         const w = el("div", "field" + (o.largo ? " largo" : ""));
         w.dataset.campo = nome;
@@ -593,100 +678,153 @@
           if (o.ph) inp.placeholder = o.ph;
           if (o.modo) inp.inputMode = o.modo;
           if (o.max) inp.maxLength = o.max;
+          if (o.auto) inp.autocomplete = o.auto;
           inp.value = v[nome] || "";
         }
         inp.id = "cad_" + nome;
         inp.name = nome;
+        inp.addEventListener(tipo === "select" ? "change" : "input", () => { v[nome] = inp.value; w.classList.remove("erro"); agendarSalvar(); });
         w.append(lab, inp);
+        const aj = apontado.get(nome);
+        if (aj) { w.classList.add("ajuste"); w.append(el("p", "hint ajuste-txt", "RH: " + aj.comentario)); }
         if (o.dica) w.append(el("p", "hint", o.dica));
         g.append(w);
       });
-      form.append(g);
-    });
-
-    // CEP → endereço (ViaCEP)
-    const cep = form.querySelector("[name=cep]");
-    cep.addEventListener("blur", async () => {
-      const n = cep.value.replace(/\D/g, "");
-      if (n.length !== 8) return;
-      try {
-        const r = await (await fetch("https://viacep.com.br/ws/" + n + "/json/")).json();
-        if (r.erro) return;
-        [["endereco", r.logradouro], ["bairro", r.bairro], ["cidade", r.localidade], ["estado", r.uf]].forEach(([k, val]) => {
-          const i = form.querySelector("[name=" + k + "]");
-          if (i && !i.value && val) i.value = val;
+      corpo.append(g);
+      if (et === "endereco") {
+        const cep = corpo.querySelector("[name=cep]");
+        cep.addEventListener("blur", async () => {
+          const n = cep.value.replace(/\D/g, "");
+          if (n.length !== 8) return;
+          try {
+            const r = await (await fetch("https://viacep.com.br/ws/" + n + "/json/")).json();
+            if (r.erro) return;
+            [["endereco", r.logradouro], ["bairro", r.bairro], ["cidade", r.localidade], ["estado", r.uf]].forEach(([k, val]) => {
+              const i = corpo.querySelector("[name=" + k + "]");
+              if (i && !i.value && val) { i.value = val; v[k] = val; }
+            });
+            agendarSalvar();
+          } catch (e) { /* preenchimento manual */ }
         });
-      } catch (e) { /* preenchimento manual */ }
-    });
-
-    form.append(el("h3", "cad-titulo", "Documentos"));
-    form.append(el("p", "hint", "PDF, JPG ou PNG, até 10 MB cada. Os itens sem * só são necessários quando se aplicam a você."));
-    CAD_ARQUIVOS.forEach(([cat, rotulo, obrig]) => {
-      const w = el("div", "field");
-      w.dataset.campo = cat;
-      const lab = el("label", null, rotulo + (obrig ? " *" : ""));
-      lab.htmlFor = "arq_" + cat;
-      const inp = el("input", "input");
-      inp.type = "file"; inp.id = "arq_" + cat; inp.name = cat; inp.multiple = true;
-      inp.accept = "application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png";
-      w.append(lab);
-      const existentes = (a.arquivos || []).filter(x => x.categoria === cat);
-      if (existentes.length) {
-        const ul = el("ul", "arq-lista");
-        existentes.forEach(x => {
-          const li = el("li");
-          const link = el("a", null, x.nome);
-          link.href = "/arquivo/" + x.id; link.target = "_blank"; link.rel = "noopener";
-          const rem = el("label", "rem");
-          const cb = el("input"); cb.type = "checkbox"; cb.name = "remover"; cb.value = x.id;
-          rem.append(cb, document.createTextNode(" remover"));
-          li.append(link, rem);
-          ul.append(li);
-        });
-        w.append(ul);
       }
-      w.append(inp);
-      form.append(w);
-    });
+    }
 
-    const msg = el("div");
-    const bt = el("button", "btn", a.status === "CORRECAO_SOLICITADA" ? "Enviar correções" : "Enviar cadastro ao RH");
-    bt.type = "submit";
-    bt.style.marginTop = "18px";
-    form.append(msg, bt);
+    function desenharDocumentos(){
+      corpo.append(el("p", "hint", "PDF, JPG ou PNG, até 10 MB cada. Cada documento é salvo assim que você escolhe o arquivo. Os itens sem * só são necessários se você tiver."));
+      const lista = exigidos.slice();
+      // envios antigos (documentos pessoais juntos) continuam aparecendo
+      if (arqs.some(x => x.categoria === "doc_pessoais")) lista.unshift({ id: "doc_pessoais", nome: "Documentos pessoais (enviados antes)", obrigatorio: false, antigo: true });
+      lista.forEach(doc => {
+        const w = el("div", "field doc-cand");
+        w.dataset.campo = doc.id;
+        const meus = arqs.filter(x => x.categoria === doc.id);
+        const ok = meus.length && docNovo(doc.id);
+        w.append(el("div", "doc-cand-topo", null));
+        w.firstChild.append(el("b", null, doc.nome + (doc.obrigatorio ? " *" : "")), el("span", "status " + (ok ? "ok" : doc.obrigatorio ? "pend" : ""), ok ? "Enviado" : doc.obrigatorio ? "Falta" : "Opcional"));
+        const aj = apontado.get(doc.id);
+        if (aj) { w.classList.add("ajuste"); w.append(el("p", "hint ajuste-txt", "RH: " + aj.comentario + (docNovo(doc.id) ? " (arquivo novo enviado)" : " — envie um arquivo novo."))); }
+        if (meus.length) {
+          const ul = el("ul", "arq-lista");
+          meus.forEach(x => {
+            const li = el("li");
+            const link = el("a", null, x.nome);
+            link.href = "/arquivo/" + x.id; link.target = "_blank"; link.rel = "noopener";
+            const rem = el("button", "link-btn", "remover");
+            rem.type = "button";
+            rem.onclick = async () => {
+              rem.disabled = true;
+              const res = await api("desanexar", { admissao_id: a.id, arquivo_id: x.id });
+              if (!res.ok) { rem.disabled = false; return alert(res.erro || "Não foi possível remover."); }
+              arqs = arqs.filter(y => y.id !== x.id);
+              desenhar();
+            };
+            li.append(link, rem);
+            ul.append(li);
+          });
+          w.append(ul);
+        }
+        if (!doc.antigo) {
+          const inp = el("input", "input");
+          inp.type = "file"; inp.multiple = true; inp.id = "arq_" + doc.id;
+          inp.accept = "application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png";
+          inp.setAttribute("aria-label", "Enviar " + doc.nome);
+          const st = el("p", "hint");
+          inp.addEventListener("change", async () => {
+            const files = [...inp.files];
+            if (!files.length) return;
+            const grande = files.find(f => f.size > MAX_PDF);
+            if (grande) { st.textContent = '"' + grande.name + '" passa de 10 MB.'; inp.value = ""; return; }
+            inp.disabled = true;
+            st.textContent = "Enviando " + files.length + " arquivo(s)…";
+            const fd = new FormData();
+            fd.append("admissao_id", a.id); fd.append("categoria", doc.id);
+            files.forEach(f => fd.append("arquivo", f));
+            const res = await api("anexar", fd);
+            inp.disabled = false; inp.value = "";
+            if (!res.ok) { st.textContent = res.erro || "Não foi possível enviar."; return; }
+            const agora = new Date().toISOString();
+            res.arquivos.forEach(x => arqs.push({ id: x.id, nome: x.nome, categoria: doc.id, criado_em: agora }));
+            desenhar();
+          });
+          w.append(inp, st);
+        }
+        corpo.append(w);
+      });
+    }
 
-    form.addEventListener("submit", async ev => {
-      ev.preventDefault();
-      msg.innerHTML = "";
-      form.querySelectorAll(".erro").forEach(x => x.classList.remove("erro"));
-      const faltando = [];
-      CAD_SECOES.forEach(([, campos]) => campos.forEach(([nome, , , obrig]) => {
-        if (obrig && !String(form.querySelector("[name=" + nome + "]").value || "").trim()) faltando.push(nome);
-      }));
-      const temPessoais = (a.arquivos || []).some(x => x.categoria === "doc_pessoais" &&
-        !form.querySelector('[name=remover][value="' + x.id + '"]:checked')) || form.querySelector("[name=doc_pessoais]").files.length;
-      if (!temPessoais) faltando.push("doc_pessoais");
-      if (faltando.length) return marcarErros(form, msg, faltando, "Preencha os campos obrigatórios marcados.");
+    function desenharRevisao(){
+      corpo.append(el("p", null, "Confira tudo antes de enviar. Depois do envio, o RH confere e você recebe um e-mail com a decisão."));
+      CAD_ETAPAS.filter(x => x[0] !== "revisar").forEach(([id, nome]) => {
+        const sec = el("div", "rev-secao");
+        const cab = el("div", "rev-cab");
+        const f = faltandoNaEtapa(id);
+        cab.append(el("h3", "cad-titulo", nome), el("span", "status " + (f.length ? "pend" : "ok"), f.length ? "Falta preencher" : "Completo"));
+        const ed = el("button", "link-btn", "Editar");
+        ed.type = "button";
+        ed.onclick = () => { etapa = id; desenhar(); scrollTopo(); };
+        cab.append(ed);
+        sec.append(cab);
+        if (id === "documentos") {
+          const ul = el("ul", "rev-docs");
+          exigidos.filter(x => x.obrigatorio || arqs.some(y => y.categoria === x.id)).forEach(x => {
+            const n = arqs.filter(y => y.categoria === x.id).length;
+            ul.append(el("li", n ? "ok" : "falta", (n ? "✓ " : "✕ ") + x.nome + (n ? " (" + n + ")" : x.obrigatorio ? " — falta" : "")));
+          });
+          sec.append(ul);
+        } else {
+          sec.append(dl(CAD_CAMPOS.filter(c => c[4] === id).map(c => [c[1], c[2] === "date" ? fmtData(v[c[0]]) : v[c[0]]])));
+        }
+        corpo.append(sec);
+      });
+      const bt = el("button", "btn", a.status === "CORRECAO_SOLICITADA" ? "Enviar correções ao RH" : "Enviar cadastro ao RH");
+      bt.type = "button";
+      bt.style.marginTop = "8px";
+      bt.onclick = async () => {
+        msgBox.innerHTML = "";
+        clearTimeout(timer);
+        await salvando;
+        bt.disabled = true; bt.textContent = "Enviando…";
+        loading(true, "Enviando cadastro");
+        const res = await api("cadastro", { admissao_id: a.id, dados: v });
+        loading(false);
+        bt.disabled = false; bt.textContent = a.status === "CORRECAO_SOLICITADA" ? "Enviar correções ao RH" : "Enviar cadastro ao RH";
+        if (res.sessaoExpirada) { logado = false; return abrirLogin("info", "Sua sessão expirou. Entre novamente (seu rascunho está salvo)."); }
+        if (!res.ok) {
+          const campos = res.campos || [];
+          if (campos.length) { etapa = etapaDoCampo(campos[0]); desenhar(); return marcarErros(corpo, msgBox, campos, res.erro || "Confira os itens marcados."); }
+          return msgBox.append(caixa("err", null, res.erro || "Não foi possível enviar."));
+        }
+        areaDados = null;
+        await carregarArea();
+        setMsg("areaMsg", "ok", "Cadastro enviado", "O RH vai conferir seus dados e documentos. Você recebe um e-mail com a decisão.");
+        window.scrollTo(0, 0);
+      };
+      corpo.append(bt);
+    }
 
-      const grandes = [...form.querySelectorAll("input[type=file]")].flatMap(i => [...i.files]).filter(f => f.size > MAX_PDF);
-      if (grandes.length) return marcarErros(form, msg, [], '"' + grandes[0].name + '" passa de 10 MB.');
-
-      const fd = new FormData(form);
-      fd.append("admissao_id", a.id);
-      bt.disabled = true;
-      bt.textContent = "Enviando…";
-      loading(true, "Enviando cadastro e documentos");
-      const res = await api("cadastro", fd);
-      loading(false);
-      bt.disabled = false;
-      bt.textContent = a.status === "CORRECAO_SOLICITADA" ? "Enviar correções" : "Enviar cadastro ao RH";
-      if (!res.ok) return marcarErros(form, msg, res.campos || [], res.erro || "Não foi possível enviar.");
-      areaDados = null;
-      await carregarArea();
-      setMsg("areaMsg", "ok", "Cadastro enviado", "O RH vai conferir seus dados e documentos. Você recebe um e-mail com a decisão.");
-      window.scrollTo(0, 0);
-    });
-    return form;
+    desenhar();
+    estado.textContent = Object.keys(a.cadastro || {}).length ? "Seu rascunho está salvo: continue de onde parou." : "";
+    return caixaW;
   }
 
   function marcarErros(form, msg, campos, texto){
