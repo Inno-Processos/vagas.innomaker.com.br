@@ -16,6 +16,7 @@ import {
   lerDisponibilidade, gerarHorarios, sobrepoe
 } from "../lib/agenda.js";
 import { ehDataISO, hojeISO } from "../lib/http.js";
+import { etapaAgendavel } from "../lib/admissao.js";
 
 const linkAgendar = (env, token) => cfg(env).siteUrl + "/agendar/" + encodeURIComponent(token);
 const linkPainel = (env, hash) => cfg(env).siteUrl + "/painel#" + hash;
@@ -159,7 +160,7 @@ export async function agendaListar(env, ctx, b) {
   const etapasVaga = parseJson(vaga.etapas, ["Triagem"]);
   return {
     ok: true, agendas: lista,
-    etapasAgendaveis: etapasVaga.filter((n, i) => i > 0 && !/triagem/i.test(n)),
+    etapasAgendaveis: etapasVaga.filter(etapaAgendavel),
     sugestaoParticipantes: lerParticipantes([vaga.gestor_email ? { nome: vaga.gestor_nome, email: vaga.gestor_email } : null].filter(Boolean))
   };
 }
@@ -169,7 +170,7 @@ export async function agendaSalvar(env, ctx, b, u) {
   if (!vaga) throw new ErroApi("Vaga não encontrada.");
   const etapasVaga = parseJson(vaga.etapas, ["Triagem"]);
   const etapa = texto(b.etapa_nome, 80);
-  if (etapasVaga.indexOf(etapa) <= 0 || /triagem/i.test(etapa)) throw new ErroApi("Escolha uma etapa da vaga (a Triagem não tem agendamento).");
+  if (!etapaAgendavel(etapa, etapasVaga.indexOf(etapa))) throw new ErroApi("Escolha uma etapa de entrevista ou teste (Triagem e Proposta não têm agendamento).");
   const titulo = texto(b.titulo, 120) || etapa + " — " + vaga.titulo;
   const localTipo = b.local_tipo === "online" ? "online" : "presencial";
   const local = texto(b.local, 500);

@@ -14,9 +14,10 @@ import { cfg, CAMINHO_AREA } from "../lib/config.js";
 import { excluirCandidato, bloqueioExclusao } from "../lib/lgpd.js";
 import { agoraLocal } from "../lib/agenda.js";
 import { desistirDaCandidatura } from "./agendamento.js";
+import { conviteInicio } from "./staff.js";
 import {
   ADM_CANDIDATO_PREENCHE, CAMPOS_PROPOSTA, lerCadastro, validarCadastro, cpfValido, documentosExigidos, documentosFaltando,
-  categoriaValida, CATEGORIA_ANTIGA, nomeCategoria
+  categoriaValida, CATEGORIA_ANTIGA, nomeCategoria, lerHorariosInicio
 } from "../lib/admissao.js";
 
 // De onde o candidato soube da vaga (indicadores do RH)
@@ -47,7 +48,33 @@ export async function vagasPublicas(env) {
 }
 
 // ---------- Roteamento ----------
-const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, privacidade, excluir, rascunho, anexar, desanexar, desistir };
+const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, privacidade, excluir, rascunho, anexar, desanexar, desistir, hora_inicio: horaInicio };
+
+// Muda o horário de início (primeiro dia) até 24 h antes
+async function horaInicio(request, env, ctx) {
+  const c = await exigirSessao(env, request);
+  const b = await lerJson(request);
+  const a = await admissaoDoCandidato(env, c, b.admissao_id);
+  if (["COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO", "APROVADA"].indexOf(a.status) < 0) return { ok: false, erro: "Aceite a proposta primeiro." };
+  const p = parseJson(a.proposta, {});
+  const hora = texto(b.hora_inicio, 5);
+  if (lerHorariosInicio(p.horarios_inicio).indexOf(hora) < 0) return { ok: false, erro: "Escolha um dos horários oferecidos." };
+  if (!(agoraLocal(Date.now() + 24 * 3600000) < p.data_inicio + "T" + (p.hora_inicio || hora))) return { ok: false, erro: "Faltam menos de 24 horas para o início: para mudar, fale com o RH." };
+  if (p.hora_inicio === hora) return { ok: true };
+  p.hora_inicio = hora;
+  await executar(env, "UPDATE admissoes SET proposta = ?, historico = ?, atualizado_em = ? WHERE id = ?", JSON.stringify(p),
+    historicoMais(a.historico, c.email, "Horário de início escolhido", dataBR(p.data_inicio) + " às " + hora), agora(), a.id);
+  await registrarLog(env, c.email, "HORARIO_INICIO", "admissao", a.id, hora);
+  await emailRH(env, ctx, "Horário de início — " + c.nome, "Horário de início alterado", [`<b>${esc(c.nome)}</b> vai começar em <b>${dataBR(p.data_inicio)} às ${hora}</b>.`], "admissao/" + a.id);
+  if (a.status === "APROVADA") {
+    const vaga = await um(env, "SELECT titulo FROM vagas WHERE id = ?", a.vaga_id);
+    const conv = conviteInicio(env, Object.assign({ titulo_vaga: vaga && vaga.titulo }, a), p, c.nome, a.email_contato || c.email);
+    if (conv) ctx.waitUntil(enviarEmail(env, { para: a.email_contato || c.email, assunto: "Seu primeiro dia: " + dataBR(p.data_inicio) + " às " + hora,
+      html: layout({ titulo: "Primeiro dia atualizado", paragrafos: [`Seu primeiro dia na Innomaker será em <b>${dataBR(p.data_inicio)} às ${hora}</b>.`, "O convite atualizado está anexado."] }),
+      texto: "Seu primeiro dia: " + dataBR(p.data_inicio) + " às " + hora, convite: conv }));
+  }
+  return { ok: true };
+}
 
 // "Desistir da candidatura" na Área do candidato
 async function desistir(request, env, ctx) {
@@ -329,6 +356,9 @@ async function area(request, env) {
     const proposta = {};
     CAMPOS_PROPOSTA_PUBLICOS.forEach(k => { proposta[k] = p[k] || ""; });
     proposta.localidade = a.localidade;
+    proposta.hora_inicio = p.hora_inicio || "";
+    proposta.opcoes_inicio = lerHorariosInicio(p.horarios_inicio);
+    proposta.pode_mudar_inicio = !!(p.data_inicio && proposta.opcoes_inicio.length && agoraLocal(Date.now() + 24 * 3600000) < p.data_inicio + "T" + (p.hora_inicio || "23:59"));
     proposta.principais_funcoes = a.principais_funcoes;
     const hist = parseJson(a.historico, []);
     const ultimaCorrecao = hist.filter(h => h.acao === "Correção solicitada").pop();
@@ -357,7 +387,7 @@ async function area(request, env) {
       motivoNaoExclui: await bloqueioExclusao(env, c.id)
     },
     candidaturas, admissoes,
-    links: { cartilha: config.link_cartilha || "", onboarding: config.link_onboarding || "" }
+    links: { cartilha: config.link_cartilha || "" }
   };
 }
 
@@ -389,6 +419,15 @@ async function proposta(request, env, ctx) {
 
   const aceitar = b.decisao === "aceitar";
   if (!aceitar && b.decisao !== "recusar") return { ok: false, erro: "Decisão inválida." };
+  const pp = parseJson(a.proposta, {});
+  const opcoes = lerHorariosInicio(pp.horarios_inicio);
+  if (aceitar && opcoes.length) {
+    const hora = texto(b.hora_inicio, 5);
+    if (opcoes.indexOf(hora) < 0) return { ok: false, erro: "Escolha o horário em que você vai começar no dia " + dataBR(pp.data_inicio) + "." };
+    pp.hora_inicio = hora;
+    await executar(env, "UPDATE admissoes SET proposta = ? WHERE id = ?", JSON.stringify(pp), a.id);
+    a.historico = historicoMais(a.historico, c.email, "Horário de início escolhido", dataBR(pp.data_inicio) + " às " + hora);
+  }
   const novo = aceitar ? "COMPLETANDO_CADASTRO" : "PROPOSTA_RECUSADA";
 
   await env.DB.batch([
@@ -402,7 +441,7 @@ async function proposta(request, env, ctx) {
     (aceitar ? "Proposta aceita — " : "Proposta recusada — ") + c.nome,
     aceitar ? "Proposta aceita" : "Proposta recusada",
     [aceitar
-      ? `<b>${c.nome}</b> aceitou a proposta (${a.id}) e está preenchendo o cadastro.`
+      ? `<b>${c.nome}</b> aceitou a proposta (${a.id}) e está preenchendo o cadastro.` + (pp.hora_inicio ? ` Início: <b>${dataBR(pp.data_inicio)} às ${pp.hora_inicio}</b>.` : "")
       : `<b>${c.nome}</b> recusou a proposta (${a.id}). Selecione outro candidato e envie uma nova proposta.` +
         (b.motivo ? `<br><br>Motivo informado: ${texto(b.motivo, 1000)}` : "")],
     "admissao/" + a.id);
@@ -491,19 +530,6 @@ async function cadastro(request, env, ctx) {
       eraCorrecao ? "Os itens que você apontou aparecem destacados, com o valor anterior e o novo." : "Revise todos os campos e documentos antes de aprovar (RHC-PROC-2026-003, item 4.5)."],
     "admissao/" + a.id);
 
-  if (config.link_onboarding && !eraCorrecao) {
-    ctx.waitUntil(enviarEmail(env, {
-      para: dados.email_pessoal,
-      assunto: "Cadastro recebido — próximos passos na Innomaker",
-      html: layout({
-        titulo: "Cadastro recebido",
-        paragrafos: [`Olá, <b>${esc(dados.nome.split(" ")[0])}</b>! Recebemos seu cadastro e seus documentos. O RH vai conferir tudo.`,
-          "Enquanto isso, você já pode agendar seu onboarding:"],
-        botao: { texto: "Agendar onboarding", url: config.link_onboarding }
-      }),
-      texto: textoSimples("Cadastro recebido", ["Agende seu onboarding:"], config.link_onboarding)
-    }));
-  }
   return { ok: true, status: "AGUARDANDO_APROVACAO" };
 }
 

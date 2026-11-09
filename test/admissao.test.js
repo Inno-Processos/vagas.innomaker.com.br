@@ -9,7 +9,8 @@ import { trilha, documentosExigidos, documentosFaltando, validarCadastro, lerCad
 const hoje = d => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() + (d || 0) * 864e5));
 
 const PROPOSTA = { tipo_contratacao: "Estágio", cargo: "Estagiário", funcao: "Estágio em Mecânica", departamento: "Engenharia",
-  horario_trabalho: "30h semanais", data_inicio: hoje(20), bolsa_valor: "R$ 1.200,00", gestor_email: "gestor@innomaker.com.br" };
+  horario_trabalho: "30h semanais", data_inicio: hoje(20), bolsa_valor: "R$ 1.200,00", gestor_email: "gestor@innomaker.com.br",
+  horarios_inicio: "9h, 14:00", local_inicio: "Rua da Conceição, 100 — sala 2" };
 const CADASTRO = { nome: "Ana Admissão", cpf: "529.982.247-25", rg: "12345", data_nascimento: "2003-04-05", telefone: "21999990000",
   email_pessoal: "ana.adm@x.com", cep: "24000-000", endereco: "Rua A, 1", bairro: "Centro", cidade: "Niterói", estado: "rj",
   nome_emergencia: "Mãe", telefone_emergencia: "21988880000", grau_instrucao: "Graduando", area_formacao: "Engenharia Mecânica",
@@ -75,7 +76,7 @@ test("admissão completa: prazo, edição, rascunho, documentos, correção por 
   assert.equal(adm.alteracoes.length, 1);
   assert.equal(adm.proposta.bolsa_valor, "R$ 1.500,00");
   assert.ok(adm.documentos_exigidos.find(d => d.id === "doc_matricula").obrigatorio, "estágio: matrícula obrigatória");
-  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar" })).json.status, "COMPLETANDO_CADASTRO");
+  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar", hora_inicio: "09:00" })).json.status, "COMPLETANDO_CADASTRO");
 
   // Rascunho: salva no meio e volta preenchido
   assert.equal((await t.comoCandidato(s, "rascunho", { admissao_id: pr.id, dados: { nome: "Ana Admissão", cpf: "529.982.247-25" } })).json.ok, true);
@@ -122,7 +123,7 @@ test("admissão completa: prazo, edição, rascunho, documentos, correção por 
   // RH muda a data de início depois do cadastro: candidato precisa aceitar de novo, mas não perde o cadastro
   const ed2 = await t.staff("adm_proposta_salvar", { id: pr.id, proposta: { data_inicio: hoje(25) }, prazo_resposta: hoje(2) });
   assert.equal(ed2.status, "PROPOSTA_ENVIADA");
-  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar" })).json.ok, true);
+  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar", hora_inicio: "09:00" })).json.ok, true);
   assert.equal((await t.comoCandidato(s, "area")).json.admissoes[0].cadastro.endereco, "Rua A, 1, apto 202");
   assert.equal((await t.comoCandidato(s, "cadastro", { admissao_id: pr.id, dados: corrigido })).json.ok, true);
   // mudar só o que é interno (observação) não reabre a proposta
@@ -176,7 +177,7 @@ test("proposta vence sem resposta, é reaberta pelo RH, e cancelamento libera no
   const pr = await t.staff("proposta_criar", { candidatura_id: c.id, proposta: PROPOSTA, prazo_resposta: hoje(1) });
   await t.env.DB.prepare("UPDATE admissoes SET prazo_resposta = ? WHERE id = ?").bind(hoje(-1), pr.id).run();
   const s = await t.entrar("bruno.prazo@x.com");
-  assert.match((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar" })).json.erro, /prazo/);
+  assert.match((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar", hora_inicio: "09:00" })).json.erro, /prazo/);
 
   assert.equal(await vencerPropostas(t.env), 1);
   let det = await t.staff("adm_detalhe", { id: pr.id });
@@ -194,7 +195,7 @@ test("proposta vence sem resposta, é reaberta pelo RH, e cancelamento libera no
   det = await t.staff("adm_detalhe", { id: pr.id });
   assert.equal(det.admissao.status, "CANCELADA");
   assert.ok(t.enviados.some(m => /suspensa/.test(m.html) && [].concat(m.para).includes("bruno.prazo@x.com")));
-  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar" })).json.ok, false);
+  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar", hora_inicio: "09:00" })).json.ok, false);
   const nova = await t.staff("proposta_criar", { candidatura_id: c.id, proposta: PROPOSTA, prazo_resposta: hoje(3) });
   assert.equal(nova.ok, true, "cancelada não bloqueia uma nova proposta");
 });
@@ -230,4 +231,53 @@ test("data da etapa enviada ao candidato e lista de entrevistas", async () => {
   assert.equal(lista.itens[0].avisado, true);
   assert.equal((await t.staff("entrevistas_listar", {}, "gerente")).itens.length, 0);
   assert.equal((await t.staff("entrevistas_listar", {}, "funcionario")).ok, false);
+});
+
+test("etapa Proposta: sem reunião; proposta com dia de início e o candidato escolhe o horário", async () => {
+  const t = ambiente();
+  const vaga = await criarVaga(t.staff, "Vaga com Proposta", ["Triagem", "Entrevista RH", "Proposta"]);
+  await t.inscrever(vaga, { nome: "Paula Início", email: "paula@x.com" });
+  let c = (await t.staff("vaga_detalhe", { id: vaga })).candidatos[0];
+  const [tri, ent, prop] = c.etapas.sort((x, y) => x.ordem - y.ordem);
+  // Proposta não tem agenda nem data marcada
+  assert.equal((await t.staff("agenda_listar", { vaga_id: vaga })).etapasAgendaveis.join(), "Entrevista RH");
+  assert.equal((await t.staff("agenda_salvar", { vaga_id: vaga, etapa_nome: "Proposta", local: "Sala", duracao_min: 30, participantes: "rh@x.com" })).ok, false);
+  assert.equal((await t.staff("etapa_agendar", { etapa_id: prop.id, data: hoje(5) })).ok, false);
+  // antes de concluir a entrevista, não envia proposta
+  await t.staff("etapa_atualizar", { etapa_id: tri.id, resultado: "Aprovado", nota: 3, analise: "Currículo bom" });
+  assert.match((await t.staff("proposta_criar", { candidatura_id: c.id, proposta: PROPOSTA, prazo_resposta: hoje(3) })).erro, /Entrevista RH/);
+  await t.staff("etapa_atualizar", { etapa_id: ent.id, resultado: "Aprovado", nota: 3, analise: "Ótima entrevista" });
+  // sem horários de início não vai
+  assert.equal((await t.staff("proposta_criar", { candidatura_id: c.id, proposta: Object.assign({}, PROPOSTA, { horarios_inicio: "" }), prazo_resposta: hoje(3) })).ok, false);
+  const pr = await t.staff("proposta_criar", { candidatura_id: c.id, proposta: PROPOSTA, prazo_resposta: hoje(3) });
+  assert.equal(pr.ok, true, JSON.stringify(pr));
+  c = (await t.staff("vaga_detalhe", { id: vaga })).candidatos[0];
+  assert.equal(c.etapas.find(e => e.id === prop.id).resultado, "Aprovado", "a etapa Proposta se conclui com o envio");
+  assert.ok(t.enviados.some(m => /você escolhe o horário: 09:00, 14:00/.test(m.html)));
+
+  // aceitar exige escolher o horário de início
+  const s = await t.entrar("paula@x.com");
+  assert.match((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar" })).json.erro, /horário/);
+  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar", hora_inicio: "10:00" })).json.ok, false, "fora das opções");
+  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar", hora_inicio: "14:00" })).json.ok, true);
+  let adm = (await t.comoCandidato(s, "area")).json.admissoes[0];
+  assert.equal(adm.proposta.hora_inicio, "14:00");
+  assert.deepEqual(adm.proposta.opcoes_inicio, ["09:00", "14:00"]);
+  assert.equal(adm.proposta.pode_mudar_inicio, true);
+  assert.ok(t.enviados.some(m => /Início: <b>.*às 14:00/.test(m.html)), "RH sabe o horário escolhido");
+  // muda o horário depois (mais de 24 h antes)
+  assert.equal((await t.comoCandidato(s, "hora_inicio", { admissao_id: pr.id, hora_inicio: "09:00" })).json.ok, true);
+  assert.equal((await t.staff("adm_detalhe", { id: pr.id })).admissao.proposta.hora_inicio, "09:00");
+
+  // aprovação: o convite do primeiro dia vai com o horário escolhido
+  for (const cat of ["doc_rg", "doc_comprovante", "doc_matricula", "doc_cr"]) {
+    const fd = new FormData(); fd.set("admissao_id", pr.id); fd.set("categoria", cat); fd.set("arquivo", new File(["%PDF"], cat + ".pdf", { type: "application/pdf" }));
+    await t.chamar("/api/candidato/anexar", { body: fd, headers: { cookie: s.cookie } });
+  }
+  assert.equal((await t.comoCandidato(s, "cadastro", { admissao_id: pr.id, dados: Object.assign({}, CADASTRO, { nome: "Paula Início", email_pessoal: "paula@x.com" }) })).json.ok, true);
+  assert.equal((await t.staff("adm_decidir", { id: pr.id, decisao: "aprovar" })).ok, true);
+  const conv = t.enviados.find(m => m.convite && /Primeiro dia/.test(m.convite.ics));
+  assert.ok(conv, "convite do primeiro dia");
+  assert.match(conv.convite.ics, new RegExp("DTSTART:" + hoje(20).replace(/-/g, "") + "T120000Z"), "09:00 de Brasília");
+  assert.match(conv.convite.ics.replace(/\r\n /g, ""), /LOCATION:Rua da Conceição/);
 });

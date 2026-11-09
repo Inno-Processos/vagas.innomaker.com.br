@@ -58,13 +58,14 @@ export async function avisoVesperaInicio(env) {
     ].filter(Boolean);
     const p = parseJson(a.proposta, {});
     const url = site + "/painel#admissao/" + a.id;
-    const ps = [`<b>${esc(a.nome)}</b> começa amanhã, <b>${dataBR(a.data_efetivacao)}</b>, como ${esc(a.funcao || a.titulo)} (${esc(a.departamento || "")}).`,
+    const ps = [`<b>${esc(a.nome)}</b> começa amanhã, <b>${dataBR(a.data_efetivacao)}${p.hora_inicio ? " às " + p.hora_inicio : ""}</b>, como ${esc(a.funcao || a.titulo)} (${esc(a.departamento || "")}).`,
       pend.length ? "<b>Ainda falta:</b><br>• " + pend.map(esc).join("<br>• ") : "Todos os passos da admissão antes do primeiro dia estão feitos.",
       "Prepare o onboarding: sala, apresentação, camisa e crachá."];
     const para = [...new Set([p.gestor_email, config.email_rh].filter(Boolean))];
     if (para.length) await enviarEmail(env, { para, assunto: `Amanhã começa: ${a.nome}`, html: layout({ titulo: "Novo colaborador amanhã", paragrafos: ps, botao: { texto: "Ver admissão", url } }),
       texto: textoSimples("Novo colaborador amanhã", ps, url) });
-    const psN = [`Olá, <b>${esc(String(a.nome).split(" ")[0])}</b>!`, `Amanhã, <b>${dataBR(a.data_efetivacao)}</b>, é o seu primeiro dia na Innomaker. Estamos esperando você!`,
+    const psN = [`Olá, <b>${esc(String(a.nome).split(" ")[0])}</b>!`, `Amanhã, <b>${dataBR(a.data_efetivacao)}${p.hora_inicio ? " às " + p.hora_inicio : ""}</b>, é o seu primeiro dia na Innomaker. Estamos esperando você!`,
+      p.local_inicio ? "Local: " + esc(p.local_inicio) + "." : "",
       p.horario_trabalho ? "Horário: " + esc(p.horario_trabalho) + "." : "", "Qualquer dúvida, responda este e-mail."].filter(Boolean);
     await enviarEmail(env, { para: a.email_func || a.email_contato, assunto: "Amanhã é seu primeiro dia na Innomaker", html: layout({ titulo: "Boas-vindas!", paragrafos: psN }),
       texto: textoSimples("Boas-vindas!", psN) });

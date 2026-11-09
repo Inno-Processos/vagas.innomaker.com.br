@@ -17,7 +17,7 @@ import {
 import { excluirCandidato, prazosLgpd, candidatosVencidos } from "../lib/lgpd.js";
 import { ORIGENS } from "./candidato.js";
 import {
-  CAMPOS_PROPOSTA, CAMPOS_DATA_PROPOSTA, CAMPOS_CADASTRO, ADM_ENCERRADAS, ADM_ANTES_DA_APROVACAO, ADM_CANDIDATO_PREENCHE, PASSOS_MANUAIS,
+  CAMPOS_PROPOSTA, CAMPOS_DATA_PROPOSTA, CAMPOS_CADASTRO, ehEtapaProposta, etapaAgendavel, lerHorariosInicio, ADM_ENCERRADAS, ADM_ANTES_DA_APROVACAO, ADM_CANDIDATO_PREENCHE, PASSOS_MANUAIS,
   trilha, documentosExigidos, documentosFaltando, listaDocumentos, nomeCategoria, categoriaValida
 } from "../lib/admissao.js";
 
@@ -449,6 +449,9 @@ async function admPropostaSalvar(env, ctx, b, u) {
   const antes = parseJson(a.proposta, {});
   const p = lerProposta(b.proposta || {}, antes);
   p.gestor_email = (p.gestor_email || "").toLowerCase();
+  p.horarios_inicio = lerHorariosInicio(p.horarios_inicio).join(", ");
+  if (!p.horarios_inicio) throw new ErroApi("Informe pelo menos um horário de início para o candidato escolher.");
+  if (p.data_inicio !== antes.data_inicio || lerHorariosInicio(p.horarios_inicio).indexOf(antes.hora_inicio) < 0) p.hora_inicio = "";
   const email = texto(b.email_contato || a.email_contato, 200).toLowerCase();
   if (!emailValido(email)) throw new ErroApi("E-mail pessoal do candidato inválido.");
   if (/@id\.uff\.br$/i.test(email)) throw new ErroApi("Não é permitido usar e-mail @id.uff.br. Use o e-mail pessoal.");
@@ -602,6 +605,9 @@ async function propostaCriar(env, ctx, b, u) {
        FROM candidaturas ca JOIN candidatos c ON c.id = ca.candidato_id JOIN vagas v ON v.id = ca.vaga_id WHERE ca.id = ?`, texto(b.candidatura_id, 30));
   if (!ca) throw new ErroApi("Candidatura não encontrada.");
   if (["Encerrado", "Desistiu", "Contratado"].indexOf(ca.status) >= 0) throw new ErroApi("Esta candidatura está " + ca.status.toLowerCase() + ".");
+  const etapasCa = await todos(env, "SELECT * FROM etapas WHERE candidatura_id = ? ORDER BY ordem", ca.id);
+  const faltam = etapasCa.filter(x => x.resultado !== "Aprovado" && !ehEtapaProposta(x.nome));
+  if (faltam.length) throw new ErroApi("Antes da proposta, conclua a etapa " + faltam[0].nome + ".");
   const ativa = await um(env, `SELECT id FROM admissoes WHERE candidatura_id = ? AND status NOT IN (${ADM_ENCERRADAS.map(() => "?").join(",")})`, ca.id, ...ADM_ENCERRADAS);
   if (ativa) throw new ErroApi("Já existe uma admissão em andamento para este candidato (" + ativa.id + ").");
 
@@ -610,6 +616,8 @@ async function propostaCriar(env, ctx, b, u) {
   if (/@id\.uff\.br$/i.test(email)) throw new ErroApi("Não é permitido enviar proposta para e-mail @id.uff.br. Use o e-mail pessoal.");
 
   const p = lerProposta(b.proposta || {});
+  p.horarios_inicio = lerHorariosInicio(p.horarios_inicio).join(", ");
+  if (!p.horarios_inicio) throw new ErroApi("Informe pelo menos um horário de início para o candidato escolher (ex.: 09:00, 10:00).");
   const prazo = lerPrazo(b.prazo_resposta);
   p.gestor_nome = p.gestor_nome || ca.gestor_nome;
   p.gestor_email = (p.gestor_email || ca.gestor_email || "").toLowerCase();
@@ -620,18 +628,33 @@ async function propostaCriar(env, ctx, b, u) {
     prep(env, `INSERT INTO admissoes (id, candidatura_id, candidato_id, vaga_id, status, email_contato, proposta, historico, criado_por, criado_em, atualizado_em, prazo_resposta)
                VALUES (?, ?, ?, ?, 'PROPOSTA_ENVIADA', ?, ?, ?, ?, ?, ?, ?)`,
       id, ca.id, ca.candidato_id, ca.vaga_id, email, JSON.stringify(p), historicoMais("[]", quemE(u), "Proposta enviada", "responder até " + dataBR(prazo)), quemE(u), t, t, prazo),
-    prep(env, "UPDATE candidaturas SET status = 'Proposta', atualizado_em = ? WHERE id = ?", t, ca.id)
+    prep(env, "UPDATE candidaturas SET status = 'Proposta', atualizado_em = ? WHERE id = ?", t, ca.id),
+    // a etapa "Proposta" se conclui com o envio (não tem entrevista nem nota)
+    prep(env, "UPDATE etapas SET resultado = 'Aprovado', motivo = ?, responsavel = ?, data_realizada = ?, avaliado_em = ? WHERE candidatura_id = ? AND resultado = 'Pendente' AND lower(nome) LIKE '%proposta%'",
+      "Proposta enviada (" + id + ")", u.nome || "", hojeISO(), t, ca.id)
   ]);
   await registrarLog(env, quemE(u), "PROPOSTA_ENVIADA", "admissao", id, ca.nome);
   enviarEmailProposta(env, ctx, { nome: ca.nome, email, titulo: ca.titulo, p, prazo });
   return { ok: true, id };
 }
 
+// Convite de calendário do primeiro dia (onboarding), no horário que o candidato escolheu
+export function conviteInicio(env, a, p, nome, email) {
+  if (!p.data_inicio || !p.hora_inicio) return null;
+  const ini = p.data_inicio + "T" + p.hora_inicio;
+  return { metodo: "REQUEST", ics: icsEvento({ uid: "inicio-" + a.id + "@vagas.innomaker.com.br", metodo: "REQUEST", sequencia: Math.floor(Date.now() / 1000),
+    inicio: ini, fim: somarMinutos(ini, 120), titulo: "Primeiro dia (onboarding) · " + nome + " · " + (a.titulo_vaga || p.funcao || ""),
+    descricao: ["Primeiro dia na Innomaker: onboarding", "Colaborador: " + nome, p.funcao ? "Função: " + p.funcao : "", p.departamento ? "Departamento: " + p.departamento : "",
+      p.local_inicio ? "Local: " + p.local_inicio : ""].filter(Boolean).join("\n"), local: p.local_inicio || "",
+    organizador: { nome: env.EMAIL_NOME || "Innomaker Recrutamento", email: String(env.SMTP_FROM || env.SMTP_USER || "rh.innomaker@gmail.com").trim() },
+    participantes: [{ nome, email }] }) };
+}
+
 function enviarEmailProposta(env, ctx, { nome, email, titulo, p, prazo }) {
   notificar(env, ctx, email, "Proposta — " + titulo, "Você recebeu uma proposta",
     [`Olá, <b>${String(nome).split(" ")[0]}</b>! Parabéns: você concluiu o processo seletivo e recebeu uma proposta para <b>${titulo}</b>.`,
       `<b>Contratação:</b> ${p.tipo_contratacao}<br><b>Função:</b> ${p.funcao}<br><b>Horário:</b> ${p.horario_trabalho}<br>` +
-      `<b>Bolsa / remuneração:</b> ${p.bolsa_valor}<br><b>Início:</b> ${dataBR(p.data_inicio)}`,
+      `<b>Bolsa / remuneração:</b> ${p.bolsa_valor}<br><b>Início:</b> ${dataBR(p.data_inicio)}${p.horarios_inicio ? " — você escolhe o horário: " + p.horarios_inicio : ""}`,
       (prazo ? `Responda até <b>${dataBR(prazo)}</b>. ` : "") + "Para aceitar ou recusar, entre na Área do candidato com seu e-mail e senha. Ao aceitar, você preenche o cadastro e envia os documentos."],
     { texto: "Ver proposta", url: linkArea(env) });
 }
@@ -769,18 +792,19 @@ async function admDecidir(env, ctx, b, u) {
   ]);
   await registrarLog(env, quemE(u), "ADMISSAO_APROVADA", "admissao", a.id, "matrícula " + matricula);
 
-  const ics = anexoIcs("Início — " + f.nome, f.data_efetivacao, `Início de ${f.nome} (${a.titulo_vaga}). Função: ${f.funcao}. Departamento: ${f.departamento}.`);
+  const ics = p.hora_inicio ? null : anexoIcs("Início — " + f.nome, f.data_efetivacao, `Início de ${f.nome} (${a.titulo_vaga}). Função: ${f.funcao}. Departamento: ${f.departamento}.`);
+  const convite = conviteInicio(env, a, p, f.nome, f.email);
   notificar(env, ctx, f.email, "Admissão aprovada — bem-vindo(a) à Innomaker", "Sua admissão foi aprovada",
     [`Olá, <b>${esc(primeiro)}</b>! Seu cadastro foi aprovado. Sua matrícula na Innomaker é <b>${matricula}</b>.`,
-      `Seu primeiro dia (onboarding) será em <b>${dataBR(f.data_efetivacao)}</b>. O convite está anexado.`],
-    { texto: "Abrir a Área do candidato", url: linkArea(env) }, ics ? { anexos: [ics] } : null);
+      `Seu primeiro dia (onboarding) será em <b>${dataBR(f.data_efetivacao)}${p.hora_inicio ? " às " + p.hora_inicio : ""}</b>${p.local_inicio ? ", em " + esc(p.local_inicio) : ""}. O convite está anexado.`],
+    { texto: "Abrir a Área do candidato", url: linkArea(env) }, convite ? { convite } : ics ? { anexos: [ics] } : null);
 
   const config = await lerConfig(env);
   const gestores = [p.gestor_email, config.email_rh].filter(Boolean);
   notificar(env, ctx, [...new Set(gestores)], `Admissão aprovada — ${f.nome}`, "Admissão aprovada",
     [`<b>${f.nome}</b> foi aprovado(a) para <b>${a.titulo_vaga}</b> (matrícula ${matricula}).`,
-      `Início: <b>${dataBR(f.data_efetivacao)}</b>. Função: ${f.funcao}. Departamento: ${f.departamento}.`],
-    { texto: "Ver no painel", url: linkPainel(env, "funcionario/" + matricula) }, ics ? { anexos: [ics] } : null);
+      `Início: <b>${dataBR(f.data_efetivacao)}${p.hora_inicio ? " às " + p.hora_inicio : ""}</b>. Função: ${f.funcao}. Departamento: ${f.departamento}.`],
+    { texto: "Ver no painel", url: linkPainel(env, "funcionario/" + matricula) }, convite ? { convite } : ics ? { anexos: [ics] } : null);
 
   return { ok: true, matricula };
 }
@@ -875,7 +899,7 @@ async function cfgSalvarGeral(env, ctx, b, u) {
   const links = (Array.isArray(b.links_colaborador) ? b.links_colaborador : []).slice(0, 20).map(l => ({
     titulo: texto(l.titulo, 80), descricao: texto(l.descricao, 200), url: url(l.url)
   })).filter(l => l.titulo && l.url);
-  const pares = { email_rh: email, link_cartilha: url(b.link_cartilha), link_onboarding: url(b.link_onboarding), links_colaborador: JSON.stringify(links) };
+  const pares = { email_rh: email, link_cartilha: url(b.link_cartilha), links_colaborador: JSON.stringify(links) };
   await env.DB.batch(Object.keys(pares).map(k => prep(env,
     "INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor", k, pares[k])));
   await registrarLog(env, quemE(u), "CONFIG_SALVA", "config", "", "");
@@ -1100,6 +1124,7 @@ async function etapaAgendar(env, ctx, b, u) {
   const e = await um(env, "SELECT * FROM etapas WHERE id = ?", parseInt(b.etapa_id, 10) || 0);
   if (!e) throw new ErroApi("Etapa não encontrada.");
   if (e.ordem === 1 || /triagem/i.test(e.nome)) throw new ErroApi("A Triagem não tem data marcada.");
+  if (ehEtapaProposta(e.nome)) throw new ErroApi("A Proposta não tem reunião: envie a proposta com o dia de início.");
   if (e.resultado !== "Pendente") throw new ErroApi("Esta etapa já foi avaliada.");
   const ca = await um(env, `SELECT ca.*, c.nome, c.email, v.titulo FROM candidaturas ca JOIN candidatos c ON c.id = ca.candidato_id
     JOIN vagas v ON v.id = ca.vaga_id WHERE ca.id = ?`, e.candidatura_id);
@@ -1190,7 +1215,7 @@ async function agendasTodas(env, ctx, b, u) {
   // vagas em andamento com etapas depois da Triagem (para criar uma agenda nova)
   const abertas = [];
   for (const v of await todos(env, "SELECT * FROM vagas WHERE status <> 'Concluída' ORDER BY criado_em DESC")) {
-    if (parseJson(v.etapas, []).filter((n, i) => i > 0 && !/triagem/i.test(n)).length && await podeVerVaga(env, u, v)) abertas.push({ id: v.id, titulo: v.titulo });
+    if (parseJson(v.etapas, []).filter(etapaAgendavel).length && await podeVerVaga(env, u, v)) abertas.push({ id: v.id, titulo: v.titulo });
   }
   return { ok: true, grupos, vagas: abertas, podeEditar: u.papel === "rh" };
 }

@@ -500,11 +500,28 @@
       const motivo = el("textarea", "input");
       motivo.placeholder = "Se quiser, conte o motivo da recusa (opcional).";
       motivo.hidden = true;
+      const opcoes = p.opcoes_inicio || [];
+      let horaEscolhida = "";
+      if (opcoes.length) {
+        const box = el("div", "inicio-escolha");
+        box.append(el("b", null, "Em que horário você começa no dia " + fmtData(p.data_inicio) + "?"),
+          el("p", "small", "Seu primeiro dia é o onboarding" + (p.local_inicio ? ", em " + p.local_inicio : "") + ". Escolha um horário para aceitar a proposta."));
+        const linha = el("div", "inicio-horas");
+        opcoes.forEach(h => {
+          const b = el("button", "horario-inicio", h);
+          b.type = "button";
+          b.onclick = () => { horaEscolhida = h; linha.querySelectorAll("button").forEach(x => x.classList.toggle("sel", x === b)); };
+          linha.append(b);
+        });
+        box.append(linha);
+        card.append(box);
+      }
       const btA = el("button", "btn", "Aceitar proposta");
       const btR = el("button", "btn-line", "Recusar");
       const responder = async decisao => {
+        if (decisao === "aceitar" && opcoes.length && !horaEscolhida) { msgBox.innerHTML = ""; msgBox.append(caixa("err", null, "Escolha o horário em que você vai começar.")); return; }
         btA.disabled = btR.disabled = true;
-        const res = await api("proposta", { admissao_id: a.id, decisao, motivo: motivo.value.trim() });
+        const res = await api("proposta", { admissao_id: a.id, decisao, motivo: motivo.value.trim(), hora_inicio: horaEscolhida });
         btA.disabled = btR.disabled = false;
         if (!res.ok) { msgBox.innerHTML = ""; msgBox.append(caixa("err", null, res.erro || "Não foi possível registrar.")); return; }
         carregarArea();
@@ -520,6 +537,8 @@
       card.append(motivo, ac, msgBox);
       return card;
     }
+
+    if (["COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO", "APROVADA"].indexOf(a.status) >= 0 && p.data_inicio) card.append(primeiroDia(a, p));
 
     if (a.status === "COMPLETANDO_CADASTRO" || a.status === "CORRECAO_SOLICITADA") {
       if (d.links && d.links.cartilha && a.status === "COMPLETANDO_CADASTRO") {
@@ -538,15 +557,36 @@
     card.append(resumo);
     if (a.status === "AGUARDANDO_APROVACAO") card.append(caixa("info", null, "Recebemos seu cadastro. O RH está conferindo seus dados e documentos. Você recebe um e-mail com a decisão."));
     if (a.status === "APROVADA") {
-      card.append(caixa("ok", "Bem-vindo(a) à Innomaker!", "Seu cadastro foi aprovado. Seu onboarding será no primeiro dia, " + fmtData(p.data_inicio) + "."));
-      if (d.links && d.links.onboarding) {
-        const l = el("a", "btn-line", "Agendar onboarding");
-        l.href = d.links.onboarding; l.target = "_blank"; l.rel = "noopener"; l.style.marginTop = "12px";
-        card.append(l);
-      }
+      card.append(caixa("ok", "Bem-vindo(a) à Innomaker!", "Seu cadastro foi aprovado. Seu onboarding será no primeiro dia, " + fmtData(p.data_inicio) + (p.hora_inicio ? " às " + p.hora_inicio : "") + "."));
     }
     if (a.status === "RECUSADA" && a.recusa) card.append(caixa("warn", "Justificativa do RH", a.recusa));
     return card;
+  }
+
+  // Primeiro dia (onboarding): dia definido pelo RH e horário escolhido pelo candidato; pode mudar até 24 h antes
+  function primeiroDia(a, p){
+    const box = el("div", "agenda-cand");
+    box.append(el("span", null, "📅 Primeiro dia (onboarding): ", el("b", null, fmtData(p.data_inicio) + (p.hora_inicio ? " às " + p.hora_inicio : "")),
+      p.local_inicio ? " — " + p.local_inicio : ""));
+    if (p.pode_mudar_inicio && (p.opcoes_inicio || []).length > 1) {
+      const sel = document.createElement("select");
+      sel.className = "input";
+      sel.style.width = "auto";
+      p.opcoes_inicio.forEach(h => sel.append(new Option(h, h, false, h === p.hora_inicio)));
+      const bt = el("button", "btn-line", "Mudar horário");
+      bt.type = "button";
+      bt.onclick = async () => {
+        bt.disabled = true;
+        const r = await api("hora_inicio", { admissao_id: a.id, hora_inicio: sel.value });
+        bt.disabled = false;
+        if (!r.ok) return alert(r.erro || "Não foi possível mudar.");
+        areaDados = null; carregarArea();
+      };
+      const lado = el("span", "inicio-mudar");
+      lado.append(sel, bt);
+      box.append(lado);
+    }
+    return box;
   }
 
   // ---------- Cadastro de admissão em etapas (salva sozinho) ----------

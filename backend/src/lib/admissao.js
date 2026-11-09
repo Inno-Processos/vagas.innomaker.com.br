@@ -8,6 +8,17 @@ export const ADM_ANTES_DA_APROVACAO = ["PROPOSTA_ENVIADA", "COMPLETANDO_CADASTRO
 export const ADM_CANDIDATO_PREENCHE = ["COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA"];
 
 // ---------- Proposta ----------
+// A etapa "Proposta" do processo seletivo não tem entrevista nem nota: o RH envia a proposta direto
+export const ehEtapaProposta = nome => /proposta/i.test(String(nome || ""));
+// Etapas com entrevista/teste (podem ter agenda e data marcada): nem Triagem, nem Proposta
+export const etapaAgendavel = (nome, i) => i > 0 && !/triagem/i.test(String(nome || "")) && !ehEtapaProposta(nome);
+
+// Horários em que o candidato pode começar no primeiro dia: "09:00, 10:00 e 14:00" → ["09:00","10:00","14:00"]
+export function lerHorariosInicio(v) {
+  const lista = [...new Set(String(v || "").split(/[^0-9:]+/).filter(Boolean).map(h => /^\d{1,2}$/.test(h) ? h + ":00" : h)
+    .map(h => h.length === 4 ? "0" + h : h).filter(h => /^([01]\d|2[0-3]):[0-5]\d$/.test(h)))].sort();
+  return lista.slice(0, 12);
+}
 // [tamanho máx., rótulo, obrigatório, o candidato vê]
 export const CAMPOS_PROPOSTA = {
   tipo_contratacao: [60, "Tipo de contratação", true, true], situacao: [80, "Situação", false, true],
@@ -16,6 +27,7 @@ export const CAMPOS_PROPOSTA = {
   data_inicio: [10, "Data de início", true, true], bolsa_valor: [120, "Bolsa / remuneração", true, true],
   auxilio: [120, "Auxílio", false, true], data_inicial_bolsa: [10, "Início da bolsa", false, true],
   data_final_bolsa: [10, "Fim da bolsa / contrato", false, true],
+  horarios_inicio: [120, "Horários de início", false, true], local_inicio: [300, "Local do primeiro dia", false, true],
   responsavel: [150, "Responsável", false, false], entidade_vinculada: [150, "Entidade vinculada", false, false],
   gestor_nome: [150, "Gestor", false, false], gestor_email: [200, "E-mail do gestor", false, false], observacao: [3000, "Observação interna", false, false]
 };

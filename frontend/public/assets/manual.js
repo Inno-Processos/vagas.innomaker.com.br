@@ -147,6 +147,7 @@ window.MANUAL_PAINEL = {
       "<b>Para conferir:</b> o cadastro chegou. Abra para conferir campo a campo.",
       "<b>Com o candidato:</b> proposta esperando resposta (com o prazo), cadastro sendo preenchido ou correção pedida.",
       "<b>Pós-aprovação:</b> já está em Funcionários; faltam ponto, acessos ou onboarding.",
+      "A etapa <b>Proposta</b> não tem reunião: quando o candidato chega nela, o botão é <b>Enviar proposta</b>. Na proposta você define o <b>dia de início</b> e os <b>horários</b> que ele pode escolher; ao aceitar, ele escolhe o horário em que começa (pode mudar até 24 horas antes).",
       "<b>Concluídas:</b> todos os passos feitos. <b>Encerradas:</b> recusadas, canceladas ou com proposta vencida.",
       "A barrinha em cada admissão mostra a trilha e o próximo passo."
     ],
