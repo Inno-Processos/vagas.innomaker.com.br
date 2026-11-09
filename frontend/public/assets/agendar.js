@@ -1,4 +1,5 @@
-/* Agendamento pelo candidato (/agendar/<token>): escolhe um horário livre, vê o reservado e pode trocar até 2 h antes.
+/* Página de agendamento do candidato (/agendar/<token>), no estilo da agenda de agendamentos do Google:
+   informações à esquerda, calendário do mês e horários do dia escolhido. Horário de Brasília.
    Dados: GET /api/agendar/<token>; ações: POST /api/agendar/<token>/reservar | liberar. */
 (function () {
   "use strict";
@@ -6,6 +7,7 @@
   const token = decodeURIComponent(location.pathname.replace(/^\/agendar\//, "").replace(/\/+$/, ""));
   const base = "/api/agendar/" + encodeURIComponent(token);
   const DIAS = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+  const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
   function el(tag, attrs) {
     const e = document.createElement(tag);
@@ -20,9 +22,11 @@
     return e;
   }
   const limpar = n => { while (n.firstChild) n.removeChild(n.firstChild); };
-  const dia = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s); const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); const n = DIAS[d.getUTCDay()]; return n[0].toUpperCase() + n.slice(1) + ", " + m[3] + "/" + m[2]; };
+  const maiusc = s => s.charAt(0).toUpperCase() + s.slice(1);
+  const dataUTC = iso => new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)));
+  const diaLongo = iso => maiusc(DIAS[dataUTC(iso).getUTCDay()]) + ", " + iso.slice(8, 10) + " de " + MESES[+iso.slice(5, 7) - 1];
   const hora = s => String(s).slice(11, 16);
-  const quando = (i, f) => dia(i) + " · " + hora(i) + " às " + hora(f);
+  const icone = d => el("span", { class: "ag-ic", "aria-hidden": "true" }, d);
 
   function aviso(tipo, texto) {
     limpar($("msg"));
@@ -41,72 +45,122 @@
     } catch (e) { return { ok: false, erro: "Falha de conexão. Verifique sua internet e tente de novo." }; }
   }
 
+  let D = null, mes = null, diaSel = null;
+
   async function carregar(msgDepois) {
     const d = await chamar();
     $("carregando").hidden = true;
     $("caixa").hidden = false;
     if (!d.ok) {
-      $("titulo").textContent = "Link inválido";
-      $("sub").textContent = d.erro || "Não foi possível abrir o agendamento.";
+      limpar($("info"));
+      $("info").append(el("h1", null, "Link inválido"), el("p", { class: "suave" }, d.erro || "Não foi possível abrir o agendamento."));
       return;
     }
-    desenhar(d);
+    D = d;
+    const dias = [...new Set(d.livres.map(h => h.inicio.slice(0, 10)))];
+    if (!diaSel || dias.indexOf(diaSel) < 0) diaSel = dias[0] || null;
+    mes = (diaSel || new Date().toISOString()).slice(0, 7);
+    desenhar();
     if (msgDepois) aviso(msgDepois[0], msgDepois[1]);
   }
 
-  function desenhar(d) {
-    document.title = "Agendar " + d.etapa + " — Vagas.Innomaker";
-    $("olho").textContent = d.vaga;
-    $("titulo").textContent = "Olá, " + d.candidato + "!";
-    $("sub").textContent = d.reserva ? "Seu horário para a etapa " + d.etapa + " está reservado." : "Escolha um horário para a etapa " + d.etapa + ".";
-    limpar($("info"));
-    $("info").append(
-      el("div", null, el("small", null, "Duração"), el("b", null, d.duracao_min + " minutos")),
-      el("div", null, el("small", null, d.local_tipo === "online" ? "Onde" : "Local"),
-        d.local_tipo === "online" ? (d.local ? el("a", { href: d.local, target: "_blank", rel: "noopener" }, "Link da reunião") : el("b", null, "Online (o link vem com a confirmação)")) : el("b", null, d.local)));
-    if (d.instrucoes) $("info").append(el("div", { class: "largo" }, el("small", null, "Instruções"), el("span", { class: "pre" }, d.instrucoes)));
+  function desenharInfo() {
+    const d = D, i = $("info");
+    limpar(i);
+    document.title = d.titulo + " — Innomaker";
+    i.append(el("div", { class: "olho" }, d.vaga),
+      el("h1", null, d.titulo),
+      el("ul", { class: "ag-lista" },
+        el("li", null, icone("⏱"), d.duracao_min + " minutos"),
+        el("li", null, icone(d.local_tipo === "online" ? "🎥" : "📍"),
+          d.local_tipo === "online" ? (d.local ? el("a", { href: d.local, target: "_blank", rel: "noopener" }, "Entrar na videochamada") : "Videochamada (o link vem com a confirmação)") : d.local),
+        d.participantes && d.participantes.length ? el("li", null, icone("👤"), d.participantes.join(", ")) : null,
+        el("li", null, icone("🌎"), "Horário de Brasília")),
+      d.instrucoes ? el("div", { class: "ag-desc" }, d.instrucoes) : null);
+  }
+
+  function desenhar() {
+    desenharInfo();
     aviso("", "");
     const c = $("conteudo");
     limpar(c);
-
+    const d = D;
     if (d.reserva) {
-      c.append(el("div", { class: "reservado" }, el("small", null, "Seu horário"), el("strong", null, quando(d.reserva.inicio, d.reserva.fim)),
-        el("span", null, "O convite foi enviado para o seu e-mail. Clique em \"Sim\" nele para colocar na sua agenda.")));
+      c.append(el("h2", null, "Olá, " + d.candidato + "! Seu horário está confirmado"),
+        el("div", { class: "reservado" }, el("small", null, "Seu horário"), el("strong", null, diaLongo(d.reserva.inicio) + " · " + hora(d.reserva.inicio) + " às " + hora(d.reserva.fim)),
+          el("span", null, "Enviamos o convite para o seu e-mail. Clique em \"Sim\" nele para colocar na sua agenda.")));
       if (d.reserva.podeTrocar) {
         c.append(el("button", { type: "button", class: "botao", onclick: async ev => {
           if (!confirm("Liberar este horário para escolher outro? Ele pode ser reservado por outra pessoa.")) return;
           ev.target.disabled = true;
           const r = await chamar("liberar");
           if (!r.ok) { ev.target.disabled = false; return aviso("erro", r.erro); }
-          carregar(["ok", "Horário liberado. Escolha um novo horário abaixo."]);
+          carregar(["ok", "Horário liberado. Escolha um novo horário."]);
         } }, "Trocar horário"));
-      } else {
-        c.append(el("p", { class: "suave pequeno" }, "Faltam menos de 2 horas: para mudar, fale com o RH."));
-      }
+      } else c.append(el("p", { class: "suave pequeno" }, "Faltam menos de 2 horas: para mudar, fale com o RH."));
       return;
     }
-    if (!d.aberto) { aviso("info", d.motivoFechado || "Este agendamento não está disponível."); return; }
-    if (!d.livres.length) { aviso("info", "Todos os horários foram reservados. O RH vai abrir novos horários ou entrar em contato com você."); return; }
+    c.append(el("h2", null, "Olá, " + d.candidato + "! Escolha um dia e um horário"));
+    if (!d.aberto) return aviso("info", d.motivoFechado || "Este agendamento não está disponível.");
+    if (!d.livres.length) return aviso("info", "Todos os horários foram reservados. O RH vai abrir novos horários ou entrar em contato com você.");
 
-    // Horários agrupados por dia
     const porDia = new Map();
     d.livres.forEach(h => { const k = h.inicio.slice(0, 10); if (!porDia.has(k)) porDia.set(k, []); porDia.get(k).push(h); });
-    porDia.forEach((hs, k) => {
-      c.append(el("h2", { class: "dia" }, dia(k + "T00:00")),
-        el("div", { class: "horarios" }, hs.map(h => el("button", { type: "button", class: "horario", onclick: ev => reservar(h, ev.target) }, hora(h.inicio)))));
-    });
+    const meses = [...new Set([...porDia.keys()].map(x => x.slice(0, 7)))].sort();
+    const area = el("div", { class: "ag-escolha" });
+    c.append(area);
+
+    // Calendário do mês
+    const cal = el("div", { class: "ag-cal" });
+    const y = +mes.slice(0, 4), m = +mes.slice(5, 7);
+    const iMes = meses.indexOf(mes);
+    cal.append(el("div", { class: "ag-cal-topo" },
+      el("button", { type: "button", class: "ag-nav", "aria-label": "Mês anterior", disabled: !(meses[0] < mes), onclick: () => { mes = meses[Math.max(0, iMes - 1)] < mes ? meses.filter(x => x < mes).pop() : mes; desenhar(); } }, "‹"),
+      el("b", null, maiusc(MESES[m - 1]) + " de " + y),
+      el("button", { type: "button", class: "ag-nav", "aria-label": "Próximo mês", disabled: !(meses[meses.length - 1] > mes), onclick: () => { mes = meses.find(x => x > mes) || mes; desenhar(); } }, "›")));
+    const grade = el("div", { class: "ag-cal-grade" });
+    ["D", "S", "T", "Q", "Q", "S", "S"].forEach(x => grade.append(el("span", { class: "ag-sem" }, x)));
+    const primeiroDia = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+    const nDias = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    for (let i = 0; i < primeiroDia; i++) grade.append(el("span"));
+    for (let dd = 1; dd <= nDias; dd++) {
+      const iso = mes + "-" + String(dd).padStart(2, "0");
+      const tem = porDia.has(iso);
+      grade.append(el("button", { type: "button", class: "ag-dia" + (tem ? " tem" : "") + (iso === diaSel ? " sel" : ""), disabled: !tem,
+        "aria-label": diaLongo(iso) + (tem ? ", " + porDia.get(iso).length + " horário(s)" : ", sem horários"),
+        onclick: () => { diaSel = iso; desenhar(); } }, String(dd)));
+    }
+    cal.append(grade);
+    area.append(cal);
+
+    // Horários do dia escolhido
+    const col = el("div", { class: "ag-horas" });
+    if (diaSel && porDia.has(diaSel)) {
+      col.append(el("b", null, diaLongo(diaSel)),
+        el("div", { class: "ag-lista-horas" }, porDia.get(diaSel).map(h => el("button", { type: "button", class: "horario", onclick: ev => escolher(h, ev.currentTarget) }, hora(h.inicio)))));
+    } else col.append(el("p", { class: "suave" }, "Escolha um dia no calendário."));
+    area.append(col);
   }
 
-  async function reservar(h, botao) {
-    if (!confirm("Confirmar " + quando(h.inicio, h.fim) + "?")) return;
-    document.querySelectorAll(".horario").forEach(b => { b.disabled = true; });
-    botao.textContent = "Reservando…";
-    const r = await chamar("reservar", { horario_id: h.id });
-    if (r.ok) return carregar(["ok", "Horário confirmado! Enviamos o convite para o seu e-mail."]);
-    if (r.ocupado) return carregar(["erro", r.erro]);
-    document.querySelectorAll(".horario").forEach(b => { b.disabled = false; });
-    botao.textContent = hora(h.inicio);
-    aviso("erro", r.erro || "Não foi possível reservar.");
+  // Confirmação em dois passos (como no Google): clica no horário, depois em Confirmar
+  function escolher(h, botao) {
+    document.querySelectorAll(".ag-lista-horas .horario").forEach(b => { b.classList.remove("sel"); const x = b.querySelector(".confirmar"); if (x) x.remove(); });
+    botao.classList.add("sel");
+    const conf = el("span", { class: "confirmar", role: "button", tabindex: "0" }, "Confirmar");
+    const ir = async ev => {
+      ev.stopPropagation();
+      document.querySelectorAll(".horario").forEach(b => { b.disabled = true; });
+      conf.textContent = "Reservando…";
+      const r = await chamar("reservar", { horario_id: h.id });
+      if (r.ok) return carregar(["ok", "Horário confirmado! Enviamos o convite para o seu e-mail."]);
+      if (r.ocupado) return carregar(["erro", r.erro]);
+      document.querySelectorAll(".horario").forEach(b => { b.disabled = false; });
+      conf.textContent = "Confirmar";
+      aviso("erro", r.erro || "Não foi possível reservar.");
+    };
+    conf.addEventListener("click", ir);
+    conf.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") ir(ev); });
+    botao.append(conf);
   }
 
   carregar();

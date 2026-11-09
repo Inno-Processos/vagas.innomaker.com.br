@@ -13,16 +13,15 @@
 <script src="/assets/agendar.js?v=__VERSAO__" defer></script>
 </head>
 <body>
-  <main class="pagina">
+  <main class="pagina pagina-larga">
     <div class="marca-linha"><a href="/" class="marca-txt">INNOMAKER</a><a class="botao" href="/area-do-candidato">Área do candidato</a></div>
     <p class="carregando" id="carregando">Carregando os horários…</p>
-    <section class="cartao" id="caixa" hidden>
-      <div class="olho" id="olho">Agendamento</div>
-      <h1 id="titulo"></h1>
-      <p class="suave" id="sub"></p>
-      <div id="info" class="info"></div>
-      <div id="msg" role="status"></div>
-      <div id="conteudo"></div>
+    <section class="cartao agendar" id="caixa" hidden>
+      <aside class="ag-info" id="info"></aside>
+      <div class="ag-principal">
+        <div id="msg" role="status"></div>
+        <div id="conteudo"></div>
+      </div>
     </section>
   </main>
 </body>

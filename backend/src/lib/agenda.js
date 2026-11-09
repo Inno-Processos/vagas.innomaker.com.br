@@ -31,6 +31,42 @@ export function dataHoraExtenso(local) {
 }
 export const horaDe = local => String(local || "").slice(11, 16);
 
+// ---------- Disponibilidade semanal (como no Google Agenda) ----------
+const RX_HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+const minutosDe = h => +h.slice(0, 2) * 60 + +h.slice(3, 5);
+const horaDeMin = n => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+export const diaDaSemana = iso => new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10))).getUTCDay();
+
+// { "1": [["09:00","12:00"]], … } → limpo e validado (null se inválido)
+export function lerDisponibilidade(src) {
+  const saida = {};
+  if (!src || typeof src !== "object") return saida;
+  for (const k of Object.keys(src)) {
+    if (!/^[0-6]$/.test(k) || !Array.isArray(src[k])) return null;
+    const faixas = src[k].slice(0, 6).map(f => [String(f && f[0] || ""), String(f && f[1] || "")]);
+    for (const [a, b] of faixas) if (!RX_HORA.test(a) || !RX_HORA.test(b) || minutosDe(a) >= minutosDe(b)) return null;
+    if (faixas.length) saida[k] = faixas.sort((x, y) => x[0] < y[0] ? -1 : 1);
+  }
+  return saida;
+}
+
+// Horários (inícios "AAAA-MM-DDTHH:MM") que cabem na disponibilidade, de "de" até "ate" (datas), a cada duração + intervalo
+export function gerarHorarios(disp, de, ate, duracao, intervalo) {
+  const saida = [];
+  if (!de || !ate || de > ate) return saida;
+  const passo = duracao + (intervalo || 0);
+  let d = new Date(de + "T12:00:00Z");
+  for (let n = 0; n < 200 && d.toISOString().slice(0, 10) <= ate; n++, d = new Date(d.getTime() + 864e5)) {
+    const dia = d.toISOString().slice(0, 10);
+    for (const [a, b] of (disp[String(d.getUTCDay())] || [])) {
+      for (let m = minutosDe(a); m + duracao <= minutosDe(b); m += passo) saida.push(dia + "T" + horaDeMin(m));
+    }
+  }
+  return saida.slice(0, 1500);
+}
+
+export const sobrepoe = (i1, f1, i2, f2) => i1 < f2 && i2 < f1;
+
 // Agora em Brasília, "AAAA-MM-DDTHH:MM" (mesmo formato dos horários da agenda)
 export function agoraLocal(ms) {
   const x = new Date((ms == null ? Date.now() : ms) - OFFSET_MS);

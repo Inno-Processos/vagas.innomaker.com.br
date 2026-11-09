@@ -477,52 +477,109 @@
     const recarregarAgenda = () => carregarAgenda(area, v);
     if (rh && r.etapasAgendaveis.length) {
       area.append(el("div", { class: "acoes", style: "margin-bottom:12px" },
-        el("button", { type: "button", class: "bt", onclick: () => editarAgenda(null, v, r, recarregarAgenda) }, "+ Nova agenda")));
+        el("button", { type: "button", class: "bt", onclick: () => editarAgenda(null, v, r, recarregarAgenda) }, "+ Nova agenda de horários")));
     }
     if (!r.etapasAgendaveis.length) return area.append(el("div", { class: "vazio" }, "Esta vaga só tem a Triagem. Para agendar entrevistas, inclua outras etapas em Editar vaga."));
     if (!r.agendas.length) {
       return area.append(el("div", { class: "vazio" }, rh
-        ? "Nenhuma agenda ainda. Crie uma agenda com os horários em que você pode entrevistar e envie o link: cada candidato escolhe um horário livre."
+        ? "Nenhuma agenda ainda. Crie uma agenda com a sua disponibilidade e envie o link: cada candidato escolhe um horário livre, e o horário escolhido some para os outros."
         : "O RH ainda não abriu horários de entrevista para esta vaga."));
     }
     area.append(el("div", { class: "lista" }, r.agendas.map(a => cartaoAgenda(a, v, r, rh, recarregarAgenda))));
+  }
+
+  // ---------- Grade da semana (como no Google Agenda) ----------
+  const NOMES_DIA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+  const NOMES_DIA_LONGO = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  const isoDia = d => d.toISOString().slice(0, 10);
+  const maisDiasIso = (iso, n) => isoDia(new Date(new Date(iso + "T12:00:00Z").getTime() + n * 864e5));
+  const segundaDe = iso => { const d = new Date(iso + "T12:00:00Z"); const w = (d.getUTCDay() + 6) % 7; return maisDiasIso(iso, -w); };
+  const minDe = h => +h.slice(0, 2) * 60 + +h.slice(3, 5);
+
+  // slots: [{ inicio, fim, tipo: livre|reservado|bloqueado|removido|novo, rotulo, onclick }]
+  function gradeSemana(slots, opts) {
+    opts = opts || {};
+    const caixa = el("div", { class: "grade-sem" });
+    const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const primeiro = slots.length ? slots.map(s => s.inicio).sort()[0].slice(0, 10) : hoje;
+    let semana = segundaDe(opts.semana || (primeiro < hoje ? hoje : primeiro));
+    function desenhar() {
+      limpar(caixa);
+      const dias = [0, 1, 2, 3, 4, 5, 6].map(i => maisDiasIso(semana, i));
+      const naSemana = slots.filter(s => s.inicio.slice(0, 10) >= dias[0] && s.inicio.slice(0, 10) <= dias[6]);
+      const mostrar = dias.filter((d, i) => i < 5 || naSemana.some(s => s.inicio.startsWith(d)));
+      let h0 = 8 * 60, h1 = 18 * 60;
+      naSemana.forEach(s => { h0 = Math.min(h0, Math.floor(minDe(s.inicio.slice(11)) / 60) * 60); h1 = Math.max(h1, Math.ceil(minDe(s.fim.slice(11)) / 60) * 60); });
+      const px = 0.8; // pixels por minuto
+      const fmt = d => d.slice(8, 10) + "/" + d.slice(5, 7);
+      caixa.append(el("div", { class: "grade-topo" },
+        el("button", { type: "button", class: "bt-icone", "aria-label": "Semana anterior", onclick: () => { semana = maisDiasIso(semana, -7); desenhar(); } }, "‹"),
+        el("b", null, fmt(dias[0]) + " – " + fmt(dias[6])),
+        el("button", { type: "button", class: "bt-icone", "aria-label": "Próxima semana", onclick: () => { semana = maisDiasIso(semana, 7); desenhar(); } }, "›"),
+        el("button", { type: "button", class: "bt-sec", style: "min-height:32px;padding:4px 12px", onclick: () => { semana = segundaDe(hoje); desenhar(); } }, "Hoje"),
+        el("span", { class: "mini" }, naSemana.filter(s => s.tipo === "livre").length + " livre(s) nesta semana")));
+      const corpo = el("div", { class: "grade-corpo", style: "grid-template-columns:44px repeat(" + mostrar.length + ",minmax(0,1fr))" });
+      corpo.append(el("div", { class: "grade-cab" }));
+      mostrar.forEach(d => corpo.append(el("div", { class: "grade-cab" + (d === hoje ? " hoje" : "") },
+        el("span", null, NOMES_DIA[new Date(d + "T12:00:00Z").getUTCDay()]), el("b", null, d.slice(8, 10)))));
+      const altura = (h1 - h0) * px;
+      const horas = el("div", { class: "grade-horas", style: "height:" + altura + "px" });
+      for (let m = h0; m < h1; m += 60) horas.append(el("span", { style: "top:" + (m - h0) * px + "px" }, String(m / 60).padStart(2, "0") + "h"));
+      corpo.append(horas);
+      mostrar.forEach(d => {
+        const col = el("div", { class: "grade-col" + (d < hoje ? " passado" : ""), style: "height:" + altura + "px;background-size:100% " + 60 * px + "px" });
+        naSemana.filter(s => s.inicio.startsWith(d)).forEach(s => {
+          const top = (minDe(s.inicio.slice(11)) - h0) * px, alt = Math.max(16, (minDe(s.fim.slice(11)) - minDe(s.inicio.slice(11))) * px - 2);
+          const bloco = el(s.onclick ? "button" : "div", { type: s.onclick ? "button" : null, class: "grade-slot " + s.tipo, style: "top:" + top + "px;height:" + alt + "px",
+            title: s.titulo || "", onclick: s.onclick || null },
+            el("span", null, s.inicio.slice(11, 16)), s.rotulo ? el("span", { class: "grade-rot" }, s.rotulo) : null);
+          col.append(bloco);
+        });
+        corpo.append(col);
+      });
+      caixa.append(corpo);
+      if (opts.legenda !== false) caixa.append(el("div", { class: "grade-leg" },
+        el("span", { class: "grade-slot livre" }, "Livre"), el("span", { class: "grade-slot reservado" }, "Reservado"),
+        el("span", { class: "grade-slot bloqueado" }, "Ocupado em outra agenda"), opts.editando ? el("span", { class: "grade-slot removido" }, "Tirado") : null));
+    }
+    desenhar();
+    return caixa;
   }
 
   function cartaoAgenda(a, v, r, rh, recarregarAgenda) {
     const reservados = a.horarios.filter(h => h.reservado);
     const semConvite = a.elegiveis.filter(e => !e.convidado_em && !e.reservado);
     const aguardando = a.elegiveis.filter(e => e.convidado_em && !e.reservado);
-    const porDia = new Map();
-    a.horarios.filter(h => !h.passado || h.reservado).forEach(h => { const k = h.inicio.slice(0, 10); if (!porDia.has(k)) porDia.set(k, []); porDia.get(k).push(h); });
-
-    const grade = porDia.size ? el("div", { class: "agenda-grade" }, [...porDia.entries()].map(([dia, hs]) => el("div", { class: "agenda-dia" },
-      el("b", null, diaCurto(dia)),
-      el("div", { class: "agenda-horas" }, hs.map(h => h.reservado
-        ? el("button", { type: "button", class: "slot ocupado" + (h.passado ? " passado" : ""), title: h.candidato_nome + " — " + h.candidato_email,
-            onclick: () => abrirReserva(h, a, rh, recarregarAgenda) }, horaDe(h.inicio), el("span", null, primeiroNome(h.candidato_nome)))
-        : el("span", { class: "slot livre", title: "Livre" }, horaDe(h.inicio))))))) : el("p", { class: "pequeno suave" }, "Nenhum horário futuro. " + (rh ? "Use Editar para adicionar." : ""));
-
+    const slots = a.horarios.filter(h => !h.passado || h.reservado).map(h => ({
+      inicio: h.inicio, fim: h.fim, tipo: h.reservado ? "reservado" : h.bloqueado ? "bloqueado" : "livre",
+      rotulo: h.reservado ? primeiroNome(h.candidato_nome) : "", titulo: h.reservado ? h.candidato_nome + " — " + h.candidato_email : h.bloqueado ? "Ocupado em outra agenda" : "Livre",
+      onclick: h.reservado ? () => abrirReserva(h, a, rh, recarregarAgenda) : null
+    }));
+    const disp = a.disponibilidade || {};
+    const resumoDisp = Object.keys(disp).sort((x, y) => ((+x + 6) % 7) - ((+y + 6) % 7)).map(k => NOMES_DIA[k] + " " + disp[k].map(f => f[0] + "–" + f[1]).join(", ")).join(" · ");
     return el("article", { class: "card" + (a.ativo ? "" : " apagado") },
       el("div", { class: "item-topo" },
         el("div", null,
-          el("h3", null, a.etapa_nome, " ", el("span", { class: "pill " + (a.ativo ? "verde" : "cinza") }, a.ativo ? "Aberta" : "Encerrada")),
+          el("h3", null, a.titulo || a.etapa_nome, " ", el("span", { class: "pill " + (a.ativo ? "verde" : "cinza") }, a.ativo ? "Aberta" : "Encerrada")),
           el("div", { class: "meta" },
-            el("span", null, a.local_tipo === "online" ? "Online" : "Presencial: " + a.local),
-            el("span", null, a.duracao_min + " min"),
+            el("span", null, a.etapa_nome),
+            el("span", null, a.duracao_min + " min" + (a.intervalo_min ? " + " + a.intervalo_min + " de intervalo" : "")),
+            el("span", null, a.local_tipo === "online" ? "Online" : a.local),
             el("span", null, el("b", null, String(a.livres)), " livre(s)"),
-            el("span", null, el("b", null, String(reservados.length)), " reservado(s)"),
-            el("span", null, "Entrevistam: " + a.participantes.map(p => p.nome || p.email).join(", ")))),
+            el("span", null, el("b", null, String(reservados.length)), " reservado(s)")),
+          resumoDisp ? el("div", { class: "mini", style: "margin-top:4px" }, "Disponibilidade: " + resumoDisp + (a.data_inicio ? " · de " + fmtData(a.data_inicio) + " a " + fmtData(a.data_fim) : "")) : null,
+          a.instrucoes ? el("p", { class: "pequeno pre", style: "margin:8px 0 0" }, a.instrucoes) : null),
         rh ? el("div", { class: "acoes" },
           a.ativo ? el("button", { type: "button", class: semConvite.length ? "bt" : "bt-sec", onclick: () => convidarAgenda(a, recarregarAgenda) },
             "Enviar link" + (semConvite.length ? " (" + semConvite.length + ")" : "")) : null,
-          el("button", { type: "button", class: "bt-sec", onclick: () => editarAgenda(a, v, r, recarregarAgenda) }, "Editar horários"),
+          el("button", { type: "button", class: "bt-sec", onclick: () => editarAgenda(a, v, r, recarregarAgenda) }, "Editar"),
           el("button", { type: "button", class: "bt-sec", onclick: async () => {
             const res = await api("agenda_encerrar", { id: a.id, ativo: !a.ativo });
             if (!res.ok) return toast(res.erro, true);
             toast(a.ativo ? "Agenda encerrada: o link deixa de mostrar horários livres." : "Agenda reaberta.");
             recarregarAgenda();
           } }, a.ativo ? "Encerrar" : "Reabrir")) : null),
-      grade,
+      slots.length ? gradeSemana(slots) : el("p", { class: "pequeno suave" }, "Nenhum horário futuro. " + (rh ? "Use Editar para definir sua disponibilidade." : "")),
       a.elegiveis.length ? el("div", { class: "mini", style: "margin-top:10px" },
         aguardando.length ? el("div", null, "Ainda não escolheram: ", el("b", null, aguardando.map(e => e.nome).join(", "))) : null,
         semConvite.length ? el("div", null, "Sem link enviado: ", el("b", null, semConvite.map(e => e.nome).join(", "))) : null) : null);
@@ -558,91 +615,137 @@
     dialogo({ titulo: a.etapa_nome + " — " + h.candidato_nome, corpo, semOk: true, largo: true });
   }
 
-  async function editarAgenda(a, v, r, recarregarAgenda) {
-    const novo = !a;
-    a = a || { etapa_nome: r.etapasAgendaveis[0], local_tipo: "presencial", local: "", duracao_min: 30, instrucoes: "",
-      participantes: r.sugestaoParticipantes.concat(U.email ? [{ nome: U.nome, email: U.email }] : []), horarios: [] };
-    const etapa = seletor("etapa_nome", r.etapasAgendaveis, a.etapa_nome, false);
-    const tipo = seletor("local_tipo", ["presencial", "online"], a.local_tipo, false);
-    tipo.options[0].textContent = "Presencial"; tipo.options[1].textContent = "Online";
-    const local = entrada("local", a.local);
-    const duracao = entrada("duracao_min", a.duracao_min, { type: "number", min: "10", max: "480", step: "5" });
-    const parts = areaTexto("participantes", fmtParticipantes(a.participantes), { rows: "3", placeholder: "Nome <email@innomaker.com.br>, um por linha" });
-    const instr = areaTexto("instrucoes", a.instrucoes, { rows: "3", placeholder: "Ex.: leve um documento com foto; chegue 10 minutos antes." });
-    const pintarLocal = () => { local.placeholder = tipo.value === "online" ? "https://meet.google.com/…" : "Endereço e sala"; };
-    tipo.addEventListener("change", pintarLocal); pintarLocal();
-
-    // Horários: gerador por dia/intervalo + lista do que vai ser criado ou removido
-    const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
-    const gDia = entrada("g_dia", hoje, { type: "date", min: hoje });
-    const gAte = entrada("g_ate", "", { type: "date", min: hoje });
-    const gIni = entrada("g_ini", "09:00", { type: "time" });
-    const gFim = entrada("g_fim", "12:00", { type: "time" });
-    const gPausa = entrada("g_pausa", "0", { type: "number", min: "0", max: "120", step: "5" });
-    const gFds = el("input", { type: "checkbox", checked: true });
-    const novos = new Set(), remover = new Set();
-    const lista = el("div", { class: "agenda-horas", style: "margin-top:10px" });
-    function pintarHorarios() {
-      limpar(lista);
-      const existentes = a.horarios.filter(h => !h.passado).map(h => ({ ini: h.inicio, id: h.id, reservado: h.reservado, nome: h.candidato_nome }));
-      const todos = existentes.concat([...novos].filter(n => !existentes.some(e => e.ini === n)).map(n => ({ ini: n, novo: true }))).sort((x, y) => x.ini < y.ini ? -1 : 1);
-      if (!todos.length) return lista.append(el("span", { class: "pequeno suave" }, "Nenhum horário. Gere os horários acima."));
-      todos.forEach(t => {
-        const fora = t.id && remover.has(t.id);
-        lista.append(el("span", { class: "slot " + (t.reservado ? "ocupado" : t.novo ? "novo" : "livre") + (fora ? " removido" : ""),
-          title: t.reservado ? "Reservado por " + t.nome + " (cancele pela agenda)" : "" },
-          diaCurto(t.ini) + " " + horaDe(t.ini),
-          t.reservado ? null : el("button", { type: "button", class: "slot-x", "aria-label": (fora ? "Manter " : "Remover ") + horaDe(t.ini), onclick: () => {
-            if (t.novo) novos.delete(t.ini); else if (fora) remover.delete(t.id); else remover.add(t.id);
-            pintarHorarios();
-          } }, fora ? "↺" : "×")));
+  // ---------- Editor da agenda (disponibilidade semanal, como no Google Agenda) ----------
+  function gerarLocal(disp, de, ate, dur, intervalo) {
+    const saida = [];
+    if (!de || !ate || de > ate) return saida;
+    const passo = dur + (intervalo || 0);
+    for (let d = de, n = 0; d <= ate && n < 200; d = maisDiasIso(d, 1), n++) {
+      (disp[String(new Date(d + "T12:00:00Z").getUTCDay())] || []).forEach(([a, b]) => {
+        for (let m = minDe(a); m + dur <= minDe(b); m += passo) saida.push(d + "T" + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"));
       });
     }
-    const gerar = el("button", { type: "button", class: "bt-sec", onclick: () => {
-      const dur = parseInt(duracao.value, 10) || 30, passo = dur + (parseInt(gPausa.value, 10) || 0);
-      const ini = minutos(gIni.value), fim = minutos(gFim.value);
-      if (!gDia.value || isNaN(ini) || isNaN(fim) || fim - ini < dur) return toast("Confira o dia e o intervalo de horas (precisa caber pelo menos uma entrevista).", true);
-      const ate = gAte.value && gAte.value > gDia.value ? gAte.value : gDia.value;
-      let d = new Date(gDia.value + "T12:00:00Z"), n = 0;
-      const agora = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }).format(new Date()).replace(" ", "T");
-      while (d.toISOString().slice(0, 10) <= ate && n < 300) {
-        const dia = d.toISOString().slice(0, 10), sem = d.getUTCDay();
-        if (!(gFds.checked && (sem === 0 || sem === 6))) {
-          for (let m = ini; m + dur <= fim; m += passo) { const s = dia + "T" + hhmm(m); if (s > agora) { novos.add(s); n++; } }
-        }
-        d = new Date(d.getTime() + 864e5);
-      }
-      if (!n) return toast("Nenhum horário novo nesse intervalo.", true);
-      toast(n + " horário(s) incluído(s). Clique em Salvar para criar.");
-      pintarHorarios();
-    } }, "Gerar horários");
+    return saida;
+  }
+  const somaMin = (ini, n) => { const m = minDe(ini.slice(11)) + n; return ini.slice(0, 11) + String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); };
 
-    const corpo = el("div", null,
+  async function editarAgenda(a, v, r, recarregarAgenda, etapaInicial) {
+    const novo = !a;
+    const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    a = a || { etapa_nome: etapaInicial || r.etapasAgendaveis[0], titulo: "", local_tipo: "presencial", local: "", duracao_min: 30, intervalo_min: 0, antecedencia_horas: 12,
+      instrucoes: "", participantes: r.sugestaoParticipantes.concat(U.email ? [{ nome: U.nome, email: U.email }] : []), horarios: [], excluidos: [],
+      disponibilidade: { 1: [["09:00", "12:00"], ["14:00", "17:00"]], 2: [["09:00", "12:00"], ["14:00", "17:00"]], 3: [["09:00", "12:00"], ["14:00", "17:00"]],
+        4: [["09:00", "12:00"], ["14:00", "17:00"]], 5: [["09:00", "12:00"], ["14:00", "17:00"]] },
+      data_inicio: maisDiasIso(hoje, 1), data_fim: maisDiasIso(hoje, 14) };
+    const disp = JSON.parse(JSON.stringify(a.disponibilidade && Object.keys(a.disponibilidade).length ? a.disponibilidade : {}));
+    const etapa = seletor("etapa_nome", r.etapasAgendaveis, a.etapa_nome, false);
+    const titulo = entrada("titulo", a.titulo || "", { placeholder: (a.etapa_nome || "Entrevista") + " — " + v.titulo });
+    const duracao = el("select", { name: "duracao_min" }, [15, 20, 30, 45, 60, 90, 120].concat([15, 20, 30, 45, 60, 90, 120].indexOf(+a.duracao_min) < 0 ? [+a.duracao_min] : [])
+      .map(n => el("option", { value: String(n), selected: n === +a.duracao_min }, n < 60 ? n + " minutos" : (n / 60) + (n === 60 ? " hora" : " horas"))));
+    const intervalo = el("select", { name: "intervalo_min" }, [0, 5, 10, 15, 30, 60].map(n => el("option", { value: String(n), selected: n === +(a.intervalo_min || 0) }, n ? n + " minutos" : "Sem intervalo")));
+    const antecedencia = el("select", { name: "antecedencia_horas" }, [0, 2, 4, 12, 24, 48, 72].map(n => el("option", { value: String(n), selected: n === +(a.antecedencia_horas == null ? 12 : a.antecedencia_horas) },
+      n ? (n < 24 ? n + " horas antes" : (n / 24) + (n === 24 ? " dia antes" : " dias antes")) : "Sem antecedência mínima")));
+    const de = entrada("data_inicio", a.data_inicio || hoje, { type: "date", min: hoje });
+    const ate = entrada("data_fim", a.data_fim || maisDiasIso(hoje, 14), { type: "date", min: hoje });
+    const tipo = seletor("local_tipo", ["presencial", "online"], a.local_tipo, false);
+    tipo.options[0].textContent = "Presencial"; tipo.options[1].textContent = "Online (videochamada)";
+    const local = entrada("local", a.local);
+    const descricao = areaTexto("descricao", a.instrucoes, { rows: "4", placeholder: "Ex.: Entrevista com o RH e o gestor da área. Endereço: Rua …, sala 2 (tocar o interfone). Traga um documento com foto." });
+    const parts = areaTexto("participantes", fmtParticipantes(a.participantes), { rows: "2", placeholder: "Nome <email@innomaker.com.br>, um por linha" });
+    const pintarLocal = () => { local.placeholder = tipo.value === "online" ? "Link da videochamada (https://meet.google.com/…)" : "Endereço e sala"; };
+    tipo.addEventListener("change", pintarLocal); pintarLocal();
+
+    // Disponibilidade semanal
+    const semanaBox = el("div", { class: "disp-semana" });
+    function pintarSemana() {
+      limpar(semanaBox);
+      [1, 2, 3, 4, 5, 6, 0].forEach(k => {
+        const faixas = disp[k] || [];
+        const ativo = el("input", { type: "checkbox", checked: faixas.length > 0, "aria-label": NOMES_DIA_LONGO[k] });
+        ativo.addEventListener("change", () => { if (ativo.checked) disp[k] = [["09:00", "17:00"]]; else delete disp[k]; pintarSemana(); prever(); });
+        const linhas = el("div", { class: "disp-faixas" }, faixas.length ? faixas.map((f, i) => {
+          const i1 = el("input", { type: "time", value: f[0], step: "900" }), i2 = el("input", { type: "time", value: f[1], step: "900" });
+          i1.addEventListener("change", () => { f[0] = i1.value; prever(); });
+          i2.addEventListener("change", () => { f[1] = i2.value; prever(); });
+          return el("div", { class: "disp-faixa" }, i1, el("span", null, "–"), i2,
+            el("button", { type: "button", class: "slot-x", "aria-label": "Tirar horário", onclick: () => { faixas.splice(i, 1); if (!faixas.length) delete disp[k]; pintarSemana(); prever(); } }, "×"));
+        }) : el("span", { class: "mini" }, "Indisponível"),
+          faixas.length ? el("button", { type: "button", class: "bt-flag", onclick: () => { const ult = faixas[faixas.length - 1]; faixas.push([ult[1] < "17:00" ? ult[1] : "14:00", "18:00"]); pintarSemana(); prever(); } }, "+ horário") : null);
+        semanaBox.append(el("div", { class: "disp-dia" }, el("label", { class: "check" }, ativo, el("b", null, NOMES_DIA_LONGO[k])), linhas));
+      });
+    }
+    pintarSemana();
+
+    // Prévia na grade: gerados + existentes; clique tira/devolve um horário
+    const removerIds = new Set(), excluir = new Set(), avulsos = new Set();
+    const previa = el("div");
+    const contagem = el("span", { class: "pequeno suave" });
+    function prever() {
+      limpar(previa);
+      const dur = +duracao.value, gap = +intervalo.value;
+      const existentes = (a.horarios || []).filter(h => !h.passado);
+      const reservados = existentes.filter(h => h.reservado);
+      const gerados = gerarLocal(disp, de.value, ate.value, dur, gap).filter(x => x > hoje + "T" + "00:00");
+      const exclAntes = new Set(a.excluidos || []);
+      const manuais = existentes.filter(h => h.manual && !h.reservado);
+      const mapa = new Map();
+      gerados.forEach(ini => mapa.set(ini, { inicio: ini, fim: somaMin(ini, dur), tipo: exclAntes.has(ini) || excluir.has(ini) ? "removido" : "livre", gerado: true }));
+      manuais.forEach(h => mapa.set(h.inicio, { inicio: h.inicio, fim: somaMin(h.inicio, dur), tipo: removerIds.has(h.id) ? "removido" : h.bloqueado ? "bloqueado" : "livre", id: h.id }));
+      existentes.filter(h => !h.manual && !h.reservado && mapa.has(h.inicio)).forEach(h => { const s = mapa.get(h.inicio); s.id = h.id; if (h.bloqueado && s.tipo === "livre") s.tipo = "bloqueado"; });
+      avulsos.forEach(ini => mapa.set(ini, { inicio: ini, fim: somaMin(ini, dur), tipo: "novo", avulso: true }));
+      reservados.forEach(h => mapa.set(h.inicio, { inicio: h.inicio, fim: h.fim, tipo: "reservado", rotulo: primeiroNome(h.candidato_nome), titulo: h.candidato_nome }));
+      const slots = [...mapa.values()].map(s => Object.assign(s, {
+        onclick: s.tipo === "reservado" ? null : () => {
+          if (s.avulso) avulsos.delete(s.inicio);
+          else if (s.tipo === "removido") { if (s.id) removerIds.delete(s.id); excluir.delete(s.inicio); exclAntes.delete(s.inicio); if (a.excluidos) a.excluidos = a.excluidos.filter(x => x !== s.inicio); avulsos.add(s.inicio); }
+          else { if (s.id) removerIds.add(s.id); else excluir.add(s.inicio); }
+          prever();
+        },
+        titulo: s.titulo || (s.tipo === "removido" ? "Tirado — clique para devolver" : s.tipo === "reservado" ? "" : "Clique para tirar este horário")
+      }));
+      contagem.textContent = slots.filter(s => s.tipo === "livre" || s.tipo === "novo").length + " horário(s) disponível(is) no período";
+      previa.append(gradeSemana(slots, { editando: true, semana: de.value }));
+    }
+    [duracao, intervalo, de, ate].forEach(x => x.addEventListener("change", prever));
+    const avData = entrada("av_data", de.value, { type: "date", min: hoje }), avHora = entrada("av_hora", "", { type: "time", step: "900" });
+    const btAvulso = el("button", { type: "button", class: "bt-sec", onclick: () => {
+      if (!avData.value || !avHora.value) return toast("Escolha o dia e a hora.", true);
+      avulsos.add(avData.value + "T" + avHora.value); prever();
+    } }, "Adicionar");
+
+    const corpo = el("div", { class: "editor-agenda" },
       el("div", { class: "campos" },
-        campo("Etapa", etapa, { dica: "Os candidatos que estão nesta etapa podem receber o link." }),
-        campo("Duração de cada entrevista (min)", duracao),
-        campo("Formato", tipo),
-        campo("Local ou link da reunião", local, { dica: "No formato online, o link só aparece para o candidato depois que ele reservar." }),
-        campo("Quem entrevista (recebe o convite na agenda)", parts, { largo: true, dica: "RH, o funcionário que vai entrevistar e outros convidados." }),
-        campo("Instruções para o candidato (opcional)", instr, { largo: true })),
-      el("h3", { class: "titulo-etapas" }, "Horários"),
-      el("div", { class: "gerador" },
-        campo("De", gDia), campo("Até (opcional)", gAte), campo("Das", gIni), campo("Às", gFim), campo("Pausa entre (min)", gPausa)),
-      el("div", { class: "acoes", style: "margin-top:10px" }, gerar, el("label", { class: "check" }, gFds, el("span", null, "Pular sábados e domingos"))),
-      lista);
-    pintarHorarios();
+        campo("Título", titulo, { largo: true, dica: "É o que o candidato vê no topo da página e no convite." }),
+        campo("Etapa", etapa), campo("Duração de cada entrevista", duracao),
+        campo("Intervalo entre entrevistas", intervalo), campo("Antecedência mínima para agendar", antecedencia)),
+      el("h3", { class: "titulo-etapas" }, "Disponibilidade semanal"),
+      el("p", { class: "pequeno suave", style: "margin:0 0 8px" }, "Os dias e horários em que você pode entrevistar. O sistema divide em horários do tamanho da entrevista."),
+      semanaBox,
+      el("div", { class: "campos", style: "margin-top:12px" }, campo("Disponível de", de), campo("até", ate)),
+      el("h3", { class: "titulo-etapas" }, "Local e descrição"),
+      el("div", { class: "campos" }, campo("Formato", tipo), campo("Local ou link", local, { dica: "No online, o link só aparece para o candidato depois que ele escolhe o horário." }),
+        campo("Descrição", descricao, { largo: true, dica: "Local, como chegar, o que levar e informações gerais. Vai na página do candidato e no convite." }),
+        campo("Quem entrevista (recebe o convite na agenda)", parts, { largo: true, dica: "Horários em que essas pessoas já têm entrevista em outra vaga somem sozinhos." })),
+      el("h3", { class: "titulo-etapas" }, "Prévia dos horários ", contagem),
+      el("p", { class: "pequeno suave", style: "margin:0 0 8px" }, "Clique num horário para tirar (ou devolver). Reservados não mudam por aqui."),
+      previa,
+      el("div", { class: "avulso" }, el("span", { class: "mini" }, "Horário avulso:"), avData, avHora, btAvulso));
+    prever();
 
     const ok = await dialogo({
-      titulo: novo ? "Nova agenda — " + v.titulo : "Editar agenda — " + a.etapa_nome, corpo, okTexto: "Salvar agenda", largo: true,
+      titulo: novo ? "Nova agenda de horários" : "Editar agenda — " + (a.titulo || a.etapa_nome), corpo, okTexto: "Salvar agenda", largo: true,
       aoConfirmar: async () => {
-        const res = await api("agenda_salvar", { id: a.id, vaga_id: v.id, etapa_nome: etapa.value, local_tipo: tipo.value, local: local.value,
-          duracao_min: duracao.value, participantes: parts.value, instrucoes: instr.value, horarios_novos: [...novos], horarios_remover: [...remover] });
+        for (const k of Object.keys(disp)) for (const f of disp[k]) if (!f[0] || !f[1] || f[0] >= f[1]) return NOMES_DIA_LONGO[k] + ": o início precisa ser antes do fim.";
+        const res = await api("agenda_salvar", { id: a.id, vaga_id: v.id, etapa_nome: etapa.value, titulo: titulo.value, local_tipo: tipo.value, local: local.value,
+          duracao_min: duracao.value, intervalo_min: intervalo.value, antecedencia_horas: antecedencia.value, participantes: parts.value, descricao: descricao.value,
+          disponibilidade: disp, data_inicio: de.value, data_fim: ate.value, horarios_remover: [...removerIds], excluir: [...excluir], horarios_novos: [...avulsos] });
         if (!res.ok) return res.erro;
-        toast("Agenda salva" + (res.criados ? ": " + res.criados + " horário(s) novo(s)." : ".") + (novo ? " Agora envie o link aos candidatos." : ""));
+        toast("Agenda salva: " + res.livres + " horário(s) livre(s)." + (novo ? " Agora envie o link aos candidatos." : ""));
         return true;
       }
     });
-    if (ok) recarregarAgenda();
+    if (ok && recarregarAgenda) recarregarAgenda();
+    return ok;
   }
 
   async function convidarAgenda(a, recarregarAgenda) {
@@ -1471,8 +1574,8 @@
         el("div", { class: "etapa-topo" },
           el("b", null, e.nome), pillEtapa(e.resultado), e.nota ? estrelas(e.nota) : null,
           rh && !travado && e.estado === "atual" && !ehTriagem(e) && c.status === "Em processo" ? el("button", {
-            type: "button", class: "bt-sec", onclick: () => marcarDataEtapa(e, c, vaga)
-          }, e.data_prevista ? "Mudar data" : "Marcar data") : null,
+            type: "button", class: "bt-sec", onclick: () => agendarCandidato(e, c, vaga)
+          }, e.data_prevista ? "Reagendar" : "Agendar") : null,
           rh && !travado && e.estado !== "bloqueada" ? el("button", {
             type: "button", class: e.estado === "atual" ? "bt" : "bt-sec", onclick: () => editarEtapa(e, c, vaga)
           }, e.estado === "atual" ? "Avaliar" : "Editar") : null),
@@ -1494,6 +1597,36 @@
 
     dialogo({ titulo: c.nome + " — " + vaga.titulo, corpo: el("div", null, topo, mensagem, fim, el("h3", { class: "titulo-etapas" }, "Etapas do processo"), linha, rodape),
       semOk: true, largo: true });
+  }
+
+  // Agendar: envia ao candidato o link com os horários livres de uma agenda (ele escolhe), ou marca um dia e hora fixos
+  async function agendarCandidato(e, c, vaga) {
+    const r = await api("agenda_listar", { vaga_id: vaga.id });
+    if (!r.ok) return toast(r.erro, true);
+    const agendas = r.agendas.filter(a => a.etapa_nome === e.nome && a.ativo);
+    const minha = r.agendas.map(a => a.horarios.find(h => h.reservado && h.candidatura_id === c.id)).find(Boolean);
+    const voltar = () => { reabrirCandidato = c.id; recarregar(); };
+    const corpo = el("div", null,
+      minha ? el("div", { class: "nota verde", style: "margin:0 0 12px" }, el("strong", null, c.nome + " já escolheu um horário"),
+        fmtData(minha.inicio.slice(0, 10)) + " às " + minha.inicio.slice(11, 16) + ". Para trocar, cancele o horário na grade da agenda.") : null,
+      el("p", { class: "suave", style: "margin:0 0 12px" }, "Envie seus horários livres: " + primeiroNome(c.nome) + " escolhe um e ele some para os outros candidatos."),
+      agendas.length ? el("div", { class: "lista" }, agendas.map(a => el("div", { class: "card item-topo", style: "padding:14px 16px" },
+        el("div", null, el("b", null, a.titulo || a.etapa_nome),
+          el("div", { class: "mini" }, a.duracao_min + " min · " + (a.local_tipo === "online" ? "Online" : a.local) + " · " + a.livres + " horário(s) livre(s)")),
+        el("button", { type: "button", class: "bt", disabled: !a.livres || !!minha, onclick: async ev => {
+          ev.currentTarget.disabled = true;
+          const res = await api("agenda_convidar", { agenda_id: a.id, candidatura_ids: [c.id] });
+          if (!res.ok) { ev.currentTarget.disabled = false; return toast(res.erro, true); }
+          if (!res.enviados.length) return toast("Não enviado: " + res.ignorados.map(i => i.motivo).join("; "), true);
+          toast("Horários enviados para " + c.email + ".");
+          $("dlg").close(); voltar();
+        } }, "Enviar horários")))) : el("div", { class: "vazio", style: "padding:18px" }, "Ainda não há agenda de horários para " + e.nome + "."),
+      el("div", { class: "acoes", style: "margin-top:14px" },
+        el("button", { type: "button", class: agendas.length ? "bt-sec" : "bt", onclick: async () => {
+          if (await editarAgenda(null, vaga, r, null, e.nome)) agendarCandidato(e, c, vaga);
+        } }, "+ Nova agenda de horários"),
+        el("button", { type: "button", class: "bt-perigo-txt", style: "color:var(--suave)", onclick: () => marcarDataEtapa(e, c, vaga) }, "Ou marcar um dia e hora fixos")));
+    await dialogo({ titulo: "Agendar " + e.nome + " — " + c.nome, corpo, semOk: true, largo: true });
   }
 
   // Marca dia, hora e local da etapa e envia ao candidato (com convite de calendário)

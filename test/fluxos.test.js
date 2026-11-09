@@ -259,3 +259,60 @@ test("backup externo: copia o banco, espelha os arquivos e apaga o que foi exclu
   assert.ok(!fs.existsSync(path.join(destino, "arquivos", "curriculos", "b.pdf")));
   assert.equal(be.status().ok, true);
 });
+
+test("agenda como no Google Agenda: disponibilidade semanal, horários tirados à mão e um entrevistador em duas vagas", async () => {
+  const t = ambiente();
+  const v1 = await criarVaga(t.staff, "Vaga A"), v2 = await criarVaga(t.staff, "Vaga B");
+  // próxima segunda-feira a pelo menos 2 dias
+  let seg = new Date(Date.now() + 2 * 864e5);
+  while (seg.getUTCDay() !== 1) seg = new Date(seg.getTime() + 864e5);
+  const dia = seg.toISOString().slice(0, 10);
+  const base = { etapa_nome: "Entrevista RH", local: "Sala 2 — Rua da Conceição, 100", duracao_min: 30, intervalo_min: 15,
+    participantes: "Rebeca <rebeca@innomaker.com.br>", descricao: "Traga documento com foto.", data_inicio: dia, data_fim: dia,
+    disponibilidade: { "1": [["09:00", "11:00"]] } };
+  assert.equal((await t.staff("agenda_salvar", Object.assign({}, base, { vaga_id: v1, disponibilidade: { "1": [["11:00", "09:00"]] } }))).ok, false, "início depois do fim");
+  const a1 = await t.staff("agenda_salvar", Object.assign({}, base, { vaga_id: v1, titulo: "Entrevista RH — Vaga A" }));
+  assert.equal(a1.ok, true, JSON.stringify(a1));
+  // 09:00, 09:45, 10:30 (30 min + 15 de intervalo; 11:15 não cabe)
+  let l1 = (await t.staff("agenda_listar", { vaga_id: v1 })).agendas[0];
+  assert.deepEqual(l1.horarios.map(h => h.inicio.slice(11)), ["09:00", "09:45", "10:30"]);
+  assert.equal(l1.titulo, "Entrevista RH — Vaga A");
+  assert.equal(l1.instrucoes, "Traga documento com foto.");
+
+  // tirar um horário à mão: ele não volta quando a agenda é salva de novo
+  const h0945 = l1.horarios.find(h => h.inicio.endsWith("09:45"));
+  await t.staff("agenda_salvar", Object.assign({}, base, { id: a1.id, vaga_id: v1, horarios_remover: [h0945.id] }));
+  await t.staff("agenda_salvar", Object.assign({}, base, { id: a1.id, vaga_id: v1 }));
+  l1 = (await t.staff("agenda_listar", { vaga_id: v1 })).agendas[0];
+  assert.deepEqual(l1.horarios.map(h => h.inicio.slice(11)), ["09:00", "10:30"]);
+  // horário avulso clicado na grade
+  await t.staff("agenda_salvar", Object.assign({}, base, { id: a1.id, vaga_id: v1, horarios_novos: [dia + "T14:00"] }));
+  l1 = (await t.staff("agenda_listar", { vaga_id: v1 })).agendas[0];
+  assert.deepEqual(l1.horarios.map(h => h.inicio.slice(11)), ["09:00", "10:30", "14:00"]);
+
+  // mesma entrevistadora numa segunda vaga, no mesmo dia e hora
+  const a2 = await t.staff("agenda_salvar", Object.assign({}, base, { vaga_id: v2 }));
+  await t.inscrever(v1, { nome: "Lia Um", email: "lia@x.com" });
+  await t.inscrever(v2, { nome: "Rui Dois", email: "rui@x.com" });
+  for (const v of [v1, v2]) {
+    const c = (await t.staff("vaga_detalhe", { id: v })).candidatos[0];
+    await t.staff("etapa_atualizar", { etapa_id: c.etapas.find(e => e.ordem === 1).id, resultado: "Aprovado", nota: 3, analise: "Currículo bom" });
+    const ag = (await t.staff("agenda_listar", { vaga_id: v })).agendas[0];
+    assert.equal((await t.staff("agenda_convidar", { agenda_id: ag.id, candidatura_ids: [c.id] })).enviados.length, 1);
+  }
+  const tok = Object.fromEntries((await t.env.DB.prepare(`SELECT e.agenda_token, c.email FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id
+    JOIN candidatos c ON c.id = ca.candidato_id WHERE e.agenda_token IS NOT NULL`).all()).results.map(x => [x.email, x.agenda_token]));
+  const verLia = (await t.chamar("/api/agendar/" + tok["lia@x.com"], { method: "GET" })).json;
+  assert.equal(verLia.titulo, "Entrevista RH — Vaga A");
+  assert.equal(verLia.instrucoes, "Traga documento com foto.");
+  const nove = verLia.livres.find(h => h.inicio.endsWith("09:00"));
+  assert.equal((await t.chamar("/api/agendar/" + tok["lia@x.com"] + "/reservar", { body: { horario_id: nove.id } })).json.ok, true);
+  // para o Rui (outra vaga, mesma entrevistadora), as 09:00 somem
+  const verRui = (await t.chamar("/api/agendar/" + tok["rui@x.com"], { method: "GET" })).json;
+  assert.ok(!verRui.livres.some(h => h.inicio.endsWith("09:00")), "entrevistadora já ocupada às 09:00");
+  assert.ok(verRui.livres.some(h => h.inicio.endsWith("09:45")));
+  const nove2 = (await t.staff("agenda_listar", { vaga_id: v2 })).agendas[0].horarios.find(h => h.inicio.endsWith("09:00"));
+  assert.equal(nove2.bloqueado, true, "o painel mostra o horário como ocupado em outra agenda");
+  assert.equal((await t.chamar("/api/agendar/" + tok["rui@x.com"] + "/reservar", { body: { horario_id: nove2.id } })).status, 409);
+  assert.ok(a2.ok);
+});

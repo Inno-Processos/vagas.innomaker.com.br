@@ -107,10 +107,11 @@ window.MANUAL_PAINEL = {
         "Em <b>Avaliar</b>: dê a nota de <b>1 a 3 estrelas</b> (abaixo do esperado, dentro do esperado, acima do esperado), escreva a <b>análise</b> e escolha <b>Aprovado</b> ou <b>Recusado</b>.",
         "<b>Recusado</b> encerra o processo e envia o texto da análise como <b>feedback ao candidato</b> por e-mail. A janela mostra a prévia do e-mail antes de confirmar.",
         "<b>Aprovado</b> passa para a próxima etapa. Se quiser, marque <b>Avisar o candidato</b> para mandar um e-mail dizendo que ele avançou.",
-        "<b>Marcar data</b> (na etapa atual): escolha dia, hora e local ou link. O candidato recebe por e-mail, com convite para a agenda, e vê a data na Área do candidato. Use <b>Mudar data</b> para remarcar.",
+        "<b>Agendar</b> (na etapa atual do candidato): clique em <b>Enviar horários</b> para mandar o link da sua agenda; o candidato escolhe um horário livre. Se preferir um dia e hora fixos, use <b>Ou marcar um dia e hora fixos</b>.",
         "Quando todas as etapas estiverem aprovadas, clique em <b>Enviar proposta</b> (e-mail pessoal, não pode ser @id.uff.br).",
-        "<b>Agenda de entrevistas:</b> clique em <b>+ Nova agenda</b>, escolha a etapa, o local (ou link online), quem entrevista e gere os horários (dia, das/às e pausa). Salve.",
-        "Clique em <b>Enviar link</b>: cada candidato que está naquela etapa recebe um e-mail para escolher um horário livre. Um horário reservado não pode ser pego por outra pessoa.",
+        "<b>Agenda de horários</b> (como no Google Agenda): clique em <b>+ Nova agenda de horários</b>, dê um título, escolha a duração, o intervalo entre entrevistas e a <b>disponibilidade semanal</b> (dias e faixas de horário) e o período. Em <b>Descrição</b>, escreva o local, como chegar e as informações gerais.",
+        "Na <b>prévia</b>, clique num horário para tirar (ou devolver). Em <b>Horário avulso</b>, inclua um horário fora da disponibilidade.",
+        "Clique em <b>Enviar link</b>: cada candidato recebe um e-mail para escolher um horário. Quando alguém escolhe, o horário some para os outros, inclusive nas agendas de outras vagas com o mesmo entrevistador.",
         "Quando o candidato reserva, ele e os entrevistadores recebem o <b>convite de calendário</b>. No dia anterior, todos recebem um lembrete.",
         "Clique num horário reservado para <b>convidar mais alguém</b> só para aquela entrevista ou <b>cancelar</b> (o candidato pode escolher outro)."
       ],
@@ -208,11 +209,11 @@ window.MANUAL_PAINEL = {
   "entrevistas": {
     resumo: "Todas as entrevistas e testes marcados, por dia.",
     passos: [
-      "Aparecem aqui os horários que os candidatos escolheram na <b>Agenda de entrevistas</b> da vaga e as datas que o RH marcou em <b>Marcar data</b>.",
+      "Aparecem aqui os horários que os candidatos escolheram na <b>Agenda de entrevistas</b> da vaga e as datas que o RH marcou em <b>Agendar</b>.",
       "Cada linha mostra hora, candidato, etapa, vaga, local ou link e quem entrevista. Clique para abrir a vaga; em entrevistas online, <b>Entrar</b> abre o link.",
       "Use <b>Últimos 30 dias</b> para ver as que já passaram."
     ],
-    dicas: ["Para marcar: <b>Vagas → vaga → candidato → Marcar data</b> (você escolhe o dia) ou <b>+ Nova agenda</b> na vaga (o candidato escolhe o horário).",
+    dicas: ["Para marcar: <b>Vagas → vaga → candidato → Agendar</b>: <b>Enviar horários</b> (o candidato escolhe) ou um dia e hora fixos.",
       "As próximas 5 também aparecem no Início do painel."]
   },
 
