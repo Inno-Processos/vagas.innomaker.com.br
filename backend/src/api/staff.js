@@ -1115,7 +1115,7 @@ async function etapaAgendar(env, ctx, b, u) {
   await registrarLog(env, quemE(u), "ETAPA_DATA_MARCADA", "candidatura", ca.id, e.nome + " — " + dataBR(data) + (hora ? " " + hora : "") + (avisar ? " (candidato avisado)" : ""));
   if (avisar) {
     const quando = dataBR(data) + (hora ? " às " + hora : "");
-    const titulo = e.nome + " — " + ca.titulo + " (Innomaker)";
+    const titulo = e.nome + " · " + ca.nome + " · " + ca.titulo;
     let extra = null;
     if (hora) {
       const ini = data + "T" + hora;

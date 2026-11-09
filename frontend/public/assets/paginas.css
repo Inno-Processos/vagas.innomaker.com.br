@@ -100,3 +100,9 @@ code{font-size:11.5px;word-break:break-all}
 .ag-lista-horas .horario.sel{background:var(--suave);border-color:var(--suave);color:var(--sup)}
 .ag-lista-horas .confirmar{background:var(--green);color:#fff;border-radius:10px;padding:8px 12px;margin:-6px -8px -6px 0}
 @media(max-width:820px){.agendar{grid-template-columns:1fr}.ag-info{border-right:0;border-bottom:1px solid var(--linha);padding:22px}.ag-principal{padding:22px}.ag-escolha{grid-template-columns:1fr}}
+.desistir{margin:14px 0 4px}
+.link-desistir{background:none;border:0;padding:0;color:var(--suave);text-decoration:underline;font:inherit;font-size:13px;cursor:pointer}
+.campo-texto{display:block;width:100%;margin:8px 0;padding:10px 12px;border:1px solid var(--linha);border-radius:10px;font:inherit;background:var(--campo);color:var(--texto)}
+.acoes-desistir{display:flex;gap:8px;flex-wrap:wrap}
+.botao.perigo{border-color:#b42318;color:#b42318}
+[data-tema="escuro"] .botao.perigo{border-color:#f97066;color:#ffb4ab}

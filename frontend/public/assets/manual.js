@@ -116,7 +116,8 @@ window.MANUAL_PAINEL = {
         "Clique num horário reservado para <b>convidar mais alguém</b> só para aquela entrevista ou <b>cancelar</b> (o candidato pode escolher outro)."
       ],
       dicas: ["A Triagem (análise do currículo) não tem agenda; as outras etapas têm, para entrevista ou teste.",
-        "O candidato pode trocar de horário sozinho até 2 horas antes. Se for recusado ou desistir, o horário dele é liberado e os entrevistadores são avisados.",
+        "O candidato pode remarcar sozinho até 24 horas antes, ou desistir da candidatura (pela página de agendamento ou pela Área do candidato). Nos dois casos o horário volta a ficar livre e os entrevistadores são avisados.",
+        "Se você tentar enviar a agenda de novo para quem já recebeu, o sistema pergunta se deseja reenviar.",
         "Na ficha do candidato: <b>Banco de talentos</b> guarda o candidato com palavras-chave e anotação; <b>Excluir dados (LGPD)</b> apaga tudo dele a pedido.",
         "Para corrigir uma avaliação, use <b>Editar</b> na etapa. O e-mail de recusa não é enviado de novo.",
         "Se a pessoa desistir, use <b>Registrar desistência</b> no fim da ficha."]

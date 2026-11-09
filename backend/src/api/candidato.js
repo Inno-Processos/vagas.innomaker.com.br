@@ -13,6 +13,7 @@ import { estadoDasEtapas } from "../lib/etapas.js";
 import { cfg, CAMINHO_AREA } from "../lib/config.js";
 import { excluirCandidato, bloqueioExclusao } from "../lib/lgpd.js";
 import { agoraLocal } from "../lib/agenda.js";
+import { desistirDaCandidatura } from "./agendamento.js";
 import {
   ADM_CANDIDATO_PREENCHE, CAMPOS_PROPOSTA, lerCadastro, validarCadastro, cpfValido, documentosExigidos, documentosFaltando,
   categoriaValida, CATEGORIA_ANTIGA, nomeCategoria
@@ -46,7 +47,16 @@ export async function vagasPublicas(env) {
 }
 
 // ---------- Roteamento ----------
-const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, privacidade, excluir, rascunho, anexar, desanexar };
+const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, privacidade, excluir, rascunho, anexar, desanexar, desistir };
+
+// "Desistir da candidatura" na Área do candidato
+async function desistir(request, env, ctx) {
+  const c = await exigirSessao(env, request);
+  const b = await lerJson(request);
+  const ca = await um(env, "SELECT id FROM candidaturas WHERE id = ? AND candidato_id = ?", texto(b.candidatura_id, 30), c.id);
+  if (!ca) throw new ErroApi("Candidatura não encontrada.");
+  return desistirDaCandidatura(env, ctx, ca.id, texto(b.motivo, 1000), c.email);
+}
 
 export async function apiCandidato(request, env, ctx, acao) {
   const fn = ACOES[acao];

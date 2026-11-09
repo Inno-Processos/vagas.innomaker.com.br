@@ -423,6 +423,19 @@
         }
         cur.append(ag);
       }
+      const desistir = el("button", "link-btn", "Desistir da candidatura");
+      desistir.type = "button";
+      desistir.style.margin = "10px 0 0";
+      desistir.onclick = async () => {
+        const motivo = prompt("Desistir da candidatura para " + d.titulo_vaga + "?\nO RH será avisado. Se quiser, escreva o motivo:");
+        if (motivo === null) return;
+        const r = await api("desistir", { candidatura_id: d.id, motivo });
+        if (r.sessaoExpirada) { logado = false; return abrirLogin("info", "Sua sessão expirou. Entre novamente."); }
+        if (!r.ok) return alert(r.erro || "Não foi possível registrar.");
+        areaDados = null;
+        carregarArea();
+      };
+      cur.append(desistir);
       card.append(cur);
     } else if (d.mensagem && d.status_publico !== "Contratado") {
       card.append(el("p", "small", d.mensagem));

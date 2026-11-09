@@ -19,7 +19,7 @@ import { ehDataISO, hojeISO } from "../lib/http.js";
 
 const linkAgendar = (env, token) => cfg(env).siteUrl + "/agendar/" + encodeURIComponent(token);
 const linkPainel = (env, hash) => cfg(env).siteUrl + "/painel#" + hash;
-const ANTECEDENCIA_TROCA_MIN = 120; // o candidato pode trocar/liberar até 2 h antes
+const ANTECEDENCIA_TROCA_MIN = 24 * 60; // o candidato pode remarcar até 24 h antes
 
 function enviar(env, ctx, para, assunto, titulo, paragrafos, botao, convite) {
   if (!para || (Array.isArray(para) && !para.length)) return;
@@ -55,8 +55,8 @@ function avisarHorario(env, ctx, x, metodo, opts) {
   const quando = dataHoraExtenso(h.inicio) + " até " + horaDe(h.fim);
   const ics = icsEvento({
     uid: `horario-${h.id}@vagas.innomaker.com.br`, metodo, sequencia: h.sequencia,
-    inicio: h.inicio, fim: h.fim, titulo: `${a.titulo || a.etapa_nome} — ${ca.nome} (${ca.vaga_titulo})`,
-    descricao: [`Processo seletivo: ${ca.vaga_titulo}`, `Etapa: ${a.etapa_nome}`, `Candidato: ${ca.nome} — ${ca.email}${ca.telefone ? " — " + ca.telefone : ""}`,
+    inicio: h.inicio, fim: h.fim, titulo: `${a.etapa_nome} · ${ca.nome} · ${ca.vaga_titulo}`,
+    descricao: [`Etapa: ${a.etapa_nome}`, `Candidato: ${ca.nome} — ${ca.email}${ca.telefone ? " — " + ca.telefone : ""}`, `Vaga: ${ca.vaga_titulo}`, "",
       a.local_tipo === "online" ? "Link: " + a.local : "Local: " + a.local, a.instrucoes ? "Descrição: " + a.instrucoes : ""].filter(Boolean).join("\n"),
     local: a.local, organizador, participantes: [candidato, ...participantes]
   });
@@ -73,7 +73,7 @@ function avisarHorario(env, ctx, x, metodo, opts) {
     } else {
       enviar(env, ctx, ca.email, (o.atualizado ? "Horário atualizado — " : "Horário confirmado — ") + a.etapa_nome, o.atualizado ? "Seu horário foi atualizado" : "Seu horário está confirmado",
         [`Olá, <b>${esc(primeiro)}</b>!`, destaque, a.instrucoes ? "<b>Informações:</b><br>" + esc(a.instrucoes).replace(/\n/g, "<br>") : "",
-          "O convite está anexado: clique em <b>Sim</b> para colocar na sua agenda. Se precisar trocar, use o botão abaixo (até 2 horas antes)."].filter(Boolean),
+          "O convite está anexado: clique em <b>Sim</b> para colocar na sua agenda. Se precisar trocar, use o botão abaixo (até 24 horas antes)."].filter(Boolean),
         { texto: "Ver ou trocar meu horário", url: linkAgendar(env, e.agenda_token) }, convite);
     }
   }
@@ -349,6 +349,26 @@ export async function liberarReservasDaCandidatura(env, ctx, candidaturaId, moti
   return hs.length;
 }
 
+// O candidato desiste (pela página de agendamento ou pela Área do candidato): libera o horário e avisa o RH
+export async function desistirDaCandidatura(env, ctx, candidaturaId, motivo, quem) {
+  const ca = await um(env, `SELECT ca.*, c.nome, c.email, v.titulo AS vaga_titulo, v.id AS vaga_id FROM candidaturas ca JOIN candidatos c ON c.id = ca.candidato_id
+    JOIN vagas v ON v.id = ca.vaga_id WHERE ca.id = ?`, candidaturaId);
+  if (!ca) throw new ErroApi("Candidatura não encontrada.");
+  if (["Em processo", "Aprovado"].indexOf(ca.status) < 0) throw new ErroApi("Esta candidatura não está mais em andamento.");
+  await liberarReservasDaCandidatura(env, ctx, ca.id, "o candidato desistiu do processo seletivo");
+  await executar(env, "UPDATE candidaturas SET status = 'Desistiu', obs = ?, atualizado_em = ? WHERE id = ?",
+    motivo ? "Desistência pelo candidato: " + motivo : "Desistência pelo candidato", agora(), ca.id);
+  await registrarLog(env, quem || ca.email, "CANDIDATO_DESISTIU", "candidatura", ca.id, motivo || "");
+  const rh = await um(env, "SELECT valor FROM config WHERE chave = 'email_rh'");
+  if (rh && rh.valor) {
+    enviar(env, ctx, rh.valor, "Candidato desistiu — " + ca.nome + " (" + ca.vaga_titulo + ")", "Candidato desistiu do processo",
+      [`<b>${esc(ca.nome)}</b> desistiu da candidatura para <b>${esc(ca.vaga_titulo)}</b>.`, motivo ? "<b>Motivo:</b> " + esc(motivo) : "Não informou o motivo.",
+        "Se havia entrevista marcada, o horário foi liberado e os entrevistadores receberam o cancelamento."],
+      { texto: "Ver vaga no painel", url: linkPainel(env, "vaga/" + ca.vaga_id) });
+  }
+  return { ok: true };
+}
+
 // Lembrete 1 dia antes (rotina de hora em hora): candidato e participantes, uma vez por horário
 export async function lembretesDeEntrevista(env) {
   const de = agoraLocal(Date.now() + 20 * 3600000), ate = agoraLocal(Date.now() + 28 * 3600000);
@@ -366,7 +386,7 @@ export async function lembretesDeEntrevista(env) {
       [`Olá, <b>${esc(primeiro)}</b>!`, `Lembrete da etapa <b>${esc(a.etapa_nome)}</b> do processo seletivo para <b>${esc(ca.vaga_titulo)}</b>:`,
         `<b>${esc(quando)}</b><br>${esc(descreverLocal(a))}`,
         a.instrucoes ? "<b>Informações:</b><br>" + esc(a.instrucoes).replace(/\n/g, "<br>") : "",
-        "Se não puder comparecer, troque o horário pelo botão abaixo (até 2 horas antes) ou fale com o RH."].filter(Boolean),
+        "Se não puder comparecer, remarque pelo botão abaixo (até 24 horas antes) ou fale com o RH."].filter(Boolean),
       { texto: "Ver ou trocar meu horário", url: linkAgendar(env, e.agenda_token) });
     const parts = participantesDoHorario(a, h);
     if (parts.length) {
@@ -411,7 +431,7 @@ export async function apiAgendamento(request, env, ctx, resto) {
         participantes: lerParticipantes(parseJson(a.participantes, [])).map(p => p.nome || p.email),
         local_tipo: a.local_tipo, local: a.local_tipo === "online" && !reserva ? "" : a.local, instrucoes: a.instrucoes,
         reserva: reserva ? { inicio: reserva.inicio, fim: reserva.fim, podeTrocar: aberto && somarMinutos(agoraLocal(), ANTECEDENCIA_TROCA_MIN) < reserva.inicio } : null,
-        livres, aberto: aberto && !!a.ativo,
+        livres, aberto: aberto && !!a.ativo, podeDesistir: ca.status === "Em processo", desistiu: ca.status === "Desistiu",
         motivoFechado: !aberto ? "Esta etapa já foi concluída." : !a.ativo ? "A agenda foi encerrada pelo RH. Fale com o RH para combinar outro horário." : ""
       });
     }
@@ -445,10 +465,16 @@ export async function apiAgendamento(request, env, ctx, resto) {
       return json({ ok: true, inicio: h.inicio, fim: h.fim });
     }
 
+    if (acao === "desistir") {
+      const b = await lerJson(request);
+      await desistirDaCandidatura(env, ctx, ca.id, texto(b.motivo, 1000), ca.email);
+      return json({ ok: true });
+    }
+
     if (acao === "liberar") {
       if (!reserva) return json({ ok: false, erro: "Você não tem horário reservado." });
       if (!(somarMinutos(agoraLocal(), ANTECEDENCIA_TROCA_MIN) < reserva.inicio)) {
-        return json({ ok: false, erro: "Faltam menos de 2 horas para o horário. Para mudar, fale com o RH." });
+        return json({ ok: false, erro: "Faltam menos de 24 horas para o horário. Para remarcar, fale com o RH." });
       }
       await executar(env, "UPDATE agenda_horarios SET sequencia = sequencia + 1 WHERE id = ?", reserva.id);
       const ctxH = await contextoDoHorario(env, reserva.id);

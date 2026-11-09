@@ -316,3 +316,50 @@ test("agenda como no Google Agenda: disponibilidade semanal, horários tirados �
   assert.equal((await t.chamar("/api/agendar/" + tok["rui@x.com"] + "/reservar", { body: { horario_id: nove2.id } })).status, 409);
   assert.ok(a2.ok);
 });
+
+test("candidato remarca até 24 h antes ou desiste; o evento diz a etapa e o nome do candidato", async () => {
+  const t = ambiente();
+  const vaga = await criarVaga(t.staff, "Vaga Remarcar");
+  await t.inscrever(vaga, { nome: "Nina Souza", email: "nina@x.com" });
+  await t.inscrever(vaga, { nome: "Otto Lima", email: "otto@x.com" });
+  const cs = (await t.staff("vaga_detalhe", { id: vaga })).candidatos;
+  for (const c of cs) await t.staff("etapa_atualizar", { etapa_id: c.etapas.find(e => e.ordem === 1).id, resultado: "Aprovado", nota: 3, analise: "Currículo bom" });
+  const amanha = somarMinutos(agoraLocal(), 20 * 60).slice(0, 14) + "00";   // menos de 24 h
+  const depois = somarMinutos(agoraLocal(), 4 * 24 * 60).slice(0, 14) + "00";
+  const ag = await t.staff("agenda_salvar", { vaga_id: vaga, etapa_nome: "Entrevista RH", local: "Sala 1", duracao_min: 30, antecedencia_horas: 0,
+    participantes: "RH <rh@innomaker.com.br>", horarios_novos: [amanha, depois] });
+  await t.staff("agenda_convidar", { agenda_id: ag.id, candidatura_ids: cs.map(c => c.id) });
+  const tok = Object.fromEntries((await t.env.DB.prepare(`SELECT e.agenda_token, c.email FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id
+    JOIN candidatos c ON c.id = ca.candidato_id WHERE e.agenda_token IS NOT NULL`).all()).results.map(x => [x.email, x.agenda_token]));
+  const livres = (await t.chamar("/api/agendar/" + tok["nina@x.com"], { method: "GET" })).json.livres;
+  const hAmanha = livres.find(h => h.inicio === amanha), hDepois = livres.find(h => h.inicio === depois);
+
+  // evento: "Entrevista RH · Nina Souza · Vaga Remarcar"
+  assert.equal((await t.chamar("/api/agendar/" + tok["nina@x.com"] + "/reservar", { body: { horario_id: hAmanha.id } })).json.ok, true);
+  const conv = t.enviados.find(m => m.convite && [].concat(m.para).includes("rh@innomaker.com.br"));
+  assert.match(conv.convite.ics.replace(/\r\n /g, ""), /SUMMARY:Entrevista RH · Nina Souza · Vaga Remarcar/);
+  assert.match(conv.convite.ics.replace(/\r\n /g, ""), /DESCRIPTION:Etapa: Entrevista RH\\nCandidato: Nina Souza/);
+
+  // menos de 24 h: não remarca; mas pode desistir
+  const ver = (await t.chamar("/api/agendar/" + tok["nina@x.com"], { method: "GET" })).json;
+  assert.equal(ver.reserva.podeTrocar, false);
+  assert.equal(ver.podeDesistir, true);
+  assert.match((await t.chamar("/api/agendar/" + tok["nina@x.com"] + "/liberar", {})).json.erro, /24 horas/);
+  assert.equal((await t.chamar("/api/agendar/" + tok["nina@x.com"] + "/desistir", { body: { motivo: "Aceitei outra proposta" } })).json.ok, true);
+  assert.equal((await t.env.DB.prepare("SELECT etapa_id FROM agenda_horarios WHERE id = ?").bind(hAmanha.id).first()).etapa_id, null, "horário volta a ficar livre");
+  const nina = (await t.staff("vaga_detalhe", { id: vaga })).candidatos.find(c => c.email === "nina@x.com");
+  assert.equal(nina.status, "Desistiu");
+  assert.ok(t.enviados.some(m => m.convite && m.convite.metodo === "CANCEL"), "entrevistadores recebem o cancelamento");
+  assert.equal((await t.chamar("/api/agendar/" + tok["nina@x.com"], { method: "GET" })).json.desistiu, true);
+
+  // mais de 24 h: remarca normalmente
+  assert.equal((await t.chamar("/api/agendar/" + tok["otto@x.com"] + "/reservar", { body: { horario_id: hDepois.id } })).json.ok, true);
+  assert.equal((await t.chamar("/api/agendar/" + tok["otto@x.com"], { method: "GET" })).json.reserva.podeTrocar, true);
+  assert.equal((await t.chamar("/api/agendar/" + tok["otto@x.com"] + "/liberar", {})).json.ok, true);
+
+  // Área do candidato: desistir
+  const s = await t.entrar("otto@x.com");
+  const cand = (await t.comoCandidato(s, "area")).json.candidaturas[0];
+  assert.equal((await t.comoCandidato(s, "desistir", { candidatura_id: cand.id })).json.ok, true);
+  assert.equal((await t.comoCandidato(s, "desistir", { candidatura_id: cand.id })).json.ok, false, "não desiste duas vezes");
+});

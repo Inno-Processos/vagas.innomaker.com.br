@@ -96,11 +96,15 @@
           const r = await chamar("liberar");
           if (!r.ok) { ev.target.disabled = false; return aviso("erro", r.erro); }
           carregar(["ok", "Horário liberado. Escolha um novo horário."]);
-        } }, "Trocar horário"));
-      } else c.append(el("p", { class: "suave pequeno" }, "Faltam menos de 2 horas: para mudar, fale com o RH."));
+        } }, "Remarcar"),
+          el("p", { class: "suave pequeno", style: "margin-top:8px" }, "Você pode remarcar até 24 horas antes."));
+      } else c.append(el("p", { class: "suave pequeno" }, "Faltam menos de 24 horas: para remarcar, fale com o RH."));
+      if (d.podeDesistir) c.append(botaoDesistir());
       return;
     }
+    if (d.desistiu) { c.append(el("h2", null, "Candidatura encerrada")); return aviso("info", "Você desistiu desta candidatura. Obrigado por avisar!"); }
     c.append(el("h2", null, "Olá, " + d.candidato + "! Escolha um dia e um horário"));
+    if (d.podeDesistir) c.append(botaoDesistir());
     if (!d.aberto) return aviso("info", d.motivoFechado || "Este agendamento não está disponível.");
     if (!d.livres.length) return aviso("info", "Todos os horários foram reservados. O RH vai abrir novos horários ou entrar em contato com você.");
 
@@ -140,6 +144,25 @@
         el("div", { class: "ag-lista-horas" }, porDia.get(diaSel).map(h => el("button", { type: "button", class: "horario", onclick: ev => escolher(h, ev.currentTarget) }, hora(h.inicio)))));
     } else col.append(el("p", { class: "suave" }, "Escolha um dia no calendário."));
     area.append(col);
+  }
+
+  // Não vai mais participar: desiste da candidatura (o horário volta a ficar livre e o RH é avisado)
+  function botaoDesistir() {
+    const caixa = el("div", { class: "desistir" });
+    const abrir = el("button", { type: "button", class: "link-desistir", onclick: () => {
+      limpar(caixa);
+      const motivo = el("textarea", { class: "campo-texto", rows: "2", placeholder: "Se quiser, conte o motivo (opcional)." });
+      const ok = el("button", { type: "button", class: "botao perigo", onclick: async () => {
+        ok.disabled = true;
+        const r = await chamar("desistir", { motivo: motivo.value });
+        if (!r.ok) { ok.disabled = false; return aviso("erro", r.erro); }
+        carregar(["ok", "Sua desistência foi registrada. Obrigado por avisar!"]);
+      } }, "Confirmar desistência");
+      caixa.append(el("p", { class: "pequeno" }, el("b", null, "Desistir da candidatura?"), " O RH será avisado e você sai do processo seletivo."), motivo,
+        el("div", { class: "acoes-desistir" }, ok, el("button", { type: "button", class: "botao", onclick: () => { limpar(caixa); caixa.append(abrir); } }, "Voltar")));
+    } }, "Não vou mais participar — desistir da candidatura");
+    caixa.append(abrir);
+    return caixa;
   }
 
   // Confirmação em dois passos (como no Google): clica no horário, depois em Confirmar

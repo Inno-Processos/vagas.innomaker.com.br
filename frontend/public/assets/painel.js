@@ -542,7 +542,7 @@
     const aguardando = a.elegiveis.filter(e => e.convidado_em && !e.reservado);
     const slots = a.horarios.filter(h => !h.passado || h.reservado).map(h => ({
       inicio: h.inicio, fim: h.fim, tipo: h.reservado ? "reservado" : h.bloqueado ? "bloqueado" : "livre",
-      rotulo: h.reservado ? primeiroNome(h.candidato_nome) : "", titulo: h.reservado ? h.candidato_nome + " — " + h.candidato_email : h.bloqueado ? "Ocupado em outra agenda" : "Livre",
+      rotulo: h.reservado ? h.candidato_nome + " · " + a.etapa_nome : "", titulo: h.reservado ? a.etapa_nome + " — " + h.candidato_nome + " — " + h.candidato_email : h.bloqueado ? "Ocupado em outra agenda" : "Livre",
       onclick: h.reservado ? () => abrirReserva(h, a, rh, recarregarAgenda) : null
     }));
     const disp = a.disponibilidade || {};
@@ -752,6 +752,8 @@
       aoConfirmar: async () => {
         const ids = caixas.filter(c => c.ck.checked).map(c => c.e.candidatura_id);
         if (!ids.length) return "Escolha pelo menos um candidato.";
+        const jaReceberam = caixas.filter(c => c.ck.checked && c.e.convidado_em).map(c => c.e.nome + " (" + fmtData(c.e.convidado_em, true) + ")");
+        if (jaReceberam.length && !confirm("Você já enviou esta agenda para:\n• " + jaReceberam.join("\n• ") + "\n\nDeseja reenviar?")) return "Envio cancelado. Desmarque quem já recebeu ou confirme o reenvio.";
         const res = await api("agenda_convidar", { agenda_id: a.id, candidatura_ids: ids });
         if (!res.ok) return res.erro;
         toast(res.enviados.length + " link(s) enviado(s)." + (res.ignorados.length ? " Não enviados: " + res.ignorados.map(i => i.nome + " (" + i.motivo + ")").join("; ") : ""), !!res.ignorados.length);
@@ -1644,13 +1646,16 @@
         el("div", null, el("b", null, a.titulo || a.etapa_nome),
           el("div", { class: "mini" }, a.duracao_min + " min · " + (a.local_tipo === "online" ? "Online" : a.local) + " · " + a.livres + " horário(s) livre(s)")),
         el("button", { type: "button", class: "bt", disabled: !a.livres || !!minha, onclick: async ev => {
-          ev.currentTarget.disabled = true;
+          const bt = ev.currentTarget;
+          const ja = a.elegiveis.find(x => x.candidatura_id === c.id && x.convidado_em);
+          if (ja && !confirm("Você já enviou esta agenda para " + c.nome + " em " + fmtData(ja.convidado_em, true) + ".\n\nDeseja reenviar?")) return;
+          bt.disabled = true;
           const res = await api("agenda_convidar", { agenda_id: a.id, candidatura_ids: [c.id] });
-          if (!res.ok) { ev.currentTarget.disabled = false; return toast(res.erro, true); }
+          if (!res.ok) { bt.disabled = false; return toast(res.erro, true); }
           if (!res.enviados.length) return toast("Não enviado: " + res.ignorados.map(i => i.motivo).join("; "), true);
           toast("Horários enviados para " + c.email + ".");
           $("dlg").close(); voltar();
-        } }, "Enviar horários")))) : el("div", { class: "vazio", style: "padding:18px" }, "Ainda não há agenda de horários para " + e.nome + "."),
+        } }, a.elegiveis.some(x => x.candidatura_id === c.id && x.convidado_em) ? "Reenviar horários" : "Enviar horários")))) : el("div", { class: "vazio", style: "padding:18px" }, "Ainda não há agenda de horários para " + e.nome + "."),
       el("div", { class: "acoes", style: "margin-top:14px" },
         el("button", { type: "button", class: agendas.length ? "bt-sec" : "bt", onclick: async () => {
           if (await editarAgenda(null, vaga, r, null, e.nome)) agendarCandidato(e, c, vaga);
