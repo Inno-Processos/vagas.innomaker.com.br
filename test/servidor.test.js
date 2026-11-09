@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { abrirBanco } from "../backend/src/infra/banco.js";
 import { criarArmazenamento } from "../backend/src/infra/arquivos.js";
+import { GRUPOS_PREPARACAO } from "../backend/src/lib/preparacaoVaga.js";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MIGRACOES = path.join(RAIZ, "backend", "migrations");
@@ -175,7 +176,8 @@ test("backend e frontend separados: telas, repasse da API, arquivos estáticos e
 
     // Avaliação das etapas: ordem, estrelas, análise e feedback por e-mail na recusa
     const vg = await staff("vaga_salvar", { titulo: "Estágio Teste", data_limite: "2027-12-31", localidade: "Niterói", tipo_contratacao: "Estágio",
-      carga_horaria: "30h", descricao: "x", requisitos: "x", principais_funcoes: "x", status: "Aberta", etapas: ["Triagem", "Entrevista RH"] });
+      carga_horaria: "30h", descricao: "x", requisitos: "x", principais_funcoes: "x", status: "Aberta", etapas: ["Triagem", "Entrevista RH"],
+      preparacao: Object.fromEntries(GRUPOS_PREPARACAO.map(g => [g.id, { itens: Object.fromEntries(g.itens.map(i => [i.id, true])) }])) });
     assert.equal(vg.ok, true, JSON.stringify(vg));
     const fd = new FormData();
     Object.entries({ vaga_id: vg.id, nome: "Ana Candidata", email: "ana@example.com", telefone: "21999999999", periodo_curso: "5º", previsao_formatura: "2027-12", aceite_privacidade: "1" })

@@ -10,6 +10,7 @@ import { enviarEmail, layout, textoSimples, anexoIcs, smtpConfigurado } from "..
 import { estadoDasEtapas } from "../lib/etapas.js";
 import { icsEvento, somarMinutos, lerParticipantes } from "../lib/agenda.js";
 import { enfileirarGoogle } from "../lib/googleCalendar.js";
+import { GRUPOS_PREPARACAO, lerPreparacao, pendenciasPreparacao } from "../lib/preparacaoVaga.js";
 import { acoesDoPapel } from "../lib/papeis.js";
 import { cfg, caminhoVaga, CAMINHO_AREA } from "../lib/config.js";
 import {
@@ -23,7 +24,7 @@ import {
   trilha, documentosExigidos, documentosFaltando, listaDocumentos, nomeCategoria, categoriaValida
 } from "../lib/admissao.js";
 
-const STATUS_VAGA = ["Aberta", "Pausada", "Fechada", "Concluída"];
+const STATUS_VAGA = ["Rascunho", "Aberta", "Pausada", "Fechada", "Concluída"];
 const TIPOS_LISTA = ["etapa", "tipo_contratacao", "tipo_vaga", "horario", "situacao", "auxilio", "cargo", "funcao", "setor", "grau_instrucao"];
 
 const linkPainel = (env, hash) => cfg(env).siteUrl + "/painel#" + hash;
@@ -67,7 +68,7 @@ async function opcoes(env) {
     (listas[l.tipo] = listas[l.tipo] || []).push(l.valor);
   });
   const departamentos = await todos(env, "SELECT nome, gestor_nome, gestor_email FROM departamentos WHERE ativo = 1 ORDER BY nome");
-  return { ok: true, listas, departamentos };
+  return { ok: true, listas, departamentos, preparacaoGrupos: GRUPOS_PREPARACAO };
 }
 
 async function vagasAbertas(env, ctx, b, u) {
@@ -213,6 +214,8 @@ function vagaPublica(env, v) {
   const hoje = hojeISO();
   return Object.assign({}, v, {
     etapas: parseJson(v.etapas, ["Triagem"]),
+    preparacao: parseJson(v.preparacao, {}),
+    preparacao_pendencias: pendenciasPreparacao(parseJson(v.preparacao, {})),
     aberta_site: v.status === "Aberta" && (!v.data_limite || v.data_limite >= hoje),
     link_publico: linkVaga(env, v.id, v.titulo)
   });
@@ -230,6 +233,8 @@ async function minhasVagas(env, ctx, b, u) {
 }
 
 async function vagaSalvar(env, ctx, b, u) {
+  const atual = b.id ? await um(env, "SELECT * FROM vagas WHERE id = ?", texto(b.id, 30)) : null;
+  if (b.id && !atual) throw new ErroApi("Vaga não encontrada.");
   const v = {};
   Object.keys(CAMPOS_VAGA).forEach(k => {
     const [max, nome] = CAMPOS_VAGA[k];
@@ -238,7 +243,12 @@ async function vagaSalvar(env, ctx, b, u) {
   });
   if (!ehDataISO(v.data_limite)) throw new ErroApi("Data de inscrições inválida.");
   v.quantidade = Math.max(1, parseInt(b.quantidade, 10) || 1);
-  v.status = STATUS_VAGA.indexOf(b.status) >= 0 ? b.status : "Aberta";
+  v.status = STATUS_VAGA.indexOf(b.status) >= 0 ? b.status : "Rascunho";
+  const base = parseJson(atual && atual.preparacao, {});
+  const preparacao = b.preparacao === undefined ? base : lerPreparacao(b.preparacao, base, quemE(u));
+  const pendencias = pendenciasPreparacao(preparacao);
+  if (v.status === "Aberta" && pendencias.length) throw new ErroApi("Antes de abrir a vaga, conclua o checklist de preparação: " + pendencias.join("; ") + ".");
+  v.preparacao = JSON.stringify(preparacao);
   if (v.gestor_email && !emailValido(v.gestor_email)) throw new ErroApi("E-mail do gestor inválido.");
   v.gestor_email = v.gestor_email.toLowerCase();
 
@@ -255,10 +265,9 @@ async function vagaSalvar(env, ctx, b, u) {
   const cols = Object.keys(v);
 
   if (b.id) {
-    const atual = await um(env, "SELECT * FROM vagas WHERE id = ?", texto(b.id, 30));
-    if (!atual) throw new ErroApi("Vaga não encontrada.");
     await executar(env, `UPDATE vagas SET ${cols.map(k => k + " = ?").join(", ")}, atualizado_em = ? WHERE id = ?`, ...cols.map(k => v[k]), t, atual.id);
     await registrarLog(env, quemE(u), "VAGA_EDITADA", "vaga", atual.id, atual.status !== v.status ? `status: ${atual.status} → ${v.status}` : "");
+    if (atual.status !== "Aberta" && v.status === "Aberta") await avisarVagaPublicada(env, ctx, v, atual.id, atual.solicitacao_id);
     return { ok: true, id: atual.id };
   }
 
@@ -280,13 +289,18 @@ async function vagaSalvar(env, ctx, b, u) {
   await env.DB.batch(stmts);
   await registrarLog(env, quemE(u), "VAGA_CRIADA", "vaga", id, v.titulo);
 
+  if (v.status === "Aberta") await avisarVagaPublicada(env, ctx, v, id, solic && solic.id);
+  return { ok: true, id };
+}
+
+async function avisarVagaPublicada(env, ctx, v, id, solicitacaoId) {
+  const solic = solicitacaoId ? await um(env, "SELECT solicitante_email FROM solicitacoes WHERE id = ?", solicitacaoId) : null;
   const avisar = [solic && solic.solicitante_email, v.gestor_email].filter(Boolean);
   notificar(env, ctx, [...new Set(avisar)], `Vaga publicada — ${v.titulo} (${id})`, "Vaga publicada",
     [`A vaga <b>${v.titulo}</b> foi publicada no site de vagas, com inscrições até <b>${dataBR(v.data_limite)}</b>.`,
       "Você acompanha os candidatos no painel interno."],
     { texto: "Ver a vaga no site", url: linkVaga(env, id, v.titulo) });
 
-  return { ok: true, id };
 }
 
 async function podeVerVaga(env, u, vaga) {
@@ -323,7 +337,8 @@ async function vagaDetalhe(env, ctx, b, u) {
     return Object.assign(c, { etapas, etapa_atual: est.etapaAtual, status_publico: est.status, origem_nome: ORIGENS[c.origem] || c.origem });
   });
 
-  return { ok: true, vaga: vagaPublica(env, vaga), candidatos, podeEditar: u.papel === "rh" };
+  const preparacaoAnexos = await todos(env, "SELECT id, nome, preparacao_grupo, criado_em FROM arquivos WHERE vaga_id = ? AND categoria = 'preparacao_vaga' ORDER BY criado_em", vaga.id);
+  return { ok: true, vaga: Object.assign(vagaPublica(env, vaga), { preparacao_anexos: preparacaoAnexos }), candidatos, podeEditar: u.papel === "rh" };
 }
 
 // ---------- Etapas do processo seletivo ----------
@@ -1288,6 +1303,35 @@ async function agendasTodas(env, ctx, b, u) {
 }
 
 // ---------- Documentos anexados em cada etapa (RH) ----------
+async function vagaPreparacaoAnexar(env, ctx, b, u) {
+  if (!(b instanceof FormData)) throw new ErroApi("Envie os documentos do checklist.");
+  const vaga = await um(env, "SELECT id FROM vagas WHERE id = ?", texto(b.get("vaga_id"), 30));
+  if (!vaga) throw new ErroApi("Salve a vaga como rascunho antes de anexar documentos.");
+  const grupo = GRUPOS_PREPARACAO.find(g => g.id === b.get("grupo"));
+  if (!grupo) throw new ErroApi("Grupo do checklist inválido.");
+  const files = b.getAll("arquivo").filter(ehArquivo);
+  if (!files.length) throw new ErroApi("Escolha um arquivo.");
+  const ja = await um(env, "SELECT COUNT(*) AS n FROM arquivos WHERE vaga_id = ? AND preparacao_grupo = ?", vaga.id, grupo.id);
+  if (ja.n + files.length > 20) throw new ErroApi("Limite de 20 documentos por grupo do checklist.");
+  const salvos = [];
+  try {
+    for (const f of files) salvos.push(await salvarArquivo(env, f, { categoria: "preparacao_vaga", vagaId: vaga.id, preparacaoGrupo: grupo.id, documentos: true }));
+  } catch (erro) {
+    for (const a of salvos) await apagarArquivo(env, a.id);
+    throw erro;
+  }
+  await registrarLog(env, quemE(u), "VAGA_PREPARACAO_ANEXO", "vaga", vaga.id, grupo.nome + ": " + salvos.map(a => a.nome).join(", "));
+  return { ok: true, arquivos: salvos.map(a => ({ ...a, preparacao_grupo: grupo.id })) };
+}
+
+async function vagaPreparacaoDesanexar(env, ctx, b, u) {
+  const a = await um(env, "SELECT * FROM arquivos WHERE id = ? AND vaga_id = ? AND categoria = 'preparacao_vaga'", texto(b.arquivo_id, 60), texto(b.vaga_id, 30));
+  if (!a) throw new ErroApi("Documento não encontrado nesta vaga.");
+  await apagarArquivo(env, a.id);
+  await registrarLog(env, quemE(u), "VAGA_PREPARACAO_ANEXO_REMOVIDO", "vaga", a.vaga_id, a.preparacao_grupo + ": " + a.nome);
+  return { ok: true };
+}
+
 async function etapaAnexar(env, ctx, b, u) {
   if (!(b instanceof FormData)) throw new ErroApi("Envie o arquivo.");
   const e = await um(env, "SELECT e.*, ca.candidato_id FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id WHERE e.id = ?", parseInt(b.get("etapa_id"), 10) || 0);
@@ -1341,6 +1385,7 @@ const HANDLERS = {
   me, opcoes, vagas_abertas: vagasAbertas,
   solic_criar: solicCriar, solic_editar: solicEditar, solic_minhas: solicMinhas, solic_listar: solicListar, solic_decidir: solicDecidir,
   vagas_todas: vagasTodas, minhas_vagas: minhasVagas, vaga_salvar: vagaSalvar, vaga_detalhe: vagaDetalhe,
+  vaga_preparacao_anexar: vagaPreparacaoAnexar, vaga_preparacao_desanexar: vagaPreparacaoDesanexar,
   etapa_atualizar: etapaAtualizar, candidatura_status: candidaturaStatus,
   proposta_criar: propostaCriar, adm_listar: admListar, adm_detalhe: admDetalhe, adm_decidir: admDecidir, adm_reenviar: admReenviar,
   func_listar: funcListar, func_detalhe: funcDetalhe, func_atualizar: funcAtualizar,

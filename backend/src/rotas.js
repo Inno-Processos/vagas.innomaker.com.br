@@ -156,6 +156,10 @@ async function arquivo(request, env, id) {
   const s = await lerSessao(request, env);
   if (s.estado === "ok") {
     if (s.usuario.papel === "rh") return respostaArquivo(env, a);
+    if (s.usuario.papel === "gerente" && a.categoria === "preparacao_vaga" && a.vaga_id) {
+      const v = await um(env, "SELECT * FROM vagas WHERE id = ?", a.vaga_id);
+      if (v && await podeVerVaga(env, s.usuario, v)) return respostaArquivo(env, a);
+    }
     if (s.usuario.papel === "gerente" && a.categoria === "curriculos") {
       const ca = await um(env, "SELECT v.* FROM candidaturas c JOIN vagas v ON v.id = c.vaga_id WHERE c.curriculo_id = ?", a.id);
       if (ca && await podeVerVaga(env, s.usuario, ca)) return respostaArquivo(env, a);

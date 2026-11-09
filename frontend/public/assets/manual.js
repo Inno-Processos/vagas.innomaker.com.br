@@ -136,8 +136,10 @@ window.MANUAL_PAINEL = {
     passos: [
       "Preencha título, prazo de inscrição, localidade, tipo de contratação, carga horária, descrição, requisitos e principais funções.",
       "Escolha as <b>etapas</b> do processo seletivo (ex.: Triagem, Entrevista RH, Teste técnico, Entrevista com gestor).",
-      "Defina a situação: <b>Aberta</b> publica no site. <b>Pausada</b>, <b>Fechada</b> ou <b>Concluída</b> tiram do site.",
-      "Clique em <b>Publicar vaga</b> (vaga nova) ou <b>Salvar alterações</b>."
+      "Salve primeiro como <b>Rascunho</b> para preparar a vaga sem publicar e habilitar os anexos do checklist.",
+      "Complete o checklist de acompanhante e treinamento, preparação dos testes e planilhas/divulgação. Para um grupo que não se aplica, marque a opção e justifique.",
+      "Anexe os documentos em cada grupo (opcionais, até 20 arquivos por grupo). Registre responsáveis e links nas observações; as confirmações de planilhas e marketing são manuais.",
+      "Escolha <b>Aberta</b> e clique em <b>Salvar vaga</b>. O sistema só publica com o checklist concluído. <b>Rascunho</b>, <b>Pausada</b>, <b>Fechada</b> ou <b>Concluída</b> tiram do site."
     ],
     dicas: ["Vindo de uma solicitação aprovada, o formulário já chega preenchido. Confira antes de salvar."]
   },

@@ -126,7 +126,7 @@
     "PENDENTE": ["Aguardando RH", "ambar"], "REAJUSTE": ["Recusada com alteração", "verm"], "APROVADA": ["Aprovada", "verde"],
     "RECUSADA": ["Recusada", "cinza"], "VAGA_CRIADA": ["Vaga criada", "azul"],
     // Vagas
-    "Aberta": ["Aberta", "verde"], "Pausada": ["Pausada", "ambar"], "Fechada": ["Fechada", "cinza"], "Concluída": ["Concluída", "azul"],
+    "Rascunho": ["Rascunho", "cinza"], "Aberta": ["Aberta", "verde"], "Pausada": ["Pausada", "ambar"], "Fechada": ["Fechada", "cinza"], "Concluída": ["Concluída", "azul"],
     // Candidaturas
     "Em processo": ["Em processo", "azul"], "Aprovado": ["Aprovado no processo", "verde"], "Encerrado": ["Encerrado", "cinza"],
     "Proposta": ["Aguardando proposta", "ambar"], "Contratado": ["Contratado", "verde"], "Desistiu": ["Desistiu", "cinza"],
@@ -1376,7 +1376,7 @@
   // =================================================================
   function tabelaVagas(area, vagas, rh) {
     listaFiltrada(area, vagas, {
-      filtros: [["todas", "Todas"], ["Aberta", "Abertas"], ["Pausada", "Pausadas"], ["Fechada", "Fechadas"], ["Concluída", "Concluídas"]],
+      filtros: [["todas", "Todas"], ["Rascunho", "Rascunhos"], ["Aberta", "Abertas"], ["Pausada", "Pausadas"], ["Fechada", "Fechadas"], ["Concluída", "Concluídas"]],
       grupo: v => v.status, placeholder: "Buscar por título, ID, departamento ou localidade",
       texto: v => [v.id, v.titulo, v.departamento, v.localidade].join(" "),
       desenhar: (alvo, vis) => alvo.append(el("div", { class: "rolagem" }, el("table", { class: "tabela" },
@@ -1413,15 +1413,99 @@
     });
   }
 
+  function checklistPreparacaoVaga(grupos, vaga, editavel) {
+    const estado = vaga.preparacao || {};
+    let arquivos = [...(vaga.preparacao_anexos || [])];
+    const controles = {};
+    const contador = el("p", { class: "pequeno suave", "aria-live": "polite" });
+    const elemento = el("section", { class: "card bloco preparacao-vaga" },
+      el("h2", null, "Checklist antes de abrir a vaga"),
+      el("p", null, "Conclua cada grupo ou marque Não se aplica e justifique. Os anexos são opcionais e ficam disponíveis ao RH e ao gestor da vaga."), contador);
+    const ler = () => Object.fromEntries(grupos.map(g => {
+      const c = controles[g.id];
+      return [g.id, { nao_aplica: c.naoAplica.checked, justificativa: c.justificativa.value,
+        observacoes: c.observacoes.value, itens: Object.fromEntries(c.itens.map(([id, input]) => [id, input.checked])) }];
+    }));
+    const atualizarContador = () => {
+      const dados = ler();
+      const completos = grupos.filter(g => dados[g.id].nao_aplica ? dados[g.id].justificativa.trim() : g.itens.every(i => dados[g.id].itens[i.id])).length;
+      contador.textContent = completos + " de " + grupos.length + " grupos concluídos";
+    };
+    for (const grupo of grupos) {
+      const atual = estado[grupo.id] || {};
+      const naoAplica = el("input", { type: "checkbox", checked: atual.nao_aplica, disabled: !editavel });
+      const justificativa = areaTexto("prep_" + grupo.id + "_justificativa", atual.justificativa || "", { rows: "2", maxlength: "1000", disabled: !editavel });
+      const observacoes = areaTexto("prep_" + grupo.id + "_obs", atual.observacoes || "", { rows: "3", maxlength: "3000", disabled: !editavel });
+      const itens = grupo.itens.map(i => [i.id, el("input", { type: "checkbox", checked: !!(atual.itens || {})[i.id], disabled: !editavel })]);
+      controles[grupo.id] = { naoAplica, justificativa, observacoes, itens };
+      const motivo = campo("Justificativa — não se aplica", justificativa, { obrigatorio: true, largo: true });
+      const lista = el("div", { class: "preparacao-itens" }, ...itens.map(([id, input]) =>
+        el("label", { class: "check" }, input, el("span", null, grupo.itens.find(i => i.id === id).nome))));
+      const documentos = el("div", { class: "preparacao-documentos" });
+      const atualizar = () => {
+        motivo.hidden = !naoAplica.checked;
+        itens.forEach(([, input]) => { input.disabled = !editavel || naoAplica.checked; });
+        atualizarContador();
+      };
+      naoAplica.addEventListener("change", atualizar);
+      justificativa.addEventListener("input", atualizarContador);
+      itens.forEach(([, input]) => input.addEventListener("change", atualizarContador));
+      const desenharDocumentos = () => {
+        limpar(documentos);
+        documentos.append(el("h4", null, "Documentos deste grupo"));
+        const anexos = arquivos.filter(a => a.preparacao_grupo === grupo.id);
+        if (!anexos.length) documentos.append(el("p", { class: "mini" }, "Nenhum documento anexado."));
+        for (const a of anexos) documentos.append(el("div", { class: "acoes preparacao-anexo" },
+          el("a", { href: "/arquivo/" + a.id, target: "_blank", rel: "noopener" }, a.nome),
+          editavel ? el("button", { type: "button", class: "bt-sec", onclick: async ev => {
+            if (!confirm("Remover o documento " + a.nome + "?")) return;
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            const r = await api("vaga_preparacao_desanexar", { vaga_id: vaga.id, arquivo_id: a.id });
+            if (!r.ok) { botao.disabled = false; return toast(r.erro, true); }
+            arquivos = arquivos.filter(x => x.id !== a.id); desenharDocumentos();
+          } }, "Remover") : null));
+        if (editavel && !vaga.id) documentos.append(el("p", { class: "mini" }, "Salve como Rascunho para anexar documentos antes de publicar."));
+        if (editavel && vaga.id) {
+          const input = el("input", { type: "file", multiple: true, hidden: true, accept: ".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip", "aria-label": "Anexar documentos: " + grupo.nome });
+          const botao = el("button", { type: "button", class: "bt-sec", onclick: () => input.click() }, "+ Anexar documentos");
+          input.addEventListener("change", async () => {
+            if (!input.files.length) return;
+            const fd = new FormData(); fd.set("vaga_id", vaga.id); fd.set("grupo", grupo.id);
+            [...input.files].forEach(f => fd.append("arquivo", f));
+            botao.disabled = true; botao.textContent = "Enviando…";
+            const r = await apiArquivo("vaga_preparacao_anexar", fd);
+            botao.disabled = false; botao.textContent = "+ Anexar documentos"; input.value = "";
+            if (!r.ok) return toast(r.erro, true);
+            arquivos.push(...r.arquivos); desenharDocumentos(); toast("Documentos anexados.");
+          });
+          documentos.append(botao, input, el("p", { class: "mini" }, "Até 20 arquivos por grupo e 10 MB por arquivo. Os anexos são salvos ao enviar."));
+        }
+      };
+      desenharDocumentos();
+      elemento.append(el("fieldset", { class: "preparacao-grupo" }, el("legend", null, grupo.nome),
+        el("p", { class: "pequeno suave" }, grupo.dica), lista,
+        el("label", { class: "check" }, naoAplica, el("span", null, "Não se aplica a esta vaga")), motivo,
+        campo("Observações, responsáveis e links", observacoes, { largo: true }),
+        atual.conferido_por ? el("p", { class: "mini" }, "Última atualização: " + atual.conferido_por + " · " + fmtData(atual.conferido_em, true)) : null,
+        documentos));
+      motivo.hidden = !naoAplica.checked;
+      itens.forEach(([, input]) => { input.disabled = !editavel || naoAplica.checked; });
+    }
+    atualizarContador();
+    return { elemento, ler };
+  }
+
   async function viewVagaForm(box, idEdicao, solicitacaoId) {
     const novo = !idEdicao || idEdicao === "nova";
     const area = el("div", null, carregando());
     box.append(cabecalho(novo ? "Nova vaga" : "Editar vaga " + idEdicao,
-      solicitacaoId ? "Dados trazidos da solicitação " + solicitacaoId + ". Revise antes de publicar." : "A vaga aparece no site assim que for salva com status Aberta.",
+      solicitacaoId ? "Dados trazidos da solicitação " + solicitacaoId + ". Revise antes de publicar." : "Salve como rascunho, prepare os documentos e conclua o checklist antes de abrir a vaga.",
       null, ["#vagas", "Vagas"]), area);
 
     const op = await opcoes();
-    let v = { status: "Aberta", quantidade: 1, etapas: lista(op, "etapa").length ? lista(op, "etapa") : ["Triagem"] };
+    let v = { status: "Rascunho", quantidade: 1, etapas: lista(op, "etapa").length ? lista(op, "etapa") : ["Triagem"] };
+    if (!op.preparacaoGrupos) { limpar(area); return area.append(msg("erro", "Não foi possível carregar o checklist. Atualize a página para tentar novamente.")); }
     if (!novo) {
       const r = await api("vaga_detalhe", { id: idEdicao });
       if (!r.ok) { limpar(area); return area.append(msg("erro", r.erro)); }
@@ -1444,12 +1528,13 @@
     const g = k => v[k] == null ? "" : v[k];
     const c = (rot, ctrl, o) => campo(rot, ctrl, Object.assign({ nome: ctrl.name }, o || {}));
     const depSel = seletor("departamento", op.departamentos.map(d => d.nome), g("departamento"));
+    const preparacao = checklistPreparacaoVaga(op.preparacaoGrupos, v, true);
     const form = el("form", { novalidate: true },
       el("section", { class: "card bloco" },
         el("h2", null, "Dados da vaga"),
         el("div", { class: "campos" },
           c("Título", entrada("titulo", g("titulo")), { obrigatorio: true, largo: true }),
-          c("Status", seletor("status", ["Aberta", "Pausada", "Fechada", "Concluída"], g("status"), false)),
+          c("Status", seletor("status", ["Rascunho", "Aberta", "Pausada", "Fechada", "Concluída"], g("status"), false)),
           c("Inscrições até", entrada("data_limite", g("data_limite"), { type: "date" }), { obrigatorio: true }),
           c("Departamento", depSel),
           c("Quantidade de vagas", entrada("quantidade", g("quantidade"), { type: "number", min: "1" })),
@@ -1470,8 +1555,9 @@
         el("h2", null, "Etapas do processo seletivo"),
         el("p", null, "Uma por linha, na ordem. A primeira é sempre Triagem. Mudanças valem para as próximas inscrições."),
         campo("Etapas", areaTexto("etapas", (v.etapas || []).join("\n"), { style: "min-height:150px" }), { largo: true, dica: "Sugestões: " + lista(op, "etapa").join(", ") })),
+      preparacao.elemento,
       el("div", { id: "vagaMsg" }),
-      el("div", { class: "acoes", style: "margin-top:16px" }, el("button", { type: "submit", class: "bt", id: "vagaSalvar" }, novo ? "Publicar vaga" : "Salvar alterações")));
+      el("div", { class: "acoes", style: "margin-top:16px" }, el("button", { type: "submit", class: "bt", id: "vagaSalvar" }, "Salvar vaga")));
     area.append(form);
 
     depSel.addEventListener("change", () => {
@@ -1489,6 +1575,7 @@
       limpar($("vagaMsg"));
       if (falta.length) { marcarFaltando(form, falta); return $("vagaMsg").append(msg("erro", "Preencha os campos obrigatórios marcados.")); }
       d.etapas = String(d.etapas || "").split("\n").map(x => x.trim()).filter(Boolean);
+      d.preparacao = preparacao.ler();
       if (!novo) d.id = idEdicao;
       if (solicitacaoId) d.solicitacao_id = solicitacaoId;
       const bt = $("vagaSalvar");
@@ -1496,8 +1583,8 @@
       const r = await api("vaga_salvar", d);
       bt.disabled = false;
       if (!r.ok) return $("vagaMsg").append(msg("erro", r.erro));
-      toast(novo ? "Vaga " + r.id + " publicada." : "Vaga atualizada.");
-      location.hash = "#vaga/" + r.id;
+      toast(d.status === "Aberta" ? "Vaga publicada." : "Vaga salva como " + d.status.toLowerCase() + ".");
+      location.hash = novo && d.status === "Rascunho" ? "#vaga-form/" + r.id : "#vaga/" + r.id;
     });
   }
 
@@ -1517,6 +1604,11 @@
         el("span", null, v.inscritos + " inscrito(s)"), el("span", null, v.quantidade + " vaga(s)")),
       el("p", { class: "pequeno suave", style: "margin:10px 0 0" }, "Etapas: " + v.etapas.join(" → "))));
 
+    const op = await opcoes();
+    if (op.preparacaoGrupos) {
+      const checklist = checklistPreparacaoVaga(op.preparacaoGrupos, v, false);
+      box.append(el("details", { class: "mais", open: v.status === "Rascunho" }, el("summary", null, "Preparação da vaga e documentos"), checklist.elemento));
+    }
     if (v.etapas.length > 1) atalhoAgenda(box, v);
     box.append(el("h2", { class: "sec" }, "Candidatos"));
     if (!r.candidatos.length) return box.append(el("div", { class: "vazio" }, "Nenhum candidato inscrito ainda."));

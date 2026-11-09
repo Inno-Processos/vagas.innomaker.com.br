@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 import { abrirBanco } from "../backend/src/infra/banco.js";
 import { criarArmazenamento } from "../backend/src/infra/arquivos.js";
 import { rotear } from "../backend/src/rotas.js";
+import { GRUPOS_PREPARACAO } from "../backend/src/lib/preparacaoVaga.js";
+
+export const preparacaoCompleta = () => Object.fromEntries(GRUPOS_PREPARACAO.map(g => [g.id, { itens: Object.fromEntries(g.itens.map(i => [i.id, true])) }]));
 
 export const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporarios = [];
@@ -69,7 +72,7 @@ export function ambiente() {
 
 export async function criarVaga(staff, titulo, etapas) {
   const v = await staff("vaga_salvar", { titulo, data_limite: "2099-12-31", localidade: "Niterói", tipo_contratacao: "Estágio",
-    carga_horaria: "30h", descricao: "x", requisitos: "x", principais_funcoes: "x", status: "Aberta", etapas: etapas || ["Triagem", "Entrevista RH"] });
+    carga_horaria: "30h", descricao: "x", requisitos: "x", principais_funcoes: "x", status: "Aberta", preparacao: preparacaoCompleta(), etapas: etapas || ["Triagem", "Entrevista RH"] });
   assert.equal(v.ok, true, JSON.stringify(v));
   return v.id;
 }

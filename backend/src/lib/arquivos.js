@@ -39,6 +39,7 @@ export async function salvarArquivo(env, file, opts) {
     "INSERT INTO arquivos (id, r2_key, nome, tipo_mime, tamanho, categoria, candidato_id, admissao_id, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     id, chave, nome, tipo, file.size, opts.categoria, opts.candidatoId || null, opts.admissaoId || null, quando);
   if (opts.etapaId) await executar(env, "UPDATE arquivos SET etapa_id = ? WHERE id = ?", opts.etapaId, id);
+  if (opts.vagaId) await executar(env, "UPDATE arquivos SET vaga_id = ?, preparacao_grupo = ? WHERE id = ?", opts.vagaId, opts.preparacaoGrupo, id);
   return { id, nome, criado_em: quando };
 }
 

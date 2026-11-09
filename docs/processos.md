@@ -15,7 +15,8 @@
 
 | Etapa | No sistema |
 |---|---|
-| 5.2 Criar e divulgar a vaga | **Vagas** (status, prazo, etapas); copiar link público |
+| 5.2 Criar e divulgar a vaga | **Vagas**: salvar como Rascunho, concluir o checklist de preparação e depois mudar para Aberta. Planilhas e divulgação são confirmadas manualmente; copiar link público |
+| Preparação antes da abertura | Checklist de acompanhante/treinamento, testes (competências, critérios, tempo/local, materiais e avaliadores) e planilhas/marketing/canais. Cada grupo tem observações, responsáveis/links e anexos próprios opcionais. Não se aplica exige justificativa. O backend bloqueia a abertura com pendências |
 | 5.3 Receber inscrições | Site público; currículo no R2; candidato recebe senha da Área do candidato |
 | 5.4–5.6 Entrevistas, testes, gestor | **Vaga → Candidatos → Registrar** em cada etapa. Aprovar com mensagem personalizada; reprovar exige motivo (feedback). E-mail opcional ao candidato. O gerente vê os candidatos da sua vaga |
 | 5.7 Selecionar o candidato | Todas as etapas aprovadas → "Aprovado no processo" |

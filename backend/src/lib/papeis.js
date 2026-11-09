@@ -31,6 +31,8 @@ export const ACOES = {
   solic_decidir: RH,
   vagas_todas: RH,
   vaga_salvar: RH,
+  vaga_preparacao_anexar: RH,
+  vaga_preparacao_desanexar: RH,
   etapa_atualizar: RH,
   candidatura_status: RH,
   proposta_criar: RH,

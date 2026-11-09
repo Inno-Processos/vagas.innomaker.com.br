@@ -498,3 +498,10 @@ button.grade-slot{cursor:pointer}
 .salario-total{display:block;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--tinta);padding-top:6px}
 .ficha-func{display:flex;gap:16px;align-items:center}
 .foto-3x4{width:72px;height:96px;object-fit:cover;border-radius:6px;border:1px solid var(--linha);flex:none}
+.preparacao-grupo{min-width:0;margin:20px 0 0;padding:16px;border:1px solid var(--linha);border-radius:10px}
+.preparacao-grupo legend{padding:0 8px;font-weight:700}
+.preparacao-itens{display:grid;gap:10px;margin:14px 0}
+.preparacao-grupo>.campo{margin-top:14px}
+.preparacao-documentos{margin-top:18px;padding-top:12px;border-top:1px solid var(--linha);overflow-wrap:anywhere}
+.preparacao-anexo{margin:8px 0;flex-wrap:wrap}
+.preparacao-vaga input:disabled,.preparacao-vaga textarea:disabled{opacity:1}
