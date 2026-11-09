@@ -5,10 +5,17 @@ import { executar, um } from "./db.js";
 export const MAX_ARQUIVO = 10 * 1024 * 1024;
 const TIPOS = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
 
-function tipoDoArquivo(file) {
+const DOCUMENTOS = {
+  doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  txt: "text/plain", zip: "application/zip"
+};
+
+function tipoDoArquivo(file, documentos) {
   if (TIPOS[file.type]) return file.type;
   const ext = String(file.name || "").toLowerCase().split(".").pop();
-  return { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png" }[ext] || "";
+  return { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png" }[ext] || (documentos && DOCUMENTOS[ext]) || "";
 }
 
 export function ehArquivo(v) {
@@ -16,9 +23,9 @@ export function ehArquivo(v) {
 }
 
 export async function salvarArquivo(env, file, opts) {
-  const tipo = tipoDoArquivo(file);
+  const tipo = tipoDoArquivo(file, opts.documentos);
   if (!tipo || (opts.apenasPdf && tipo !== "application/pdf")) {
-    throw new ErroApi(`"${file.name}": envie ${opts.apenasPdf ? "um PDF" : "PDF, JPG ou PNG"}.`);
+    throw new ErroApi(`"${file.name}": envie ${opts.apenasPdf ? "um PDF" : opts.documentos ? "PDF, imagem, Word, Excel, PowerPoint, texto ou zip" : "PDF, JPG ou PNG"}.`);
   }
   if (file.size > MAX_ARQUIVO) throw new ErroApi(`"${file.name}" passa de 10 MB.`);
 
@@ -29,6 +36,7 @@ export async function salvarArquivo(env, file, opts) {
   await executar(env,
     "INSERT INTO arquivos (id, r2_key, nome, tipo_mime, tamanho, categoria, candidato_id, admissao_id, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     id, chave, nome, tipo, file.size, opts.categoria, opts.candidatoId || null, opts.admissaoId || null, agora());
+  if (opts.etapaId) await executar(env, "UPDATE arquivos SET etapa_id = ? WHERE id = ?", opts.etapaId, id);
   return { id, nome };
 }
 

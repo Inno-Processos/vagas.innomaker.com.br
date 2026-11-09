@@ -25,6 +25,10 @@ import { apiCandidato, vagasPublicas } from "./api/candidato.js";
 import { apiStaff, podeVerVaga } from "./api/staff.js";
 import { apiAgendamento } from "./api/agendamento.js";
 import { prazosLgpd } from "./lib/lgpd.js";
+import { gerarXlsx } from "./lib/xlsx.js";
+import { COLUNAS, linhaRegistro } from "./lib/registro.js";
+import { todos } from "./lib/db.js";
+import { hojeISO } from "./lib/http.js";
 
 const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
 
@@ -51,6 +55,7 @@ export async function rotear(request, env, ctx) {
     }
 
     if (p.startsWith("/api/staff/")) return staff(request, env, ctx, url, p.slice("/api/staff/".length));
+    if (p === "/api/funcionarios.xlsx") return funcionariosXlsx(request, env, url);
 
     if (p.startsWith("/arquivo/")) return arquivo(request, env, p.slice("/arquivo/".length));
 
@@ -111,7 +116,30 @@ async function staff(request, env, ctx, url, acao) {
   if (!podeExecutar(s.usuario.papel, acao)) {
     return json({ ok: false, erro: "Seu perfil (" + s.usuario.papelNome + ") não pode fazer esta ação." }, 403);
   }
+  // anexos (etapas): formulário com arquivos
+  if (/multipart\/form-data/i.test(request.headers.get("content-type") || "")) {
+    if (Number(request.headers.get("content-length") || 0) > MAX_UPLOAD_BYTES) return json({ ok: false, erro: "Os arquivos passam do limite total de 60 MB." }, 413);
+    let fd;
+    try { fd = await request.formData(); } catch (e) { return json({ ok: false, erro: "Envio inválido. Tente de novo." }); }
+    return apiStaff(env, ctx, acao, fd, s.usuario);
+  }
   return apiStaff(env, ctx, acao, await lerJson(request), s.usuario);
+}
+
+// Registro dos funcionários em Excel (mesmas 64 colunas da aba Registros). ?matricula= baixa só um.
+async function funcionariosXlsx(request, env, url) {
+  const s = await lerSessao(request, env);
+  if (s.estado === "anonimo") return redirecionar(urlsLogin(cfg(env)).loginUrl);
+  if (s.estado !== "ok" || s.usuario.papel !== "rh") return json({ ok: false, erro: "Só o RH pode baixar os registros." }, 403);
+  const mat = parseInt(url.searchParams.get("matricula"), 10) || 0;
+  const fs = mat ? await todos(env, "SELECT * FROM funcionarios WHERE matricula = ?", mat) : await todos(env, "SELECT * FROM funcionarios ORDER BY matricula");
+  if (mat && !fs.length) return json({ ok: false, erro: "Funcionário não encontrado." }, 404);
+  const arq = gerarXlsx("Registros", COLUNAS, fs.map(f => linhaRegistro(f)));
+  const nome = mat ? `registro-${mat}-${String(fs[0].nome || "").normalize("NFD").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase()}.xlsx` : `registros-${hojeISO()}.xlsx`;
+  return new Response(arq, { headers: {
+    "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "content-disposition": `attachment; filename="${nome}"`, "cache-control": "no-store"
+  } });
 }
 
 
@@ -123,7 +151,7 @@ async function arquivo(request, env, id) {
   if (!a) return erro(404);
 
   const cand = await candidatoDaSessao(env, request);
-  if (cand && cand.id === a.candidato_id) return respostaArquivo(env, a);
+  if (cand && cand.id === a.candidato_id && a.categoria !== "etapa") return respostaArquivo(env, a);
 
   const s = await lerSessao(request, env);
   if (s.estado === "ok") {
@@ -131,6 +159,10 @@ async function arquivo(request, env, id) {
     if (s.usuario.papel === "gerente" && a.categoria === "curriculos") {
       const ca = await um(env, "SELECT v.* FROM candidaturas c JOIN vagas v ON v.id = c.vaga_id WHERE c.curriculo_id = ?", a.id);
       if (ca && await podeVerVaga(env, s.usuario, ca)) return respostaArquivo(env, a);
+    }
+    if (s.usuario.papel === "gerente" && a.categoria === "etapa" && a.etapa_id) {
+      const v = await um(env, "SELECT v.* FROM etapas e JOIN candidaturas c ON c.id = e.candidatura_id JOIN vagas v ON v.id = c.vaga_id WHERE e.id = ?", a.etapa_id);
+      if (v && await podeVerVaga(env, s.usuario, v)) return respostaArquivo(env, a);
     }
   }
   return erro(403);

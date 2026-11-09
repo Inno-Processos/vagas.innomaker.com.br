@@ -45,6 +45,15 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, erro ? 7000 : 4000);
   }
 
+  // Envia arquivos (FormData) para uma ação do painel
+  async function apiArquivo(acao, fd) {
+    try {
+      const r = await fetch("/api/staff/" + acao, { method: "POST", credentials: "same-origin", body: fd });
+      if ((r.headers.get("content-type") || "").indexOf("json") < 0) return { ok: false, erro: "O sistema está sendo atualizado. Tente de novo em instantes." };
+      return await r.json();
+    } catch (e) { return { ok: false, erro: "Sem conexão. Verifique sua internet e tente novamente." }; }
+  }
+
   async function api(acao, dados, tentativa) {
     tentativa = tentativa || 0;
     let r;
@@ -120,7 +129,7 @@
     "Aberta": ["Aberta", "verde"], "Pausada": ["Pausada", "ambar"], "Fechada": ["Fechada", "cinza"], "Concluída": ["Concluída", "azul"],
     // Candidaturas
     "Em processo": ["Em processo", "azul"], "Aprovado": ["Aprovado no processo", "verde"], "Encerrado": ["Encerrado", "cinza"],
-    "Proposta": ["Proposta", "ambar"], "Contratado": ["Contratado", "verde"], "Desistiu": ["Desistiu", "cinza"],
+    "Proposta": ["Aguardando proposta", "ambar"], "Contratado": ["Contratado", "verde"], "Desistiu": ["Desistiu", "cinza"],
     "Pendente": ["Pendente", "cinza"], "Reprovado": ["Reprovado", "verm"],
     // Admissões
     "PROPOSTA_ENVIADA": ["Proposta enviada", "cinza"], "PROPOSTA_RECUSADA": ["Proposta recusada", "verm"],
@@ -1513,10 +1522,10 @@
     if (!r.candidatos.length) return box.append(el("div", { class: "vazio" }, "Nenhum candidato inscrito ainda."));
     const area = el("div");
     box.append(area);
-    const grupo = c => c.status === "Em processo" ? "processo" : c.status === "Aprovado" || c.status === "Proposta" || c.status === "Contratado" ? "aprovados" : "encerrados";
+    const grupo = c => ["Em processo", "Aprovado", "Proposta"].indexOf(c.status) >= 0 ? "processo" : c.status === "Contratado" ? "contratados" : "encerrados";
     listaFiltrada(area, r.candidatos, {
       inicial: "processo",
-      filtros: [["processo", "Em processo"], ["aprovados", "Aprovados e propostas"], ["encerrados", "Encerrados"], ["todas", "Todos"]],
+      filtros: [["processo", "Em andamento"], ["contratados", "Contratados"], ["encerrados", "Encerrados"], ["todas", "Todos"]],
       grupo, placeholder: "Buscar candidato", texto: c => [c.nome, c.email, c.id].join(" "),
       desenhar: (alvo, vis) => alvo.append(el("div", { class: "rolagem" }, el("table", { class: "tabela" },
         el("thead", null, el("tr", null, ["Candidato", "Inscrição", "Etapas e notas", "Situação", ""].map(t => el("th", null, t)))),
@@ -1525,9 +1534,11 @@
           el("td", { "data-rotulo": "Inscrição" }, fmtData(c.criado_em)),
           el("td", { "data-rotulo": "Etapas" }, c.status === "Em processo" ? el("div", { class: "mini", style: "margin-bottom:4px" }, "Atual: ", el("b", null, c.etapa_atual)) : null, progresso(c)),
           el("td", { "data-rotulo": "Situação" }, pill(c.status), c.admissao_status ? el("div", { class: "mini" }, (STATUS[c.admissao_status] || [c.admissao_status])[0]) : null),
-          el("td", { "data-rotulo": "" }, rh && prontoParaProposta(c)
-            ? el("button", { type: "button", class: "bt", onclick: () => abrirProposta(c, v) }, "Enviar proposta")
-            : el("button", { type: "button", class: rh && c.status === "Em processo" ? "bt" : "bt-sec", onclick: () => abrirCandidato(c, v, rh) }, rh && c.status === "Em processo" ? "Avaliar" : "Abrir")))))))),
+          el("td", { "data-rotulo": "" }, el("div", { class: "acoes", style: "justify-content:flex-end" },
+            rh && prontoParaProposta(c) ? el("button", { type: "button", class: "bt", onclick: () => abrirProposta(c, v) }, "Enviar proposta") : null,
+            rh && c.status === "Em processo" && !prontoParaProposta(c)
+              ? el("button", { type: "button", class: "bt", onclick: () => abrirCandidato(c, v, rh) }, "Avaliar")
+              : el("button", { type: "button", class: "bt-sec", onclick: () => abrirCandidato(c, v, rh) }, "Ver progresso"))))))))),
       vazio: "Nenhum candidato neste filtro."
     });
     // Volta para a ficha do candidato depois de salvar uma etapa
@@ -1628,6 +1639,7 @@
           e.responsavel && e.resultado !== "Pendente" ? "por " + e.responsavel : "",
           e.notificado_em ? "e-mail ao candidato em " + fmtData(e.notificado_em, true) : ""].filter(Boolean).join(" · ")),
         e.obs ? el("div", { class: "mini" }, "Observação interna: " + e.obs) : null,
+        anexosEtapa(e, c, rh),
         e.estado === "bloqueada" ? el("div", { class: "mini" }, "Libera quando a etapa anterior for aprovada.") : null))));
 
     const rodape = rh ? el("div", { class: "acoes", style: "margin-top:16px;justify-content:flex-end" },
@@ -1698,6 +1710,39 @@
       } });
     avisar.addEventListener("change", () => { $("dlgOk").textContent = avisar.checked ? "Salvar e enviar" : "Salvar"; });
     if (await ok) { reabrirCandidato = c.id; recarregar(); }
+  }
+
+  // Documentos da etapa (teste técnico, anotações, gravações…): o RH anexa e remove; o gestor vê
+  function anexosEtapa(e, c, rh) {
+    const lista = e.anexos || [];
+    if (!lista.length && !rh) return null;
+    const caixa = el("div", { class: "anexos-etapa" });
+    lista.forEach(a => caixa.append(el("span", { class: "anexo" },
+      el("a", { href: "/arquivo/" + a.id, target: "_blank", rel: "noopener", title: "Anexado em " + fmtData(a.criado_em, true) }, "📎 " + a.nome),
+      rh ? el("button", { type: "button", class: "slot-x", "aria-label": "Remover " + a.nome, onclick: async () => {
+        if (!confirm("Remover \"" + a.nome + "\" desta etapa?")) return;
+        const r = await api("etapa_desanexar", { arquivo_id: a.id });
+        if (!r.ok) return toast(r.erro, true);
+        toast("Documento removido."); reabrirCandidato = c.id; recarregar();
+      } }, "×") : null)));
+    if (rh) {
+      const inp = el("input", { type: "file", multiple: true, hidden: true, accept: ".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" });
+      const bt = el("button", { type: "button", class: "bt-flag", onclick: () => inp.click() }, "+ Anexar documento");
+      inp.addEventListener("change", async () => {
+        if (!inp.files.length) return;
+        const fd = new FormData();
+        fd.append("etapa_id", e.id);
+        [...inp.files].forEach(f => fd.append("arquivo", f));
+        bt.disabled = true; bt.textContent = "Enviando…";
+        const r = await apiArquivo("etapa_anexar", fd);
+        bt.disabled = false; bt.textContent = "+ Anexar documento";
+        if (!r.ok) return toast(r.erro, true);
+        toast(r.arquivos.length + " documento(s) anexado(s) em " + e.nome + ".");
+        reabrirCandidato = c.id; recarregar();
+      });
+      caixa.append(bt, inp);
+    }
+    return caixa;
   }
 
   async function editarEtapa(e, c, vaga) {
@@ -1825,6 +1870,29 @@
   const maisDias = n => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() + n * 864e5));
   const OBRIG_PROPOSTA = ["email_contato", "tipo_contratacao", "cargo", "funcao", "departamento", "horario_trabalho", "data_inicio", "horarios_inicio", "bolsa_valor", "prazo_resposta"];
 
+  // Grade de horários (07:00 a 18:00, de 30 em 30 min) + horário avulso; guarda em <input name="horarios_inicio">
+  function seletorHorarios(valor) {
+    const marcados = new Set(String(valor || "").split(/[^0-9:]+/).filter(h => /^\d{1,2}:\d{2}$/.test(h)).map(h => h.padStart(5, "0")));
+    const oculto = el("input", { type: "hidden", name: "horarios_inicio" });
+    const grade = el("div", { class: "horas-grade", role: "group", "aria-label": "Horários de início" });
+    const resumo = el("div", { class: "mini" });
+    const base = [];
+    for (let m = 7 * 60; m <= 18 * 60; m += 30) base.push(String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"));
+    function pintar() {
+      limpar(grade);
+      [...new Set(base.concat([...marcados]))].sort().forEach(h => grade.append(el("button", {
+        type: "button", class: "hora-op", "aria-pressed": String(marcados.has(h)),
+        onclick: () => { marcados.has(h) ? marcados.delete(h) : marcados.add(h); pintar(); }
+      }, h)));
+      oculto.value = [...marcados].sort().join(", ");
+      resumo.textContent = marcados.size ? "Escolhidos: " + oculto.value : "Nenhum horário marcado.";
+    }
+    const outro = el("input", { type: "time", step: "300", "aria-label": "Outro horário" });
+    const add = el("button", { type: "button", class: "bt-flag", onclick: () => { if (outro.value) { marcados.add(outro.value); outro.value = ""; pintar(); } } }, "+ Outro horário");
+    pintar();
+    return el("div", { class: "seletor-horarios" }, grade, el("div", { class: "horas-outro" }, outro, add, resumo), oculto);
+  }
+
   function formProposta(op, v, aviso) {
     const deps = op.departamentos.map(d => d.nome);
     return el("form", { novalidate: true },
@@ -1835,15 +1903,15 @@
           { obrigatorio: true, nome: "prazo_resposta", dica: "Depois desse dia a proposta vence sozinha e o RH é avisado." }),
         campo("Tipo de contratação", seletor("tipo_contratacao", lista(op, "tipo_contratacao"), v.tipo_contratacao), { obrigatorio: true, nome: "tipo_contratacao",
           dica: "Define os documentos que o candidato precisa enviar (Configurações → Admissão)." }),
-        campo("Situação", seletor("situacao", lista(op, "situacao"), v.situacao || "")),
+        campo("Situação", seletor("situacao", ["Ativo", "Não ativo"], v.situacao === "Não ativo" ? "Não ativo" : "Ativo", false)),
         campo("Cargo", el("div", null, comLista(entrada("cargo", v.cargo || ""), lista(op, "cargo"))), { obrigatorio: true, nome: "cargo" }),
         campo("Função", el("div", null, comLista(entrada("funcao", v.funcao || ""), lista(op, "funcao"))), { obrigatorio: true, nome: "funcao" }),
         campo("Departamento", el("div", null, comLista(entrada("departamento", v.departamento || ""), deps)), { obrigatorio: true, nome: "departamento" }),
         campo("Setor", el("div", null, comLista(entrada("setor", v.setor || ""), lista(op, "setor")))),
         campo("Horário de trabalho", el("div", null, comLista(entrada("horario_trabalho", v.horario_trabalho || ""), lista(op, "horario"))), { obrigatorio: true, nome: "horario_trabalho" }),
         campo("Dia de início (onboarding)", entrada("data_inicio", v.data_inicio || "", { type: "date" }), { obrigatorio: true, nome: "data_inicio", dica: "O primeiro dia é o onboarding." }),
-        campo("Horários que o candidato pode escolher para começar", entrada("horarios_inicio", v.horarios_inicio || "09:00, 10:00, 14:00", { placeholder: "09:00, 10:00, 14:00" }),
-          { obrigatorio: true, nome: "horarios_inicio", dica: "Ao aceitar a proposta, ele escolhe um destes horários do dia de início." }),
+        campo("Horários que o candidato pode escolher para começar", seletorHorarios(v.horarios_inicio || "09:00, 10:00, 14:00"),
+          { obrigatorio: true, largo: true, nome: "horarios_inicio", dica: "Clique para marcar ou desmarcar. Ao aceitar a proposta, ele escolhe um destes horários do dia de início." }),
         campo("Local do primeiro dia", entrada("local_inicio", v.local_inicio || "", { placeholder: "Endereço e sala" }), { largo: true }),
         campo("Bolsa / remuneração", entrada("bolsa_valor", v.bolsa_valor || ""), { obrigatorio: true, nome: "bolsa_valor" }),
         campo("Auxílio", seletor("auxilio", lista(op, "auxilio"), v.auxilio || "")),
@@ -1992,7 +2060,8 @@
       conferindo ? el("button", { type: "button", class: "bt-alerta", onclick: () => decidirAdm(a, "correcao", [...marcados.values()]) }, "Pedir correção") : null,
       conferindo ? el("button", { type: "button", class: "bt-perigo", onclick: () => decidirAdm(a, "recusar") }, "Recusar") : null,
       antesAprov ? el("button", { type: "button", class: "bt-perigo-txt", onclick: () => cancelarAdm(a) }, "Cancelar admissão") : null,
-      a.funcionario_id ? el("a", { class: "bt", href: "#funcionario/" + a.funcionario_id }, "Ver funcionário") : null
+      a.funcionario_id ? el("a", { class: "bt", href: "#funcionario/" + a.funcionario_id }, "Ver funcionário") : null,
+      a.funcionario_id ? el("a", { class: "bt-sec", href: "/api/funcionarios.xlsx?matricula=" + a.funcionario_id, download: "" }, "Baixar Excel") : null
     ], ["#admissoes", "Admissões"]));
 
     box.append(el("div", { class: "card" }, el("div", { class: "meta" }, pillAdm(st), el("span", null, "E-mail: " + a.email_contato),
@@ -2181,7 +2250,8 @@
   //  Funcionários
   // =================================================================
   function viewFuncionarios(box) {
-    box.append(cabecalho("Funcionários", "O registro de cada pessoa admitida: tudo o que ela preencheu na admissão, o contrato e o checklist."));
+    box.append(cabecalho("Funcionários", "O registro de cada pessoa admitida: tudo o que ela preencheu na admissão, o contrato e o checklist.",
+      el("a", { class: "bt", href: "/api/funcionarios.xlsx", download: "" }, "Baixar Excel (Registros)")));
     carregarEm(box, "func_listar", {}, (area, r) => {
       if (!r.itens.length) return area.append(el("div", { class: "vazio" }, "Nenhum funcionário registrado ainda."));
       const limite = new Date(Date.now() + 45 * 864e5).toISOString().slice(0, 10);
@@ -2215,6 +2285,7 @@
     const cdt = r.candidatura || {};
     box.append(cabecalho(f.nome, "Matrícula " + f.matricula + (f.admissao_id ? " · " + f.admissao_id : ""), [
       cdt.curriculo_id ? el("a", { class: "bt-sec", href: "/arquivo/" + cdt.curriculo_id, target: "_blank", rel: "noopener" }, "Currículo") : null,
+      el("a", { class: "bt", href: "/api/funcionarios.xlsx?matricula=" + f.matricula, download: "" }, "Baixar Excel"),
       f.admissao_id ? el("a", { class: "bt-sec", href: "#admissao/" + f.admissao_id }, "Ver admissão") : null
     ], ["#funcionarios", "Funcionários"]));
 
@@ -2258,7 +2329,7 @@
         ...[["nome", "Nome"], ["email", "E-mail pessoal"], ["email_innomaker", "E-mail Innomaker"], ["telefone", "Telefone"], ["situacao", "Situação"], ["cargo", "Cargo"],
           ["funcao", "Função"], ["departamento", "Departamento"], ["setor", "Setor"], ["horario_trabalho", "Horário de trabalho"], ["tipo_contratacao", "Tipo de contratação"],
           ["bolsa_valor", "Bolsa / remuneração"], ["auxilio", "Auxílio"], ["responsavel", "Responsável"], ["entidade_vinculada", "Entidade vinculada"]]
-          .map(([k, rot]) => campo(rot, entrada(k, f[k]))),
+          .map(([k, rot]) => campo(rot, k === "situacao" ? seletor("situacao", ["Ativo", "Não ativo"], f.situacao === "Não ativo" ? "Não ativo" : "Ativo", false) : entrada(k, f[k]))),
         campo("Data de efetivação", entrada("data_efetivacao", f.data_efetivacao, { type: "date" })),
         campo("Data final do contrato", entrada("data_final_contrato", f.data_final_contrato, { type: "date" }), { dica: "Confirme sempre manualmente (item 5)." }),
         campo("Principais funções", areaTexto("principais_funcoes", f.principais_funcoes), { largo: true })),

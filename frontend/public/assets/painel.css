@@ -477,3 +477,16 @@ button.grade-slot{cursor:pointer}
 .atalho-agenda{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;padding:14px 18px}
 @media(max-width:640px){.chips{flex-wrap:nowrap;overflow-x:auto;max-width:100%}.chip{white-space:nowrap}}
 .etapa-topo > button:first-of-type{margin-left:auto}
+
+/* ---------- Anexos das etapas e horários de início ---------- */
+.anexos-etapa{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:8px}
+.anexo{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--linha);border-radius:6px;background:var(--sup2);font-size:13px}
+.anexo a{text-decoration:none;color:var(--texto)}
+.anexo a:hover{color:var(--marca-forte);text-decoration:underline}
+.seletor-horarios{display:grid;gap:10px}
+.horas-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(66px,1fr));gap:6px}
+.hora-op{min-height:34px;border:1px solid var(--linha-forte);border-radius:6px;background:var(--sup);font-size:13px;font-weight:550;color:var(--suave);cursor:pointer}
+.hora-op:hover{border-color:var(--marca);color:var(--tinta)}
+.hora-op[aria-pressed="true"]{background:var(--acao);border-color:var(--acao);color:#fff;font-weight:650}
+.horas-outro{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.horas-outro input[type=time]{width:auto}

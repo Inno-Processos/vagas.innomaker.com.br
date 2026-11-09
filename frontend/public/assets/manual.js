@@ -118,6 +118,8 @@ window.MANUAL_PAINEL = {
       dicas: ["A Triagem (análise do currículo) não tem agenda; as outras etapas têm, para entrevista ou teste.",
         "O candidato pode remarcar sozinho até 24 horas antes, ou desistir da candidatura (pela página de agendamento ou pela Área do candidato). Nos dois casos o horário volta a ficar livre e os entrevistadores são avisados.",
         "Se você tentar enviar a agenda de novo para quem já recebeu, o sistema pergunta se deseja reenviar.",
+        "Em cada etapa da ficha, <b>+ Anexar documento</b> guarda arquivos daquela etapa (teste técnico, anotações etc.). O candidato não vê esses documentos.",
+        "Quem recebeu a proposta continua na lista (Em andamento) com a situação <b>Aguardando proposta</b>. <b>Ver progresso</b> abre a ficha a qualquer momento.",
         "Na ficha do candidato: <b>Banco de talentos</b> guarda o candidato com palavras-chave e anotação; <b>Excluir dados (LGPD)</b> apaga tudo dele a pedido.",
         "Para corrigir uma avaliação, use <b>Editar</b> na etapa. O e-mail de recusa não é enviado de novo.",
         "Se a pessoa desistir, use <b>Registrar desistência</b> no fim da ficha."]
@@ -180,7 +182,7 @@ window.MANUAL_PAINEL = {
 
   "funcionarios": {
     resumo: "O registro de cada pessoa admitida.",
-    passos: ["Use a busca para encontrar uma pessoa.", "Clique em <b>Abrir</b> para ver o registro completo, os documentos enviados e o checklist."],
+    passos: ["Use a busca para encontrar uma pessoa.", "Clique em <b>Abrir</b> para ver o registro completo, os documentos enviados e o checklist.", "<b>Baixar Excel (Registros)</b> gera a planilha de todos os funcionários com as 64 colunas da aba Registros; na ficha de cada pessoa, <b>Baixar Excel</b> gera só a dela."],
     dicas: ["Contratos têm duração mínima de 1 ano. O RH recebe um e-mail 45 dias antes do fim."]
   },
 

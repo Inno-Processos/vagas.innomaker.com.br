@@ -281,3 +281,48 @@ test("etapa Proposta: sem reunião; proposta com dia de início e o candidato es
   assert.match(conv.convite.ics, new RegExp("DTSTART:" + hoje(20).replace(/-/g, "") + "T120000Z"), "09:00 de Brasília");
   assert.match(conv.convite.ics.replace(/\r\n /g, ""), /LOCATION:Rua da Conceição/);
 });
+
+test("documentos anexados na etapa e registro dos funcionários em Excel", async () => {
+  const t = ambiente();
+  const vaga = await criarVaga(t.staff, "Vaga Anexos");
+  await t.inscrever(vaga, { nome: "Rita Anexo", email: "rita@x.com" });
+  const c = (await t.staff("vaga_detalhe", { id: vaga })).candidatos[0];
+  const ent = c.etapas.find(e => e.ordem === 2);
+  const fd = new FormData();
+  fd.set("etapa_id", ent.id);
+  fd.append("arquivo", new File(["teste tecnico"], "teste-tecnico.docx"));
+  const r = (await t.chamar("/api/staff/etapa_anexar", { body: fd })).json;
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const bad = new FormData(); bad.set("etapa_id", ent.id); bad.append("arquivo", new File(["x"], "virus.exe"));
+  assert.equal((await t.chamar("/api/staff/etapa_anexar", { body: bad })).json.ok, false, "tipo não permitido");
+  const det = await t.staff("vaga_detalhe", { id: vaga });
+  const anexos = det.candidatos[0].etapas.find(e => e.id === ent.id).anexos;
+  assert.deepEqual(anexos.map(a => a.nome), ["teste-tecnico.docx"]);
+  // o candidato não abre o documento da etapa
+  const s = await t.entrar("rita@x.com");
+  const resp = await t.env.DB.prepare("SELECT id FROM arquivos WHERE etapa_id = ?").bind(ent.id).first();
+  const { rotear } = await import("../backend/src/rotas.js");
+  const viaCandidato = await rotear(new Request("http://localhost/arquivo/" + resp.id, { headers: { cookie: s.cookie, "x-dev-grupos": "nenhum" } }), t.env, t.ctx);
+  assert.equal(viaCandidato.status, 302, "redireciona para a página de erro");
+  assert.equal((await t.staff("etapa_desanexar", { arquivo_id: anexos[0].id })).ok, true);
+
+  // Excel: 64 colunas da aba Registros
+  await t.env.DB.prepare(`INSERT INTO funcionarios (nome, email, situacao, bolsa_valor, data_efetivacao, dados, criado_em, atualizado_em)
+    VALUES ('Rita Anexo', 'rita@x.com', 'Ativo', 'R$ 1.200,00', '2026-12-01', '{"cpf":"52998224725","data_nascimento":"2003-04-05"}', '2026-11-09T10:00:00Z', '2026-11-09T10:00:00Z')`).run();
+  const x = await rotear(new Request("http://localhost/api/funcionarios.xlsx"), t.env, t.ctx);
+  assert.equal(x.status, 200);
+  assert.match(x.headers.get("content-type"), /spreadsheetml/);
+  const buf = Buffer.from(await x.arrayBuffer());
+  assert.equal(buf.slice(0, 2).toString(), "PK", "arquivo zip (xlsx)");
+  const g = await rotear(new Request("http://localhost/api/funcionarios.xlsx", { headers: { "x-dev-grupos": "gerente" } }), t.env, t.ctx);
+  assert.equal(g.status, 403, "só o RH baixa");
+  const { COLUNAS, linhaRegistro } = await import("../backend/src/lib/registro.js");
+  assert.equal(COLUNAS.length, 64);
+  const linha = linhaRegistro({ matricula: 3, nome: "Rita", bolsa_valor: "R$ 1.200,00", dados: '{"cpf":"52998224725","data_nascimento":"2003-04-05"}' }, { hoje: "2026-11-09" });
+  assert.equal(linha[0], 3);
+  assert.equal(linha[2], "Ativo");
+  assert.equal(linha[7], 23);
+  assert.equal(linha[8], "529.982.247-25");
+  assert.deepEqual(linha[26], { t: "moeda", v: 1200 });
+  assert.equal((await t.staff("opcoes")).listas.situacao.join(), "Ativo,Não ativo");
+});

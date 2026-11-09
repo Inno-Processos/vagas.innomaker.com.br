@@ -15,6 +15,7 @@ import {
   agendaListar, agendaSalvar, agendaEncerrar, agendaConvidar, agendaCancelarReserva, agendaParticipante, liberarReservasDaCandidatura
 } from "./agendamento.js";
 import { excluirCandidato, prazosLgpd, candidatosVencidos } from "../lib/lgpd.js";
+import { salvarArquivo, apagarArquivo, ehArquivo } from "../lib/arquivos.js";
 import { ORIGENS } from "./candidato.js";
 import {
   CAMPOS_PROPOSTA, CAMPOS_DATA_PROPOSTA, CAMPOS_CADASTRO, ehEtapaProposta, etapaAgendavel, lerHorariosInicio, ADM_ENCERRADAS, ADM_ANTES_DA_APROVACAO, ADM_CANDIDATO_PREENCHE, PASSOS_MANUAIS,
@@ -311,6 +312,9 @@ async function vagaDetalhe(env, ctx, b, u) {
       WHERE ca.vaga_id = ? ORDER BY ca.criado_em DESC`, vaga.id);
   const ets = await todos(env,
     "SELECT e.* FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id WHERE ca.vaga_id = ? ORDER BY e.ordem", vaga.id);
+  const anexos = await todos(env, `SELECT a.id, a.nome, a.etapa_id, a.criado_em FROM arquivos a JOIN etapas e ON e.id = a.etapa_id
+    JOIN candidaturas ca ON ca.id = e.candidatura_id WHERE ca.vaga_id = ? AND a.categoria = 'etapa' ORDER BY a.criado_em`, vaga.id);
+  ets.forEach(e => { e.anexos = anexos.filter(x => x.etapa_id === e.id).map(x => ({ id: x.id, nome: x.nome, criado_em: x.criado_em })); });
 
   const candidatos = cands.map(c => {
     const etapas = ets.filter(e => e.candidatura_id === c.id);
@@ -1220,6 +1224,29 @@ async function agendasTodas(env, ctx, b, u) {
   return { ok: true, grupos, vagas: abertas, podeEditar: u.papel === "rh" };
 }
 
+// ---------- Documentos anexados em cada etapa (RH) ----------
+async function etapaAnexar(env, ctx, b, u) {
+  if (!(b instanceof FormData)) throw new ErroApi("Envie o arquivo.");
+  const e = await um(env, "SELECT e.*, ca.candidato_id FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id WHERE e.id = ?", parseInt(b.get("etapa_id"), 10) || 0);
+  if (!e) throw new ErroApi("Etapa não encontrada.");
+  const files = b.getAll("arquivo").filter(ehArquivo);
+  if (!files.length) throw new ErroApi("Escolha um arquivo.");
+  const ja = await um(env, "SELECT COUNT(*) AS n FROM arquivos WHERE etapa_id = ?", e.id);
+  if (ja.n + files.length > 20) throw new ErroApi("Limite de 20 arquivos por etapa.");
+  const salvos = [];
+  for (const f of files) salvos.push(await salvarArquivo(env, f, { categoria: "etapa", candidatoId: e.candidato_id, etapaId: e.id, documentos: true }));
+  await registrarLog(env, quemE(u), "ETAPA_ANEXO", "candidatura", e.candidatura_id, e.nome + ": " + salvos.map(x => x.nome).join(", "));
+  return { ok: true, arquivos: salvos };
+}
+
+async function etapaDesanexar(env, ctx, b, u) {
+  const a = await um(env, "SELECT a.*, e.candidatura_id, e.nome AS etapa_nome FROM arquivos a JOIN etapas e ON e.id = a.etapa_id WHERE a.id = ? AND a.categoria = 'etapa'", texto(b.arquivo_id, 60));
+  if (!a) throw new ErroApi("Arquivo não encontrado.");
+  await apagarArquivo(env, a.id);
+  await registrarLog(env, quemE(u), "ETAPA_ANEXO_REMOVIDO", "candidatura", a.candidatura_id, a.etapa_nome + ": " + a.nome);
+  return { ok: true };
+}
+
 async function logListar(env) {
   return {
     ok: true,
@@ -1268,7 +1295,7 @@ const HANDLERS = {
   indicadores, cfg_salvar_lgpd: cfgSalvarLgpd, candidato_excluir: candidatoExcluir,
   adm_proposta_salvar: admPropostaSalvar, adm_cancelar: admCancelar, adm_passo: admPasso, adm_pedir_acessos: admPedirAcessos,
   adm_area: admArea, cfg_salvar_admissao: cfgSalvarAdmissao,
-  etapa_agendar: etapaAgendar, agendas_todas: agendasTodas
+  etapa_agendar: etapaAgendar, agendas_todas: agendasTodas, etapa_anexar: etapaAnexar, etapa_desanexar: etapaDesanexar
 };
 
 export { podeVerVaga };

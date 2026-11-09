@@ -67,6 +67,8 @@ export const ACOES = {
   etapa_agendar: RH,
   entrevistas_listar: GESTAO, // gerente: só as das vagas da área
   agendas_todas: GESTAO,      // gerente: só as das vagas da área (só vê)
+  etapa_anexar: RH,
+  etapa_desanexar: RH,
 };
 
 export function podeExecutar(papel, acao) {
