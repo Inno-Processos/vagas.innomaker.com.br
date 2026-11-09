@@ -44,11 +44,11 @@ test("regras: documentos por tipo de contrato, validação e trilha", () => {
   assert.deepEqual(validarCadastro(lerCadastro(Object.assign({}, CADASTRO, { pix_numero: "" }))).campos, ["pix_numero", "banco", "agencia", "conta"]);
   assert.deepEqual(validarCadastro(lerCadastro(Object.assign({}, CADASTRO, { email_pessoal: "a@id.uff.br" }))).campos, ["email_pessoal"]);
 
-  const tr = trilha({ status: "APROVADA", historico: "[]", checklist: "{}", funcionario_id: 7 }, { ponto_cadastrado: 1 }, { total: 2, assinados: 2 });
-  assert.equal(tr.total, 8);
-  assert.equal(tr.passos.find(p => p.id === "assinaturas").feito, true);
+  const tr = trilha({ status: "APROVADA", historico: "[]", checklist: "{}", funcionario_id: 7 }, { ponto_cadastrado: 1 });
+  assert.equal(tr.total, 6);
+  assert.equal(tr.passos.find(p => p.id === "aprovacao").feito, true);
   assert.equal(tr.passos.find(p => p.id === "ponto").feito, true);
-  assert.equal(tr.proximo, "Assinados conferidos");
+  assert.equal(tr.proximo, "Acessos criados");
   const enc = trilha({ status: "CANCELADA", historico: "[]", checklist: "{}" }, null, null);
   assert.ok(enc.passos.every(p => p.feito || p.encerrado));
 });
@@ -129,12 +129,17 @@ test("admissão completa: prazo, edição, rascunho, documentos, correção por 
   assert.equal((await t.staff("adm_proposta_salvar", { id: pr.id, proposta: { observacao: "Conferir notebook" } })).status, "AGUARDANDO_APROVACAO");
 
   // Aprovação e trilha
-  const ap = await t.staff("adm_decidir", { id: pr.id, decisao: "aprovar", modelos: [] });
+  const ap = await t.staff("adm_decidir", { id: pr.id, decisao: "aprovar" });
   assert.equal(ap.ok, true, JSON.stringify(ap));
   det = await t.staff("adm_detalhe", { id: pr.id });
   assert.equal(det.trilha.passos.find(p => p.id === "aprovacao").feito, true);
-  assert.equal(det.trilha.passos.find(p => p.id === "assinaturas").feito, true, "sem documentos gerados, não há o que assinar");
-  assert.equal(det.trilha.proximo, "Assinados conferidos");
+  assert.equal(det.trilha.proximo, "Cadastro no aplicativo de ponto");
+  // o registro em Funcionários tem tudo o que o candidato preencheu e os arquivos
+  const fd = await t.staff("func_detalhe", { matricula: ap.matricula });
+  assert.equal(fd.funcionario.dados.endereco, "Rua A, 1, apto 202");
+  assert.ok(fd.arquivos.some(x => x.categoria === "doc_rg" && x.categoria_nome));
+  assert.ok(fd.camposCadastro.length > 20);
+  assert.equal(fd.candidatura.periodo_curso, "5º");
   assert.equal((await t.staff("adm_passo", { id: pr.id, passo: "invalido" })).ok, false);
   const passo = await t.staff("adm_passo", { id: pr.id, passo: "ponto", feito: true });
   assert.equal(passo.trilha.passos.find(p => p.id === "ponto").feito, true);
@@ -160,7 +165,7 @@ test("admissão completa: prazo, edição, rascunho, documentos, correção por 
 
   // Lista mostra o progresso; gerente sem relação com a vaga não vê
   const lista = await t.staff("adm_listar");
-  assert.ok(lista.itens[0].trilha.feitos >= 5);
+  assert.ok(lista.itens[0].trilha.feitos >= 4);
   assert.equal((await t.staff("adm_area", {}, "gerente")).itens.length, 0);
   assert.equal((await t.staff("adm_area", {}, "funcionario")).ok, false);
 });
@@ -194,7 +199,7 @@ test("proposta vence sem resposta, é reaberta pelo RH, e cancelamento libera no
   assert.equal(nova.ok, true, "cancelada não bloqueia uma nova proposta");
 });
 
-test("data da etapa enviada ao candidato, termos no aceite da proposta e Registros", async () => {
+test("data da etapa enviada ao candidato e lista de entrevistas", async () => {
   const t = ambiente();
   // vaga com entrevista: RH marca data/hora e o candidato recebe com convite de agenda
   const vaga = await criarVaga(t.staff, "Vaga Entrevista");
@@ -217,28 +222,12 @@ test("data da etapa enviada ao candidato, termos no aceite da proposta e Registr
   assert.deepEqual(cd.marcada, { data: hoje(3), hora: "14:30", local: "https://meet.example/x" });
   assert.equal(cd.etapas.find(x => x.nome === "Entrevista RH").hora, "14:30");
 
-  // termos: os modelos do processo já vêm configurados (migração 0009) — imagem para todos, compromisso só para estágio
-  assert.equal((await t.staff("modelo_salvar", { nome: "Contrato CLT", conteudo: "{{NOME}}", momento: "aceite", aplica_a: ["CLT"], ativo: true })).ok, true);
-  const { c: cand } = await aprovado(t, "Fábio Termo", "fabio@x.com");
-  const pr = await t.staff("proposta_criar", { candidatura_id: cand.id, proposta: PROPOSTA, prazo_resposta: hoje(3) });
-  const s = await t.entrar("fabio@x.com");
-  await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar" });
-  const mail = t.enviados.find(x => /termos de contratação/i.test(x.assunto));
-  assert.ok(mail, "e-mail com os termos");
-  assert.deepEqual(mail.anexos.map(a => a.filename).sort(), ["Termo de Compromisso de Estágio.html", "Termo de Direito de Imagem.html"]);
-  const html = Buffer.from(mail.anexos.find(a => /imagem/i.test(a.filename)).content, "base64").toString("utf8");
-  assert.match(html, /Fábio Termo/);
-  assert.match(html, /CPF ______________/, "o que ainda não foi preenchido fica em branco");
-  const adm = (await t.comoCandidato(s, "area")).json.admissoes[0];
-  assert.equal(adm.termos.length, 2);
-  // na aprovação, os termos do aceite já vêm marcados para assinatura (e o de CLT não)
-  const det = await t.staff("adm_detalhe", { id: pr.id });
-  assert.deepEqual(det.modelos.filter(x => x.gerar_na_admissao).map(x => x.nome).sort(),
-    ["Apêndice — Bolsa-auxílio e forma de pagamento", "Termo de Compromisso de Estágio", "Termo de Direito de Imagem"]);
-
-  // Registros: mesmas 64 colunas da planilha
-  const reg = await t.staff("registros_listar");
-  assert.equal(reg.colunas.length, 64);
-  assert.equal(reg.planilhaConfigurada, false);
-  assert.equal((await t.staff("registros_listar", {}, "gerente")).ok, false);
+  // Entrevistas: aparece na lista do RH; gerente sem relação com a vaga não vê
+  const lista = await t.staff("entrevistas_listar", { periodo: "proximas" });
+  assert.equal(lista.itens.length, 1);
+  assert.equal(lista.itens[0].hora, "14:30");
+  assert.equal(lista.itens[0].candidato_nome, "Eva Data");
+  assert.equal(lista.itens[0].avisado, true);
+  assert.equal((await t.staff("entrevistas_listar", {}, "gerente")).itens.length, 0);
+  assert.equal((await t.staff("entrevistas_listar", {}, "funcionario")).ok, false);
 });

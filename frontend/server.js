@@ -4,7 +4,7 @@
 //  Entrega as telas de public/ e repassa ao backend só o que é dele:
 //    /api/*, /arquivo/*, /entrar, /sair   →  API_URL (backend, rede interna)
 //
-//  Páginas:  /  /vagas  /vagas/<titulo>-<id>  /area-do-candidato  (site público)   /painel   /documento/<id>   /agendar/<token>   /privacidade   /erro
+//  Páginas:  /  /vagas  /vagas/<titulo>-<id>  /area-do-candidato  (site público)   /painel   /agendar/<token>   /privacidade   /erro
 //  Inicie com: npm start (na raiz sobe backend + frontend) ou docker compose up -d
 // =====================================================================
 "use strict";
@@ -21,13 +21,12 @@ const VERSAO = process.env.VERSAO_ASSETS || Date.now().toString(36);
 const PAGINAS = {
   "/": "index.html",
   "/painel": "painel.html",
-  "/documento": "documento.html",
   "/erro": "erro.html",
   "/privacidade": "privacidade.html",
   "/vagas": "index.html",                // lista de vagas
   "/area-do-candidato": "index.html"     // login e área do candidato
 };
-const PROTEGIDAS = new Set(["painel.html", "documento.html", "agendar.html"]); // não podem abrir dentro de outro site (iframe)
+const PROTEGIDAS = new Set(["painel.html", "agendar.html"]); // não podem abrir dentro de outro site (iframe)
 
 const TIPOS = {
   ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json",
@@ -109,7 +108,6 @@ const servidor = http.createServer((req, res) => {
 
     const limpo = caminho.replace(/\/+$/, "") || "/";
     if (PAGINAS[limpo]) return enviarPagina(res, PAGINAS[limpo], req.method);
-    if (limpo.startsWith("/documento/")) return enviarPagina(res, "documento.html", req.method);
     if (limpo.startsWith("/agendar/")) return enviarPagina(res, "agendar.html", req.method);
     if (/^\/vagas\/[^/]+$/.test(limpo)) return enviarPagina(res, "index.html", req.method); // /vagas/<titulo>-vag-2026-0001
 

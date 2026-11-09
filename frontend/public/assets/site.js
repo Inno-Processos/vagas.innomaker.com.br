@@ -316,24 +316,6 @@
 
     (d.admissoes || []).forEach(a => box.append(cardAdmissao(a, d)));
 
-    const docs = d.documentos || [];
-    if (docs.length) {
-      const s = secao("Documentos", "Leia com atenção e assine. Você também pode imprimir ou salvar em PDF.");
-      docs.forEach(doc => {
-        const c = el("article", "card cand");
-        const top = el("div", "track-top");
-        top.append(el("h3", "doc-titulo", doc.titulo));
-        top.append(el("span", "status" + (doc.status === "ASSINADO" ? " ok" : " pend"), doc.status === "ASSINADO" ? "Assinado em " + fmtData(doc.assinado_em) : "Aguardando sua assinatura"));
-        c.append(top);
-        const a = el("a", doc.status === "ASSINADO" ? "btn-line" : "btn", doc.status === "ASSINADO" ? "Ver documento" : "Ler e assinar");
-        a.href = "/documento/" + encodeURIComponent(doc.id);
-        a.style.marginTop = "12px";
-        c.append(a);
-        s.append(c);
-      });
-      box.append(s);
-    }
-
     const s = secao("Minhas candidaturas");
     const cands = d.candidaturas || [];
     if (!cands.length) s.append(el("div", "empty", "Você ainda não tem candidaturas."));
@@ -534,7 +516,6 @@
         c.append(l);
         card.append(c);
       }
-      card.append(termosParaLer(a));
       card.append(assistenteCadastro(a, d));
       return card;
     }
@@ -542,9 +523,9 @@
     if (a.status === "PROPOSTA_EXPIRADA") { card.append(caixa("warn", "O prazo para responder terminou", "Esta proposta não está mais valendo. Se ainda tiver interesse, fale com o RH.")); return card; }
     if (a.status === "CANCELADA") { card.append(caixa("warn", "Proposta cancelada pelo RH", a.recusa || "")); return card; }
     card.append(resumo);
-    if (a.status === "AGUARDANDO_APROVACAO") { card.append(caixa("info", null, "Recebemos seu cadastro. O RH está conferindo seus dados e documentos. Você recebe um e-mail com a decisão.")); card.append(termosParaLer(a)); }
+    if (a.status === "AGUARDANDO_APROVACAO") card.append(caixa("info", null, "Recebemos seu cadastro. O RH está conferindo seus dados e documentos. Você recebe um e-mail com a decisão."));
     if (a.status === "APROVADA") {
-      card.append(caixa("ok", "Bem-vindo(a) à Innomaker!", "Assine os documentos listados abaixo. Seu onboarding será no primeiro dia, " + fmtData(p.data_inicio) + "."));
+      card.append(caixa("ok", "Bem-vindo(a) à Innomaker!", "Seu cadastro foi aprovado. Seu onboarding será no primeiro dia, " + fmtData(p.data_inicio) + "."));
       if (d.links && d.links.onboarding) {
         const l = el("a", "btn-line", "Agendar onboarding");
         l.href = d.links.onboarding; l.target = "_blank"; l.rel = "noopener"; l.style.marginTop = "12px";
@@ -553,23 +534,6 @@
     }
     if (a.status === "RECUSADA" && a.recusa) card.append(caixa("warn", "Justificativa do RH", a.recusa));
     return card;
-  }
-
-  // Termos que chegam ao aceitar a proposta: leitura agora, assinatura depois da aprovação do cadastro
-  function termosParaLer(a){
-    const box = el("div");
-    if (!(a.termos || []).length) return box;
-    box.append(el("h3", "cad-titulo", "Termos da sua contratação"),
-      el("p", "small", "Leia com calma. Os dados que faltam entram quando você preencher o cadastro; a assinatura é feita aqui, depois que o RH aprovar."));
-    a.termos.forEach(t => {
-      const det = el("details", "termo-ler");
-      det.append(el("summary", null, t.titulo));
-      const corpo = el("div", "termo-texto");
-      corpo.innerHTML = t.conteudo_html; // gerado e escapado pelo backend (textoParaHtml)
-      det.append(corpo);
-      box.append(det);
-    });
-    return box;
   }
 
   // ---------- Cadastro de admissão em etapas (salva sozinho) ----------

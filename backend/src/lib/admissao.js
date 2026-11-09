@@ -115,17 +115,16 @@ export function documentosFaltando(exigidos, arquivos) {
 }
 
 // ---------- Trilha da admissão ----------
-export const PASSOS_MANUAIS = { conferencia: "documentos_conferidos", ponto: "ponto_cadastrado", acessos: "acessos_ok", onboarding: "onboarding_ok" };
+export const PASSOS_MANUAIS = { ponto: "ponto_cadastrado", acessos: "acessos_ok", onboarding: "onboarding_ok" };
 
-// a = admissão (historico/checklist em texto), f = funcionário (ou null), docs = { total, assinados }
-export function trilha(a, f, docs) {
+// a = admissão (historico/checklist em texto), f = funcionário (ou null)
+export function trilha(a, f) {
   const hist = parseJson(a.historico, []);
   const chk = parseJson(a.checklist, {});
   const quando = re => { const h = hist.filter(x => re.test(x.acao || "")).pop(); return h ? h.quando : ""; };
   const st = a.status;
   const passouCadastro = ["AGUARDANDO_APROVACAO", "APROVADA"].indexOf(st) >= 0;
   const aprovada = st === "APROVADA";
-  const total = docs ? docs.total : 0, assinados = docs ? docs.assinados : 0;
   const manual = (id, nome, ajuda) => ({
     id, nome, ajuda, manual: true,
     feito: !!(f && f[PASSOS_MANUAIS[id]]), quando: chk[id] ? chk[id].em : "", por: chk[id] ? chk[id].por : ""
@@ -133,10 +132,8 @@ export function trilha(a, f, docs) {
   const passos = [
     { id: "proposta", nome: "Proposta aceita", feito: ["PROPOSTA_ENVIADA"].concat(ADM_ENCERRADAS).indexOf(st) < 0 || !!quando(/Proposta aceita/), quando: quando(/Proposta aceita/) },
     { id: "cadastro", nome: "Cadastro e documentos enviados", feito: passouCadastro, quando: quando(/Cadastro (enviado|corrigido)/) },
-    { id: "aprovacao", nome: "Cadastro aprovado (matrícula)", feito: aprovada, quando: quando(/Aprovada pelo RH/), detalhe: a.funcionario_id ? "Matrícula " + a.funcionario_id : "" },
-    { id: "assinaturas", nome: "Documentos assinados", feito: aprovada && assinados === total, detalhe: aprovada ? (total ? assinados + " de " + total : "nenhum documento gerado") : "" },
-    manual("conferencia", "Assinados conferidos", "Todos devolvidos, assinados, completos e legíveis (item 4.9)."),
-    manual("ponto", "Cadastro no aplicativo de ponto", "Depois da conferência dos documentos (item 4.10)."),
+    { id: "aprovacao", nome: "Aprovado e registrado em Funcionários", feito: aprovada, quando: quando(/Aprovada pelo RH/), detalhe: a.funcionario_id ? "Matrícula " + a.funcionario_id : "" },
+    manual("ponto", "Cadastro no aplicativo de ponto", "Cadastro manual no aplicativo de ponto (item 4.10)."),
     Object.assign(manual("acessos", "Acessos criados", "E-mail Innomaker e sistemas que a pessoa vai usar."),
       chk.acessos_pedido ? { detalhe: "Pedido enviado em " + chk.acessos_pedido.em.slice(0, 10).split("-").reverse().join("/") } : {}),
     manual("onboarding", "Onboarding realizado", "Sala, slides, camisa e crachá preparados; reunião no primeiro dia (item 6).")

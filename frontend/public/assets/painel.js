@@ -271,6 +271,8 @@
       desc: "Acompanhe a análise do RH e corrija as recusadas com alteração." },
     { id: "minhas-vagas", nome: "Vagas da minha área", acao: "minhas_vagas", render: viewMinhasVagas, soSe: () => !pode("vagas_todas"),
       desc: "Veja os candidatos das vagas que você pediu." },
+    { id: "entrevistas", nome: "Entrevistas", acao: "entrevistas_listar", render: viewEntrevistas,
+      desc: "Entrevistas e testes marcados, por dia." },
     { id: "adm-area", nome: "Admissões da área", acao: "adm_area", render: viewAdmArea, soSe: () => !pode("adm_listar"),
       desc: "Acompanhe as contratações da sua área até o primeiro dia." },
     { grupo: "RH" },
@@ -281,9 +283,7 @@
     { id: "admissoes", nome: "Admissões", acao: "adm_listar", render: viewAdmissoes,
       desc: "Propostas, cadastros para conferir e aprovação da admissão." },
     { id: "funcionarios", nome: "Funcionários", acao: "func_listar", render: viewFuncionarios,
-      desc: "Registros, documentos assinados, ponto, onboarding e renovações." },
-    { id: "registros", nome: "Registros", acao: "registros_listar", render: viewRegistros,
-      desc: "A aba Registros da planilha, dentro do site." },
+      desc: "Registro de cada pessoa admitida, checklist e renovações." },
     { id: "talentos", nome: "Banco de talentos", acao: "talentos_listar", render: viewTalentos,
       desc: "Candidatos para lembrar em novas vagas, com convite por e-mail." },
     { id: "indicadores", nome: "Indicadores", acao: "indicadores", render: viewIndicadores,
@@ -317,7 +317,7 @@
     "admissoes": "M9 4h6v3H9zM15 5h3v16H6V5h3M9 13l2 2 4-4",
     "adm-area": "M9 4h6v3H9zM15 5h3v16H6V5h3M9 13l2 2 4-4",
     "funcionarios": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
-    "registros": "M3 3h18v18H3zM3 9h18M3 15h18M9 3v18",
+    "entrevistas": "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM12 14v3l2 1",
     "talentos": "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z",
     "indicadores": "M3 3v18h18M8 17v-5M13 17V8M18 17v-8",
     "configuracoes": "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
@@ -832,42 +832,41 @@
   }
 
   // =================================================================
-  //  Registros: a aba Registros da planilha, dentro do site (mesmas 64 colunas)
+  //  Entrevistas: tudo o que está marcado, por dia (agenda com reserva e "Marcar data")
   // =================================================================
-  const ROT_PLANILHA = { ENVIADO: ["Na planilha", "verde"], ENVIANDO: ["Enviando…", "azul"], FALHOU: ["Falhou", "verm"], NAO_CONFIGURADA: ["Planilha não configurada", "cinza"] };
-  function viewRegistros(box) {
-    box.append(cabecalho("Registros", "As mesmas colunas da aba Registros da planilha. Cada admissão aprovada entra aqui e na planilha."));
-    carregarEm(box, "registros_listar", {}, (area, r) => {
-      if (!r.planilhaConfigurada) area.append(el("div", { class: "nota ambar", style: "margin:0 0 14px" }, el("strong", null, "A planilha do Google ainda não está ligada"),
-        "Os registros ficam aqui no site. Para preencher também a aba Registros da planilha, siga docs/planilha-registros.md e teste em Configurações → Planilha de Registros."));
-      const baixar = el("button", { type: "button", class: "bt-sec", onclick: () => {
-        const cel = v => { const s = String(v == null ? "" : v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-        const csv = [r.colunas.map(cel).join(";")].concat(r.linhas.map(l => l.valores.map(cel).join(";"))).join("\r\n");
-        const a = el("a", { href: URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" })), download: "registros-" + new Date().toISOString().slice(0, 10) + ".csv" });
-        document.body.append(a); a.click(); a.remove();
-      } }, "Baixar CSV (64 colunas)");
-      area.append(el("div", { class: "acoes", style: "margin-bottom:12px" }, baixar));
-      if (!r.linhas.length) return area.append(el("div", { class: "vazio" }, "Nenhum funcionário registrado ainda. Eles aparecem aqui quando o RH aprova uma admissão."));
-      const visiveis = r.colunas.map((c, i) => [c, i]).filter(([c]) => c !== "vazio");
-      listaFiltrada(area, r.linhas, {
-        filtros: [["todas", "Todos"], ["ok", "Na planilha"], ["pendente", "Fora da planilha"]],
-        grupo: l => l.planilha_status === "ENVIADO" ? "ok" : "pendente", placeholder: "Buscar por nome, matrícula, CPF ou função",
-        texto: l => l.valores.join(" "), vazio: "Ninguém neste filtro.",
-        desenhar: (alvo, vis) => alvo.append(el("div", { class: "rolagem registros" }, el("table", { class: "tabela tabela-registros" },
-          el("thead", null, el("tr", null, el("th", null, "Planilha"), visiveis.map(([c]) => el("th", null, c)))),
-          el("tbody", null, vis.map(l => el("tr", null,
-            el("td", null, (() => { const s = ROT_PLANILHA[l.planilha_status] || ["Não enviado", "cinza"]; return el("span", { class: "pill " + s[1], title: l.planilha_erro || "" }, s[0]); })(),
-              r.planilhaConfigurada && l.planilha_status !== "ENVIADO" ? el("button", { type: "button", class: "bt-flag", style: "margin-top:6px", onclick: async ev => {
-                ev.currentTarget.disabled = true;
-                const res = await api("func_planilha", { matricula: l.matricula });
-                if (!res.ok) { ev.currentTarget.disabled = false; return toast(res.erro, true); }
-                toast("Enviado para a planilha (linha " + res.linha + ")."); recarregar();
-              } }, "Enviar") : null),
-            visiveis.map(([c, i]) => el("td", null, i === 0 ? el("a", { href: "#funcionario/" + l.matricula }, String(l.valores[i])) :
-              /^https?:/.test(String(l.valores[i])) ? el("a", { href: l.valores[i], target: "_blank", rel: "noopener" }, "abrir") :
-              /^\d{4}-\d{2}-\d{2}$/.test(String(l.valores[i])) ? fmtData(l.valores[i]) : String(l.valores[i] == null ? "" : l.valores[i])))))))))
-      });
-    });
+  const DIAS_LONGOS = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+  const diaLongo = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso); const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); const n = DIAS_LONGOS[d.getUTCDay()]; return n[0].toUpperCase() + n.slice(1) + ", " + m[3] + "/" + m[2]; };
+
+  function listaEntrevistas(itens, hoje) {
+    const porDia = new Map();
+    itens.forEach(i => { if (!porDia.has(i.data)) porDia.set(i.data, []); porDia.get(i.data).push(i); });
+    return el("div", { class: "entrevistas" }, [...porDia.entries()].map(([dia, lista]) => el("section", { class: "ent-dia" },
+      el("h3", null, diaLongo(dia), dia === hoje ? el("span", { class: "pill verde" }, "Hoje") : null),
+      el("div", { class: "card", style: "padding:0" }, lista.map(i => el("a", { class: "ent-item", href: "#vaga/" + i.vaga_id },
+        el("span", { class: "ent-hora" }, i.hora ? i.hora + (i.fim ? "–" + i.fim : "") : "Sem hora"),
+        el("span", { class: "ent-info" },
+          el("b", null, i.candidato_nome), el("span", { class: "mini" }, i.etapa + " · " + i.vaga_titulo),
+          el("span", { class: "mini" }, [i.local ? (i.online ? "Online" : i.local) : "Local a definir",
+            i.participantes.length ? "com " + i.participantes.join(", ") : "",
+            i.origem === "agenda" ? "o candidato escolheu pela agenda" : i.avisado ? "data enviada ao candidato" : "candidato não avisado"].filter(Boolean).join(" · "))),
+        i.online && /^https?:/i.test(i.local) ? el("span", { class: "bt-sec", onclick: ev => { ev.preventDefault(); window.open(i.local, "_blank", "noopener"); } }, "Entrar") : null))))));
+  }
+
+  function viewEntrevistas(box) {
+    box.append(cabecalho("Entrevistas", "Todas as entrevistas e testes marcados: os horários escolhidos pelos candidatos na agenda e as datas marcadas pelo RH."));
+    const alvo = el("div");
+    box.append(el("div", { class: "filtros" }, chips([{ id: "proximas", nome: "Próximas" }, { id: "passadas", nome: "Últimos 30 dias" }], "proximas", p => carregar(p))), alvo);
+    async function carregar(periodo) {
+      limpar(alvo);
+      alvo.append(carregando());
+      const r = await api("entrevistas_listar", { periodo });
+      limpar(alvo);
+      if (!r.ok) return alvo.append(msg("erro", r.erro));
+      if (!r.itens.length) return alvo.append(el("div", { class: "vazio" }, periodo === "passadas" ? "Nenhuma entrevista nos últimos 30 dias."
+        : "Nenhuma entrevista marcada. Para marcar: abra a vaga → candidato → \"Marcar data\", ou crie uma \"Agenda de entrevistas\" na vaga para o candidato escolher o horário."));
+      alvo.append(listaEntrevistas(r.itens, r.hoje));
+    }
+    carregar("proximas");
   }
 
   async function carregarEm(box, acao, dados, desenhar) {
@@ -961,7 +960,6 @@
       n("Aprovadas sem vaga criada", s.ok ? s.itens.filter(i => i.status === "APROVADA").length : null, "#solicitacoes"),
       n("Vagas abertas no site", v.ok ? v.vagas.filter(x => x.aberta_site).length : null, "#vagas"),
       n("Cadastros para conferir", a.ok ? a.itens.filter(i => i.status === "AGUARDANDO_APROVACAO").length : null, "#admissoes"),
-      n("Documentos sem assinatura", f.ok ? f.itens.reduce((t, x) => t + (x.docs_pendentes || 0), 0) : null, "#funcionarios"),
       n("Contratos vencendo em 45 dias", f.ok ? f.itens.filter(x => x.ativo && x.data_final_contrato && x.data_final_contrato <= limite).length : null, "#funcionarios"));
 
     fila.append(el("h2", { class: "sec" }, el("span", null, "Aguardando sua aprovação"),
@@ -977,6 +975,11 @@
           el("a", { class: "linha", href: "#vaga-de-solicitacao/" + i.id },
             el("span", null, el("b", null, i.titulo), el("span", { class: "pequeno suave" }, i.departamento + " · " + i.solicitante_nome)),
             el("span", { class: "bt" }, "Criar vaga"))))));
+    }
+    const ent = await api("entrevistas_listar", { periodo: "proximas" });
+    if (ent.ok && ent.itens.length) {
+      fila.append(el("h2", { class: "sec" }, el("span", null, "Próximas entrevistas"), el("a", { class: "pequeno", href: "#entrevistas" }, "Ver todas")),
+        listaEntrevistas(ent.itens.slice(0, 5), ent.hoje));
     }
     linksUteis(box);
   }
@@ -1803,7 +1806,7 @@
     const marcados = new Map(); // itens marcados para correção
     const antesAprov = ["PROPOSTA_ENVIADA", "COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO", "PROPOSTA_EXPIRADA"].indexOf(st) >= 0;
     box.append(cabecalho(a.candidato_nome, a.titulo_vaga + " · " + a.id, [
-      conferindo ? el("button", { type: "button", class: "bt", onclick: () => aprovarAdm(a, r.modelos, r.documentosFaltando) }, "Aprovar cadastro") : null,
+      conferindo ? el("button", { type: "button", class: "bt", onclick: () => aprovarAdm(a, r.documentosFaltando) }, "Aprovar cadastro") : null,
       antesAprov ? el("button", { type: "button", class: "bt-sec", onclick: () => editarProposta(a) }, st === "PROPOSTA_EXPIRADA" ? "Reabrir proposta" : "Editar proposta") : null,
       ["PROPOSTA_ENVIADA", "COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA"].indexOf(st) >= 0 ? el("button", { type: "button", class: "bt-sec", onclick: () => reenviarAdm(a) }, "Reenviar e-mail") : null,
       conferindo ? el("button", { type: "button", class: "bt-alerta", onclick: () => decidirAdm(a, "correcao", [...marcados.values()]) }, "Pedir correção") : null,
@@ -1896,10 +1899,6 @@
       linhasDocs.length ? el("div", { class: "card docs-rh" }, linhasDocs) : el("div", { class: "vazio" }, "Nenhum arquivo enviado ainda."));
     box.append(barra);
 
-    if (r.documentos.length) {
-      box.append(el("h2", { class: "sec" }, "Documentos para assinatura"), el("div", { class: "lista" }, r.documentos.map(d =>
-        el("div", { class: "card item-topo" }, el("a", { href: "/documento/" + d.id, target: "_blank", rel: "noopener" }, el("b", null, d.titulo)), pill(d.status)))));
-    }
     box.append(el("h2", { class: "sec" }, "Histórico"), el("div", { class: "card" }, el("ul", { class: "pequeno", style: "margin:0;padding-left:18px" },
       a.historico.map(h => el("li", null, fmtData(h.quando, true) + " — ", el("b", null, h.acao), " (" + String(h.quem).replace(/ <.*>$/, "") + ")" + (h.texto ? ": " + h.texto : ""))))));
   }
@@ -1946,26 +1945,21 @@
     }) && recarregar();
   }
 
-  async function aprovarAdm(a, modelos, faltando) {
+  async function aprovarAdm(a, faltando) {
     if (faltando && faltando.length) return toast("Faltam documentos obrigatórios. Peça correção antes de aprovar.", true);
     const itens = ["Todos os campos obrigatórios estão preenchidos", "Todos os documentos obrigatórios foram recebidos", "Os dados conferem com os documentos anexados",
       "Os arquivos estão completos e legíveis", "Não há informações divergentes ou incorretas"];
     const checks = itens.map(() => el("input", { type: "checkbox" }));
-    const mods = modelos.map(m => el("input", { type: "checkbox", value: String(m.id), checked: !!m.gerar_na_admissao }));
     const corpo = el("div", null,
-      el("p", { class: "suave", style: "margin:0 0 12px" }, "Ao aprovar, o sistema registra o funcionário (nova matrícula), gera os documentos escolhidos e envia para assinatura na Área do candidato."),
-      el("div", { style: "display:grid;gap:10px" }, itens.map((t, k) => el("label", { class: "check" }, checks[k], el("span", null, t)))),
-      el("h3", { style: "margin:18px 0 8px;font-size:15px" }, "Documentos para gerar"),
-      modelos.length ? el("div", { style: "display:grid;gap:8px" }, modelos.map((m, k) => el("label", { class: "check" }, mods[k], el("span", null, m.nome))))
-        : el("p", { class: "suave" }, "Nenhum modelo ativo. Cadastre em Configurações."));
+      el("p", { class: "suave", style: "margin:0 0 12px" }, "Ao aprovar, o sistema cria o registro da pessoa em Funcionários (nova matrícula) com tudo o que ela preencheu, e avisa o candidato e o gestor."),
+      el("div", { style: "display:grid;gap:10px" }, itens.map((t, k) => el("label", { class: "check" }, checks[k], el("span", null, t)))));
     await dialogo({
       titulo: "Aprovar cadastro de " + a.candidato_nome, corpo, okTexto: "Aprovar e registrar funcionário",
       aoConfirmar: async () => {
         if (checks.some(x => !x.checked)) return "Confirme todos os itens da conferência antes de aprovar.";
-        const r = await api("adm_decidir", { id: a.id, decisao: "aprovar", modelos: mods.filter(x => x.checked).map(x => x.value) });
+        const r = await api("adm_decidir", { id: a.id, decisao: "aprovar" });
         if (!r.ok) return r.erro;
-        toast("Aprovado. Matrícula " + r.matricula + ", " + r.documentos + " documento(s) para assinatura." +
-          (r.planilha === "enviando" ? " A linha está sendo preenchida na planilha de Registros." : ""));
+        toast("Aprovado. Registro criado em Funcionários (matrícula " + r.matricula + ").");
         return true;
       }
     }) && recarregar();
@@ -2006,24 +2000,23 @@
   //  Funcionários
   // =================================================================
   function viewFuncionarios(box) {
-    box.append(cabecalho("Funcionários", "Registros criados na aprovação das admissões. Contratos têm duração mínima de 1 ano; o RH recebe aviso 45 dias antes do fim."));
+    box.append(cabecalho("Funcionários", "O registro de cada pessoa admitida: tudo o que ela preencheu na admissão, o contrato e o checklist."));
     carregarEm(box, "func_listar", {}, (area, r) => {
       if (!r.itens.length) return area.append(el("div", { class: "vazio" }, "Nenhum funcionário registrado ainda."));
       const limite = new Date(Date.now() + 45 * 864e5).toISOString().slice(0, 10);
-      const pend = f => f.docs_pendentes || !f.documentos_conferidos || !f.ponto_cadastrado || !f.acessos_ok || !f.onboarding_ok;
+      const pend = f => !f.ponto_cadastrado || !f.acessos_ok || !f.onboarding_ok;
       const grupo = f => !f.ativo ? "inativos" : (f.data_final_contrato && f.data_final_contrato <= limite) ? "vencendo" : pend(f) ? "pendentes" : "ok";
       const chk = (v, rot) => el("span", { class: "pill " + (v ? "verde" : "cinza"), title: rot }, (v ? "✓ " : "○ ") + rot);
       listaFiltrada(area, r.itens, {
         filtros: [["todas", "Todos"], ["pendentes", "Com pendências"], ["vencendo", "Contrato vencendo"], ["ok", "Em dia"], ["inativos", "Inativos"]],
         grupo, placeholder: "Buscar por nome, matrícula, função ou departamento", texto: f => [f.matricula, f.nome, f.funcao, f.departamento, f.email].join(" "),
         desenhar: (alvo, vis) => alvo.append(el("div", { class: "rolagem" }, el("table", { class: "tabela" },
-          el("thead", null, el("tr", null, ["Funcionário", "Início", "Fim do contrato", "Documentos", "Checklist", ""].map(t => el("th", null, t)))),
+          el("thead", null, el("tr", null, ["Funcionário", "Início", "Fim do contrato", "Checklist", ""].map(t => el("th", null, t)))),
           el("tbody", null, vis.map(f => el("tr", null,
             el("td", { class: "titulo", "data-rotulo": "Funcionário" }, el("b", null, f.nome), el("span", { class: "mini" }, "Matrícula " + f.matricula + " · " + [f.funcao, f.departamento].filter(Boolean).join(" · "))),
             el("td", { "data-rotulo": "Início" }, fmtData(f.data_efetivacao)),
             el("td", { "data-rotulo": "Fim do contrato" }, fmtData(f.data_final_contrato) || "—", f.data_final_contrato && f.data_final_contrato <= limite ? el("div", null, el("span", { class: "pill verm" }, "Renovar")) : null),
-            el("td", { "data-rotulo": "Documentos" }, f.docs_assinados + " assinado(s)" + (f.docs_pendentes ? " · " + f.docs_pendentes + " pendente(s)" : "")),
-            el("td", { "data-rotulo": "Checklist" }, el("div", { class: "acoes" }, chk(f.documentos_conferidos, "Docs"), chk(f.ponto_cadastrado, "Ponto"), chk(f.acessos_ok, "Acessos"), chk(f.onboarding_ok, "Onboarding"))),
+            el("td", { "data-rotulo": "Checklist" }, el("div", { class: "acoes" }, chk(f.ponto_cadastrado, "Ponto"), chk(f.acessos_ok, "Acessos"), chk(f.onboarding_ok, "Onboarding"))),
             el("td", { "data-rotulo": "" }, el("a", { class: "bt-sec", href: "#funcionario/" + f.matricula }, "Abrir")))))))),
         vazio: "Ninguém neste filtro."
       });
@@ -2037,10 +2030,20 @@
     a0.remove();
     if (!r.ok) return box.append(msg("erro", r.erro));
     const f = r.funcionario;
+    const d = f.dados || {};
+    const cdt = r.candidatura || {};
     box.append(cabecalho(f.nome, "Matrícula " + f.matricula + (f.admissao_id ? " · " + f.admissao_id : ""), [
-      el("button", { type: "button", class: "bt", onclick: () => gerarDocs(f, r.modelos) }, "Gerar documentos"),
+      cdt.curriculo_id ? el("a", { class: "bt-sec", href: "/arquivo/" + cdt.curriculo_id, target: "_blank", rel: "noopener" }, "Currículo") : null,
       f.admissao_id ? el("a", { class: "bt-sec", href: "#admissao/" + f.admissao_id }, "Ver admissão") : null
     ], ["#funcionarios", "Funcionários"]));
+
+    // Resumo do registro
+    box.append(el("div", { class: "card" }, el("div", { class: "meta" },
+      el("span", { class: "pill " + (f.ativo ? "verde" : "cinza") }, f.ativo ? "Ativo" : "Inativo"),
+      el("span", null, el("b", null, [f.cargo, f.funcao].filter(Boolean).join(" — ") || "—")),
+      f.departamento ? el("span", null, [f.departamento, f.setor].filter(Boolean).join(" / ")) : null,
+      f.tipo_contratacao ? el("span", null, f.tipo_contratacao) : null,
+      el("span", null, "Início " + (fmtData(f.data_efetivacao) || "—")), f.data_final_contrato ? el("span", null, "Fim " + fmtData(f.data_final_contrato)) : null)));
 
     // Checklist (salva na hora)
     const flag = (k, rot, desc) => {
@@ -2052,50 +2055,24 @@
       });
       return el("label", { class: "check" }, cb, el("span", null, el("b", null, rot), el("br"), el("span", { class: "pequeno suave" }, desc)));
     };
-    box.append(el("h2", { class: "sec" }, "Checklist da admissão"), el("div", { class: "card", style: "display:grid;gap:14px" },
-      flag("documentos_conferidos", "Documentos assinados conferidos", "Todos devolvidos, assinados, completos e legíveis (item 4.9)."),
-      flag("ponto_cadastrado", "Cadastrado no aplicativo de ponto", "Depois da conferência dos documentos (item 4.10)."),
+    box.append(el("h2", { class: "sec" }, "Checklist"), el("div", { class: "card", style: "display:grid;gap:14px" },
+      flag("ponto_cadastrado", "Cadastrado no aplicativo de ponto", "Cadastro manual no aplicativo de ponto (item 4.10)."),
       flag("acessos_ok", "Acessos criados", "E-mail Innomaker e sistemas que a pessoa vai usar."),
       flag("onboarding_ok", "Onboarding realizado", "Sala, slides, camisa e crachá preparados; reunião feita no primeiro dia (item 6)."),
       flag("ativo", "Funcionário ativo", "Desmarque no desligamento.")));
 
-    // Planilha "Registros" (Google Sheets): preenchida na aprovação da admissão
-    const ST_PLANILHA = {
-      ENVIADO: ["Na planilha" + (f.planilha_linha ? " (linha " + f.planilha_linha + ")" : ""), "verde"],
-      ENVIANDO: ["Enviando…", "ambar"], FALHOU: ["Falhou", "verm"], NAO_CONFIGURADA: ["Planilha não configurada", "cinza"]
-    }[f.planilha_status] || ["Não enviado", "cinza"];
-    const btPlanilha = el("button", { type: "button", class: f.planilha_status === "ENVIADO" ? "bt-sec" : "bt", onclick: async () => {
-      btPlanilha.disabled = true; btPlanilha.textContent = "Enviando… (pode levar alguns minutos)";
-      const res = await api("func_planilha", { matricula: f.matricula });
-      btPlanilha.disabled = false; btPlanilha.textContent = "Enviar para a planilha";
-      if (!res.ok) return toast(res.erro, true);
-      toast("Planilha de Registros: linha " + res.linha + (res.criada ? " criada." : " completada.") + (res.avisos && res.avisos.length ? " Aviso: " + res.avisos.join(" | ") : ""));
-      recarregar();
-    } }, "Enviar para a planilha");
-    box.append(el("h2", { class: "sec" }, "Planilha de Registros"), el("div", { class: "card item-topo" },
-      el("div", null,
-        el("div", { class: "acoes", style: "margin-bottom:6px" }, el("span", { class: "pill " + ST_PLANILHA[1] }, ST_PLANILHA[0]),
-          f.planilha_em ? el("span", { class: "pequeno suave" }, fmtData(f.planilha_em, true)) : null),
-        f.planilha_erro ? el("div", { class: "pequeno " + (f.planilha_status === "FALHOU" ? "" : "suave"), style: f.planilha_status === "FALHOU" ? "color:var(--verm)" : "" }, f.planilha_erro) : null,
-        el("div", { class: "pequeno suave" }, "Na aprovação, o sistema preenche a linha do funcionário na aba Registros e a planilha cria a pasta no Drive e as planilhas dele. Reenviar só completa células vazias: nada já preenchido é apagado.")),
-      btPlanilha));
-
-    box.append(el("h2", { class: "sec" }, "Documentos"), r.documentos.length ? el("div", { class: "lista" }, r.documentos.map(d =>
-      el("div", { class: "card item-topo" },
-        el("div", null, el("a", { href: "/documento/" + d.id, target: "_blank", rel: "noopener" }, el("b", null, d.titulo)),
-          el("div", { class: "mini" }, "Gerado em " + fmtData(d.criado_em, true) + (d.assinado_em ? " · assinado em " + fmtData(d.assinado_em, true) : ""))),
-        el("div", { class: "acoes" }, pill(d.status),
-          d.status === "AGUARDANDO_ASSINATURA" ? el("button", { type: "button", class: "bt-sec", onclick: () => cancelarDoc(d) }, "Cancelar") : null)))) :
-      el("div", { class: "vazio" }, "Nenhum documento gerado."));
-
+    // Documentos que o candidato enviou na admissão
     if (r.arquivos.length) {
-      box.append(el("h2", { class: "sec" }, "Arquivos da admissão"), el("div", { class: "card" }, el("ul", { style: "margin:0;padding-left:18px" }, r.arquivos.map(x =>
-        el("li", null, (ROTULOS_ARQUIVO[x.categoria] || x.categoria) + ": ", el("a", { href: "/arquivo/" + x.id, target: "_blank", rel: "noopener" }, x.nome))))));
+      box.append(el("h2", { class: "sec" }, "Documentos enviados na admissão"), el("div", { class: "card docs-rh" }, r.arquivos.map(x =>
+        el("div", { class: "doc-linha" }, el("div", { class: "doc-info" }, el("b", null, x.categoria_nome),
+          el("div", { class: "doc-arqs" }, el("a", { href: "/arquivo/" + x.id, target: "_blank", rel: "noopener" }, x.nome)))))));
     }
 
-    // Dados editáveis
-    const d = f.dados || {};
+    // Registro completo (editável): contrato + tudo o que o candidato preencheu
+    const ETAPAS = [["pessoais", "Dados pessoais"], ["endereco", "Endereço e emergência"], ["formacao", "Formação"], ["banco", "Dados bancários"]];
+    const naFicha = ["nome", "telefone", "email_pessoal", "email_innomaker"];
     const form = el("form", { novalidate: true },
+      el("h3", { class: "titulo-etapas", style: "margin-top:0" }, "Contrato"),
       el("div", { class: "campos" },
         ...[["nome", "Nome"], ["email", "E-mail pessoal"], ["email_innomaker", "E-mail Innomaker"], ["telefone", "Telefone"], ["situacao", "Situação"], ["cargo", "Cargo"],
           ["funcao", "Função"], ["departamento", "Departamento"], ["setor", "Setor"], ["horario_trabalho", "Horário de trabalho"], ["tipo_contratacao", "Tipo de contratação"],
@@ -2104,12 +2081,16 @@
         campo("Data de efetivação", entrada("data_efetivacao", f.data_efetivacao, { type: "date" })),
         campo("Data final do contrato", entrada("data_final_contrato", f.data_final_contrato, { type: "date" }), { dica: "Confirme sempre manualmente (item 5)." }),
         campo("Principais funções", areaTexto("principais_funcoes", f.principais_funcoes), { largo: true })),
-      el("h3", { style: "margin:22px 0 10px" }, "Dados pessoais"),
-      el("div", { class: "campos" }, ROTULOS_CADASTRO.filter(([k]) => ["nome", "telefone", "email_pessoal", "email_innomaker"].indexOf(k) < 0)
-        .map(([k, rot]) => campo(rot, entrada("dados." + k, d[k], k === "data_nascimento" ? { type: "date" } : {})))),
+      cdt.periodo_curso || cdt.previsao_formatura ? el("p", { class: "pequeno suave", style: "margin:10px 0 0" },
+        "Na inscrição: período " + (cdt.periodo_curso || "—") + " · formatura " + (cdt.previsao_formatura || "—")) : null,
+      ETAPAS.map(([etapa, nome]) => {
+        const campos = r.camposCadastro.filter(x => x.etapa === etapa && naFicha.indexOf(x.chave) < 0);
+        return campos.length ? [el("h3", { class: "titulo-etapas" }, nome), el("div", { class: "campos" },
+          campos.map(x => campo(x.rotulo, entrada("dados." + x.chave, d[x.chave], x.chave === "data_nascimento" ? { type: "date" } : {}))))] : null;
+      }).flat().filter(Boolean),
       el("div", { id: "funcMsg" }),
-      el("div", { class: "acoes", style: "margin-top:16px" }, el("button", { type: "submit", class: "bt", id: "funcSalvar" }, "Salvar dados")));
-    box.append(el("h2", { class: "sec" }, "Dados do registro"), el("div", { class: "card" }, form));
+      el("div", { class: "acoes", style: "margin-top:16px" }, el("button", { type: "submit", class: "bt", id: "funcSalvar" }, "Salvar registro")));
+    box.append(el("h2", { class: "sec" }, "Registro"), el("div", { class: "card" }, form));
 
     form.addEventListener("submit", async ev => {
       ev.preventDefault();
@@ -2121,32 +2102,8 @@
       $("funcSalvar").disabled = false;
       limpar($("funcMsg"));
       if (!res.ok) return $("funcMsg").append(msg("erro", res.erro));
-      toast("Dados salvos.");
+      toast("Registro salvo.");
     });
-  }
-
-  async function gerarDocs(f, modelos) {
-    const mods = modelos.map(m => el("input", { type: "checkbox", value: String(m.id) }));
-    await dialogo({
-      titulo: "Gerar ou renovar documentos — " + f.nome,
-      corpo: el("div", null, el("p", { class: "suave", style: "margin:0 0 12px" },
-        "Os documentos são preenchidos com os dados do registro. Se algum campo usado pelo modelo estiver vazio, a geração é cancelada e o painel mostra qual campo preencher."),
-        el("div", { style: "display:grid;gap:8px" }, modelos.map((m, k) => el("label", { class: "check" }, mods[k], el("span", null, m.nome))))),
-      okTexto: "Gerar e enviar para assinatura",
-      aoConfirmar: async () => {
-        const ids = mods.filter(x => x.checked).map(x => x.value);
-        if (!ids.length) return "Escolha pelo menos um documento.";
-        const r = await api("doc_gerar", { matricula: f.matricula, modelos: ids });
-        if (!r.ok) return r.erro;
-        toast(r.gerados + " documento(s) gerado(s) e enviado(s).");
-        return true;
-      }
-    }) && recarregar();
-  }
-
-  async function cancelarDoc(d) {
-    await dialogo({ titulo: "Cancelar documento", corpo: el("p", { style: "margin:0" }, "\"" + d.titulo + "\" deixa de poder ser assinado."), okTexto: "Cancelar documento", okClasse: "bt-perigo",
-      aoConfirmar: async () => { const r = await api("doc_cancelar", { id: d.id }); if (!r.ok) return r.erro; toast("Documento cancelado."); return true; } }) && recarregar();
   }
 
   // =================================================================
@@ -2156,7 +2113,7 @@
     situacao: "Situações", auxilio: "Auxílios", cargo: "Cargos", funcao: "Funções", setor: "Setores", grau_instrucao: "Graus de instrução" };
 
   function viewConfig(box) {
-    box.append(cabecalho("Configurações", "Tudo o que antes ficava nas abas EMAIL, Informações e CONFG das planilhas."));
+    box.append(cabecalho("Configurações", "E-mails, departamentos, listas, admissão, privacidade e backup."));
     carregarEm(box, "cfg_obter", {}, (area, r) => {
       OPCOES = null;
       // Geral
@@ -2182,28 +2139,6 @@
         res.ok ? toast("Configurações salvas.") : toast(res.erro, true);
       });
       area.append(el("h2", { class: "sec" }, "Geral"), el("div", { class: "card" }, geral));
-
-      // Planilha Registros (Google Sheets)
-      const resPlanilha = el("div", { class: "pequeno", style: "margin-top:10px" });
-      const btTestar = el("button", { type: "button", class: "bt-sec", onclick: async () => {
-        btTestar.disabled = true; btTestar.textContent = "Testando…";
-        const res = await api("planilha_testar");
-        btTestar.disabled = false; btTestar.textContent = "Testar planilha";
-        limpar(resPlanilha);
-        const t = res.ok ? res.resultado : res;
-        if (!t.ok) return resPlanilha.append(msg("erro", t.erro));
-        resPlanilha.append(msg("ok", "Conectado à aba " + t.aba + ": " + Math.max(0, (t.linhas || 1) - 1) + " registro(s). Próxima matrícula: " + t.proximaMatricula + "." +
-          (t.colunas && t.colunas < t.esperadas ? " Atenção: a aba tem " + t.colunas + " colunas e o sistema envia " + t.esperadas + "." : "")));
-      } }, "Testar planilha");
-      area.append(el("h2", { class: "sec" }, "Planilha de Registros"), el("div", { class: "card" },
-        el("div", { class: "item-topo" },
-          el("div", null,
-            el("span", { class: "pill " + (r.planilhaConfigurada ? "verde" : "cinza") }, r.planilhaConfigurada ? "Configurada" : "Não configurada"),
-            el("p", { class: "pequeno suave", style: "margin:8px 0 0;max-width:720px" },
-              "Quando o RH aprova uma admissão, o sistema pega a próxima matrícula na aba Registros e preenche a linha do funcionário. " +
-              "A configuração fica no backend/.env (PLANILHA_REGISTROS_URL e PLANILHA_REGISTROS_TOKEN); o passo a passo está em docs/planilha-registros.md.")),
-          btTestar),
-        resPlanilha));
 
       // Admissão: quem cria os acessos e documentos exigidos por tipo de contrato
       const tiposContrato = (r.listas.tipo_contratacao || []);
@@ -2320,56 +2255,7 @@
         el("div", { class: "campos" }, campo("Lista", tipo), el("div"), campo("Itens (um por linha)", valores, { largo: true })),
         el("div", { class: "acoes", style: "margin-top:12px" }, salvarLista)));
 
-      // Modelos de documento
-      area.append(el("h2", { class: "sec" }, "Modelos de documento"),
-        el("p", { class: "suave pequeno", style: "margin:-6px 0 10px" }, "Cole o texto oficial (Termo de Compromisso, Direito de Imagem, Apêndice de Bolsa) e use os campos entre chaves duplas."),
-        el("div", { class: "lista" }, r.modelos.map(m => el("div", { class: "card item-topo" },
-          el("div", null, el("b", null, m.nome), el("div", { class: "mini" }, [m.codigo, m.gerar_na_admissao ? "gerado na admissão" : "sob demanda", m.ativo ? "" : "inativo"].filter(Boolean).join(" · "))),
-          el("button", { type: "button", class: "bt-sec", onclick: () => editarModelo(m, r.camposDocumento, r.listas.tipo_contratacao || []) }, "Editar")))),
-        el("div", { class: "acoes", style: "margin-top:12px" }, el("button", { type: "button", class: "bt-sec", onclick: () => editarModelo({ ativo: 1, gerar_na_admissao: 0 }, r.camposDocumento, r.listas.tipo_contratacao || []) }, "Novo modelo")));
     });
-  }
-
-  async function editarModelo(m, campos, tipos) {
-    tipos = tipos || [];
-    const aplica = (() => { try { return JSON.parse(m.aplica_a || "[]"); } catch (e) { return []; } })();
-    const momento = el("select", { name: "momento" },
-      el("option", { value: "aprovacao", selected: m.momento !== "aceite" }, "Na aprovação do cadastro (para assinar)"),
-      el("option", { value: "aceite", selected: m.momento === "aceite" }, "Assim que o candidato aceitar a proposta (para ler) e para assinar na aprovação"));
-    const cbTipos = tipos.map(t => el("input", { type: "checkbox", value: t, checked: aplica.some(x => x.toLowerCase() === t.toLowerCase()) }));
-    const linkDocs = entrada("link_docs", "", { placeholder: "https://docs.google.com/document/d/…" });
-    const btImportar = el("button", { type: "button", class: "bt-sec", onclick: async () => {
-      btImportar.disabled = true; btImportar.textContent = "Importando…";
-      const r = await api("modelo_importar", { url: linkDocs.value });
-      btImportar.disabled = false; btImportar.textContent = "Importar texto";
-      if (!r.ok) return toast(r.erro, true);
-      f.querySelector("[name=conteudo]").value = r.conteudo;
-      toast("Texto importado. Troque nome, CPF, datas etc. pelos campos {{…}} antes de salvar.");
-    } }, "Importar texto");
-    const f = el("form", { novalidate: true },
-      el("div", { class: "importar-docs" }, campo("Importar de um Google Docs (opcional)", linkDocs, { dica: "O documento precisa estar com \"Qualquer pessoa com o link pode ver\" (é só o modelo, sem dados pessoais)." }), btImportar),
-      el("div", { class: "campos" },
-        campo("Nome", entrada("nome", m.nome)), campo("Código (ex.: ADM-TEMP-2026-001)", entrada("codigo", m.codigo)),
-        campo("Texto", areaTexto("conteudo", m.conteudo, { style: "min-height:340px;font-family:ui-monospace,Consolas,monospace;font-size:13px" }), { largo: true,
-          dica: "Use # para título e ## para subtítulo. Deixe uma linha em branco entre parágrafos." })),
-      el("div", { class: "campos", style: "margin-top:12px" }, campo("Quando o candidato recebe", momento, { largo: true })),
-      tipos.length ? el("div", { class: "doc-cfg-tipos", style: "margin-top:10px" }, el("span", { class: "mini" }, "Só para:"),
-        tipos.map((t, k) => el("label", { class: "check pequeno" }, cbTipos[k], el("span", null, t))), el("span", { class: "mini" }, "(nenhum marcado = todos)")) : null,
-      el("label", { class: "check", style: "margin-top:10px" }, el("input", { type: "checkbox", name: "gerar_na_admissao", checked: !!m.gerar_na_admissao }), el("span", null, "Marcar por padrão na aprovação da admissão")),
-      el("label", { class: "check", style: "margin-top:8px" }, el("input", { type: "checkbox", name: "ativo", checked: m.ativo !== 0 }), el("span", null, "Ativo")),
-      el("details", { class: "mais" }, el("summary", null, "Campos disponíveis"),
-        el("div", { class: "pequeno", style: "columns:2;margin-top:8px" }, Object.keys(campos).map(k => el("div", null, el("code", null, "{{" + k + "}}"), " " + campos[k])))));
-    await dialogo({
-      titulo: m.id ? "Editar modelo" : "Novo modelo", corpo: f, okTexto: "Salvar modelo", largo: true,
-      aoConfirmar: async () => {
-        const d = lerForm(f);
-        delete d.link_docs;
-        const res = await api("modelo_salvar", Object.assign(d, { id: m.id, aplica_a: cbTipos.filter(x => x.checked).map(x => x.value) }));
-        if (!res.ok) return res.erro;
-        toast("Modelo salvo.");
-        return true;
-      }
-    }) && recarregar();
   }
 
   // =================================================================

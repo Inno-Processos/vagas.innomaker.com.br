@@ -29,10 +29,7 @@
 | 4.2–4.3 Proposta e decisão | Candidato aceita ou recusa na Área do candidato; RH avisado por e-mail. Sem resposta até o prazo, a proposta vence sozinha e o RH é avisado |
 | 4.4 Cadastro | Formulário em etapas na Área do candidato, salvo sozinho (rascunho). Um envio por documento; os obrigatórios dependem do tipo de contratação (Configurações → Admissão) |
 | 4.5 Validação inicial | **Corrigir** em cada campo ou documento errado e **Pedir correção** com o que ajustar em cada um; o candidato vê os itens destacados e o RH vê o valor antigo e o novo |
-| 4.6 Aprovação | **Aprovar cadastro** só após os 5 itens de conferência; matrícula = próxima da planilha de Registros; cria o funcionário, os documentos e preenche a linha na planilha ([planilha-registros.md](planilha-registros.md)) |
-| 4.7 Documentos para assinatura | Gerados dos modelos e assinados eletronicamente na Área do candidato |
-| 4.8 Documentos não enviados | **Funcionários → Gerar documentos** |
-| 4.9 Conferência dos assinados | RH avisado quando tudo foi assinado; **Trilha da admissão → Assinados conferidos** |
+| 4.6 Aprovação | **Aprovar cadastro** só após os 5 itens de conferência; cria o registro da pessoa em **Funcionários** (nova matrícula) com tudo o que ela preencheu e os documentos enviados |
 | 4.10 Aplicativo de ponto | **Trilha → Cadastro no aplicativo de ponto** (o cadastro no app é manual) |
 | Acessos | **Trilha → Pedir acessos** manda e-mail para quem cria o e-mail Innomaker e os sistemas; depois **Acessos criados** |
 | 5 Geração e renovação | Contrato padrão de 1 ano; aviso ao RH 45 dias antes do fim; campo vazio cancela com mensagem "Matrícula X: campo vazio. Documento: Y. Operação cancelada." |

@@ -41,17 +41,12 @@ export const ACOES = {
   func_listar: RH,
   func_detalhe: RH,
   func_atualizar: RH,
-  doc_gerar: RH,
-  doc_cancelar: RH,
   cfg_obter: RH,
   cfg_salvar_geral: RH,
   dep_salvar: RH,
   lista_salvar: RH,
-  modelo_salvar: RH,
   log_listar: RH,
   email_teste: RH,
-  func_planilha: RH,
-  planilha_testar: RH,
   agenda_salvar: RH,
   agenda_encerrar: RH,
   agenda_convidar: RH,
@@ -70,8 +65,7 @@ export const ACOES = {
   cfg_salvar_admissao: RH,
   adm_area: GESTAO,          // gerente: admissões das vagas da área (sem dados pessoais)
   etapa_agendar: RH,
-  modelo_importar: RH,
-  registros_listar: RH
+  entrevistas_listar: GESTAO, // gerente: só as das vagas da área
 };
 
 export function podeExecutar(papel, acao) {

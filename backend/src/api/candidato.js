@@ -12,7 +12,6 @@ import { salvarArquivo, apagarArquivo, ehArquivo } from "../lib/arquivos.js";
 import { estadoDasEtapas } from "../lib/etapas.js";
 import { cfg, CAMINHO_AREA } from "../lib/config.js";
 import { excluirCandidato, bloqueioExclusao } from "../lib/lgpd.js";
-import { funcionarioDaAdmissao, previaModelo, valoresDoFuncionario, modeloAplica, textoParaHtml } from "../lib/documentos.js";
 import { agoraLocal } from "../lib/agenda.js";
 import {
   ADM_CANDIDATO_PREENCHE, CAMPOS_PROPOSTA, lerCadastro, validarCadastro, cpfValido, documentosExigidos, documentosFaltando,
@@ -47,7 +46,7 @@ export async function vagasPublicas(env) {
 }
 
 // ---------- Roteamento ----------
-const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, assinar, privacidade, excluir, rascunho, anexar, desanexar };
+const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, privacidade, excluir, rascunho, anexar, desanexar };
 
 export async function apiCandidato(request, env, ctx, acao) {
   const fn = ACOES[acao];
@@ -315,12 +314,6 @@ async function area(request, env) {
     `SELECT id, nome, categoria, admissao_id, criado_em FROM arquivos WHERE admissao_id IN (SELECT id FROM admissoes WHERE candidato_id = ?)`, c.id) : [];
 
   const configAdm = await lerConfig(env);
-  const termosPorAdm = {};
-  for (const a of adms) {
-    if (["COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO"].indexOf(a.status) >= 0) {
-      termosPorAdm[a.id] = (await termosDaAdmissao(env, c, a)).map(t => ({ titulo: t.titulo, conteudo_html: textoParaHtml(t.texto) }));
-    }
-  }
   const admissoes = adms.map(a => {
     const p = parseJson(a.proposta, {});
     const proposta = {};
@@ -339,15 +332,12 @@ async function area(request, env) {
       arquivos: arquivos.filter(x => x.admissao_id === a.id).map(x => ({ id: x.id, nome: x.nome, categoria: x.categoria, criado_em: x.criado_em,
         categoria_nome: nomeCategoria(configAdm, x.categoria) })),
       documentos_exigidos: documentosExigidos(configAdm, p.tipo_contratacao),
-      termos: ["COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO"].indexOf(a.status) >= 0 ? termosPorAdm[a.id] || [] : [],
       correcao: ultimaCorrecao ? ultimaCorrecao.texto : "",
       correcoes: a.status === "CORRECAO_SOLICITADA" ? { em: corr.em || "", texto: corr.texto || "", itens: (corr.itens || []).map(i => ({ tipo: i.tipo, chave: i.chave, rotulo: i.rotulo, comentario: i.comentario })) } : null,
       recusa: recusa ? recusa.texto : ""
     };
   });
 
-  const documentos = await todos(env,
-    "SELECT id, titulo, status, assinado_em, criado_em FROM documentos WHERE candidato_id = ? AND status <> 'CANCELADO' ORDER BY criado_em DESC", c.id);
 
   return {
     ok: true,
@@ -356,39 +346,12 @@ async function area(request, env) {
       consentimento_em: c.consentimento_em || "", banco_talentos: !!c.banco_talentos, banco_talentos_em: c.banco_talentos_em || "",
       motivoNaoExclui: await bloqueioExclusao(env, c.id)
     },
-    candidaturas, admissoes, documentos,
+    candidaturas, admissoes,
     links: { cartilha: config.link_cartilha || "", onboarding: config.link_onboarding || "" }
   };
 }
 
-// Termos que o candidato recebe para ler ao aceitar a proposta (assina depois da aprovação do cadastro)
-async function termosDaAdmissao(env, c, a) {
-  const p = parseJson(a.proposta, {});
-  const modelos = (await todos(env, "SELECT * FROM modelos_documento WHERE ativo = 1 AND momento = 'aceite' ORDER BY nome")).filter(m => modeloAplica(m, p.tipo_contratacao));
-  if (!modelos.length) return [];
-  const vaga = await um(env, "SELECT principais_funcoes FROM vagas WHERE id = ?", a.vaga_id);
-  const cdt = await um(env, "SELECT periodo_curso, previsao_formatura FROM candidaturas WHERE id = ?", a.candidatura_id) || {};
-  const valores = valoresDoFuncionario(funcionarioDaAdmissao(a, c, vaga), hojeISO(), { periodo_curso: cdt.periodo_curso, previsao_formatura: cdt.previsao_formatura, gestor: p.gestor_nome });
-  return modelos.map(m => ({ id: m.id, titulo: m.nome, texto: previaModelo(m, valores) }));
-}
 
-async function enviarTermos(env, ctx, c, a) {
-  const termos = await termosDaAdmissao(env, c, a);
-  if (!termos.length) return;
-  const pagina = t => `<!DOCTYPE html><html lang="pt-br"><head><meta charset="utf-8"><title>${esc(t.titulo)}</title>
-<style>body{font-family:Georgia,serif;max-width:760px;margin:40px auto;padding:0 20px;line-height:1.7;color:#1b1b1b}h2{text-align:center}p{text-align:justify}</style></head>
-<body>${textoParaHtml(t.texto)}<hr><p style="font-family:Arial;font-size:13px;color:#666">Cópia para leitura. A assinatura é feita na Área do candidato, depois que o RH aprovar seu cadastro.</p></body></html>`;
-  const anexos = termos.map(t => ({ filename: t.titulo.replace(/[\\/:*?"<>|]/g, "-") + ".html", content: Buffer.from(pagina(t), "utf8").toString("base64") }));
-  const ps = [`Olá, <b>${esc(String(c.nome).split(" ")[0])}</b>! Obrigado por aceitar a proposta.`,
-    "Seguem para você ler com calma os termos da sua contratação:",
-    "• " + termos.map(t => esc(t.titulo)).join("<br>• "),
-    "Os dados que ainda faltam (CPF, endereço etc.) entram quando você preencher o cadastro. A assinatura eletrônica é feita na Área do candidato, depois que o RH aprovar seu cadastro."];
-  ctx.waitUntil(enviarEmail(env, { para: a.email_contato || c.email, assunto: "Seus termos de contratação — Innomaker",
-    html: layout({ titulo: "Termos da sua contratação", paragrafos: ps, botao: { texto: "Preencher meu cadastro", url: linkArea(env) } }),
-    texto: textoSimples("Termos da sua contratação", ps, linkArea(env)), anexos }));
-  await executar(env, "UPDATE admissoes SET termos_enviados_em = ?, historico = ? WHERE id = ?", agora(),
-    historicoMais(a.historico, "sistema", "Termos enviados para leitura", termos.map(t => t.titulo).join(", ")), a.id);
-}
 
 async function admissaoDoCandidato(env, c, id) {
   const a = await um(env, "SELECT * FROM admissoes WHERE id = ?", texto(id, 40));
@@ -424,7 +387,6 @@ async function proposta(request, env, ctx) {
     ...(aceitar ? [] : [prep(env, "UPDATE candidaturas SET status = 'Desistiu', atualizado_em = ? WHERE id = ?", agora(), a.candidatura_id)])
   ]);
   await registrarLog(env, c.email, aceitar ? "PROPOSTA_ACEITA" : "PROPOSTA_RECUSADA", "admissao", a.id, "");
-  if (aceitar) await enviarTermos(env, ctx, c, await um(env, "SELECT * FROM admissoes WHERE id = ?", a.id));
 
   await emailRH(env, ctx,
     (aceitar ? "Proposta aceita — " : "Proposta recusada — ") + c.nome,
@@ -535,37 +497,3 @@ async function cadastro(request, env, ctx) {
   return { ok: true, status: "AGUARDANDO_APROVACAO" };
 }
 
-// ---------- Assinatura eletrônica de documentos ----------
-async function assinar(request, env, ctx) {
-  const c = await exigirSessao(env, request);
-  const b = await lerJson(request);
-  const d = await um(env, "SELECT * FROM documentos WHERE id = ?", texto(b.documento_id, 60));
-  if (!d || d.candidato_id !== c.id) return { ok: false, erro: "Documento não encontrado." };
-  if (d.status !== "AGUARDANDO_ASSINATURA") return { ok: false, erro: "Este documento não está aguardando assinatura." };
-  if (b.concordo !== true) return { ok: false, erro: "Confirme que leu e concorda com o documento." };
-  if (await sha256Hex(d.conteudo) !== d.hash) return { ok: false, erro: "O documento foi alterado. Fale com o RH." };
-
-  const f = d.funcionario_matricula ? await um(env, "SELECT nome, dados FROM funcionarios WHERE matricula = ?", d.funcionario_matricula) : null;
-  const cpfEsperado = soDigitos(f ? parseJson(f.dados, {}).cpf : "");
-  const nomeEsperado = f ? f.nome : c.nome;
-  const nome = texto(b.nome, 150);
-  if (normalizar(nome) !== normalizar(nomeEsperado)) return { ok: false, erro: "Digite seu nome completo exatamente como no cadastro: " + nomeEsperado + "." };
-  if (cpfEsperado && soDigitos(b.cpf) !== cpfEsperado) return { ok: false, erro: "O CPF não confere com o do cadastro." };
-
-  const ip = request.headers.get("cf-connecting-ip") || "";
-  await executar(env,
-    "UPDATE documentos SET status = 'ASSINADO', assinado_em = ?, assinado_nome = ?, assinado_cpf = ?, assinado_ip = ? WHERE id = ? AND status = 'AGUARDANDO_ASSINATURA'",
-    agora(), nome, soDigitos(b.cpf), ip, d.id);
-  await registrarLog(env, c.email, "DOCUMENTO_ASSINADO", "documento", d.id, d.titulo);
-
-  if (d.funcionario_matricula) {
-    const pend = await um(env, "SELECT COUNT(*) AS n FROM documentos WHERE funcionario_matricula = ? AND status = 'AGUARDANDO_ASSINATURA'", d.funcionario_matricula);
-    if (pend && pend.n === 0) {
-      await emailRH(env, ctx, "Documentos assinados — " + nomeEsperado, "Todos os documentos foram assinados",
-        [`<b>${nomeEsperado}</b> (matrícula ${d.funcionario_matricula}) assinou todos os documentos pendentes.`,
-          "Confira e registre a conferência no painel (RHC-PROC-2026-003, item 4.9)."],
-        "funcionario/" + d.funcionario_matricula);
-    }
-  }
-  return { ok: true };
-}

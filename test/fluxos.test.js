@@ -112,6 +112,8 @@ test("agendamento: RH abre horários, candidato reserva, ninguém ocupa o mesmo 
   const s = await t.entrar("ana@x.com");
   const area = await t.comoCandidato(s, "area");
   assert.equal(area.json.candidaturas[0].agenda.horario, h1);
+  const ents = await t.staff("entrevistas_listar", { periodo: "proximas" });
+  assert.ok(ents.itens.some(i => i.origem === "agenda" && i.candidato_nome === "Ana Um" && i.quando === h1), "reserva aparece em Entrevistas");
 
   // lembrete 1 dia antes: só uma vez
   await t.env.DB.prepare("UPDATE agenda_horarios SET inicio = ? WHERE id = ?").bind(somarMinutos(agoraLocal(), 24 * 60), hid).run();

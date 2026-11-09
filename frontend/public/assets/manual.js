@@ -144,7 +144,7 @@ window.MANUAL_PAINEL = {
     passos: [
       "<b>Para conferir:</b> o cadastro chegou. Abra para conferir campo a campo.",
       "<b>Com o candidato:</b> proposta esperando resposta (com o prazo), cadastro sendo preenchido ou correção pedida.",
-      "<b>Pós-aprovação:</b> já tem matrícula; faltam assinaturas, conferência, ponto, acessos ou onboarding.",
+      "<b>Pós-aprovação:</b> já está em Funcionários; faltam ponto, acessos ou onboarding.",
       "<b>Concluídas:</b> todos os passos feitos. <b>Encerradas:</b> recusadas, canceladas ou com proposta vencida.",
       "A barrinha em cada admissão mostra a trilha e o próximo passo."
     ],
@@ -158,12 +158,11 @@ window.MANUAL_PAINEL = {
       "<b>Editar proposta</b> (antes da aprovação): mude valores, datas ou o prazo para responder. Se o candidato já tinha aceitado e você mudar algo que ele vê, ele aceita de novo; o cadastro dele é mantido.",
       "<b>Conferência:</b> confira cada campo e documento. No que estiver errado, clique em <b>Corrigir</b>; depois em <b>Pedir correção</b> escreva o que ajustar em cada item. O candidato vê só esses itens destacados.",
       "Quando ele reenviar, aparece o quadro <b>O candidato corrigiu</b> com o valor antigo e o novo.",
-      "Se estiver tudo certo, <b>Aprovar cadastro</b>: marque os 5 itens de conferência e escolha os documentos para assinatura. O sistema pega a próxima matrícula da planilha de Registros e cria o funcionário.",
-      "Depois, siga a <b>Trilha da admissão</b>: as assinaturas se marcam sozinhas; conferência, ponto, acessos e onboarding você marca em <b>Marcar como feito</b>.",
+      "Se estiver tudo certo, <b>Aprovar cadastro</b> e marque os 5 itens de conferência. O sistema cria o registro da pessoa em <b>Funcionários</b> (nova matrícula) com tudo o que ela preencheu.",
+      "Depois, siga a <b>Trilha da admissão</b>: ponto, acessos e onboarding você marca em <b>Marcar como feito</b>.",
       "<b>Pedir acessos</b> manda um e-mail para quem cria o e-mail Innomaker e os sistemas (configure em Configurações → Admissão)."
     ],
-    dicas: ["Quando o candidato aceita a proposta, ele recebe por e-mail (e vê na Área do candidato) os termos marcados para o aceite, como o Termo de Compromisso de Estágio e o de Direito de Imagem, para ler. Na aprovação esses termos já vêm marcados para assinatura.",
-      "Os documentos exigidos dependem do tipo de contratação (Configurações → Admissão). Sem os obrigatórios, não dá para aprovar.",
+    dicas: [      "Os documentos exigidos dependem do tipo de contratação (Configurações → Admissão). Sem os obrigatórios, não dá para aprovar.",
       "Na véspera do primeiro dia, o gestor e o RH recebem um e-mail com o que ainda falta, e o novo colaborador recebe as boas-vindas.",
       "<b>Cancelar admissão</b> devolve o candidato a “Aprovado no processo”, para você mandar outra proposta.",
       "<b>Recusar</b> encerra a admissão e envia a justificativa ao candidato."]
@@ -177,22 +176,19 @@ window.MANUAL_PAINEL = {
   },
 
   "funcionarios": {
-    resumo: "Registros criados na aprovação das admissões.",
-    passos: ["Use a busca para encontrar uma pessoa.", "Clique no nome para ver dados, documentos e checklist."],
+    resumo: "O registro de cada pessoa admitida.",
+    passos: ["Use a busca para encontrar uma pessoa.", "Clique em <b>Abrir</b> para ver o registro completo, os documentos enviados e o checklist."],
     dicas: ["Contratos têm duração mínima de 1 ano. O RH recebe um e-mail 45 dias antes do fim."]
   },
 
   "funcionario": {
-    resumo: "Dados, documentos e checklist de um funcionário.",
+    resumo: "Registro completo de uma pessoa admitida.",
     passos: [
-      "Em <b>Dados do registro</b>, corrija o que for preciso e clique em <b>Salvar dados</b>.",
-      "Para renovar ou gerar termos, clique em <b>Gerar documentos</b>, escolha os modelos e envie para assinatura.",
-      "Documentos ainda não assinados podem ser cancelados em <b>Cancelar documento</b>.",
-      "No checklist, marque: <b>Documentos assinados conferidos</b>, <b>Cadastrado no aplicativo de ponto</b> e <b>Onboarding realizado</b>.",
-      "Em <b>Planilha de Registros</b>, confira se a linha foi preenchida. Se aparecer <b>Falhou</b>, leia o motivo e clique em <b>Enviar para a planilha</b>."
+      "Em <b>Registro</b> estão o contrato e tudo o que a pessoa preencheu na admissão (dados pessoais, endereço, formação e banco). Corrija o que for preciso e clique em <b>Salvar registro</b>.",
+      "Em <b>Documentos enviados na admissão</b> abrem os arquivos (RG, comprovante, matrícula etc.).",
+      "No <b>Checklist</b>, marque: <b>Cadastrado no aplicativo de ponto</b>, <b>Acessos criados</b> e <b>Onboarding realizado</b>."
     ],
-    dicas: ["Se um campo usado no modelo estiver vazio, a geração é cancelada e o sistema diz qual campo falta.",
-      "No desligamento, desmarque <b>Funcionário ativo</b>."]
+    dicas: ["No desligamento, desmarque <b>Funcionário ativo</b>."]
   },
 
   "configuracoes": {
@@ -201,25 +197,23 @@ window.MANUAL_PAINEL = {
       "<b>Geral:</b> o e-mail do RH recebe todos os avisos. Use <b>Enviar e-mail de teste</b> para conferir se os e-mails estão saindo.",
       "<b>Departamentos e gestores:</b> informe o gestor e o e-mail de cada departamento. É ele quem recebe os avisos da área.",
       "<b>Listas de opções:</b> etapas, tipos de contratação, horários e outras listas (um item por linha).",
-      "<b>Modelos de documento:</b> cole o texto oficial dos termos. Use os campos entre chaves, como {{NOME}} e {{CPF}}.",
-      "<b>Planilha de Registros:</b> clique em <b>Testar planilha</b> para conferir a ligação com a planilha (mostra a próxima matrícula).",
       "<b>Privacidade (LGPD):</b> defina por quantos meses guardar as candidaturas e o banco de talentos. Passado o prazo, os dados são apagados sozinhos.",
       "<b>Backup:</b> mostra se a cópia diária para fora do servidor está em dia. Se aparecer em vermelho, avise quem cuida do servidor.",
-      "<b>Admissão:</b> e-mail de quem cria os acessos e a lista de documentos que o candidato envia, com os obrigatórios por tipo de contratação.",
-      "<b>Modelos de documento:</b> em cada modelo, escolha <b>quando o candidato recebe</b> (ao aceitar a proposta, para ler, ou só na aprovação) e <b>para quais tipos de contratação</b> ele vale. Para trazer o texto oficial, cole o link do Google Docs e clique em <b>Importar texto</b>; depois troque nome, CPF, datas etc. pelos campos {{…}}."
+      "<b>Admissão:</b> e-mail de quem cria os acessos e a lista de documentos que o candidato envia, com os obrigatórios por tipo de contratação."
     ],
     dicas: ["<b>Links úteis</b> aparecem no início do painel para todos.",
       "Candidatos em processo, admissões e funcionários nunca são apagados pelo prazo de guarda."]
   },
 
-  "registros": {
-    resumo: "A aba Registros da planilha, dentro do site.",
+  "entrevistas": {
+    resumo: "Todas as entrevistas e testes marcados, por dia.",
     passos: [
-      "Cada admissão aprovada vira uma linha aqui, com as mesmas 64 colunas da aba Registros da planilha do Google.",
-      "A primeira coluna mostra se a linha já está na planilha. Se falhou, passe o mouse para ver o motivo e clique em <b>Enviar</b>.",
-      "<b>Baixar CSV</b> gera o arquivo com as 64 colunas na ordem da planilha (abre no Excel e no Google Sheets)."
+      "Aparecem aqui os horários que os candidatos escolheram na <b>Agenda de entrevistas</b> da vaga e as datas que o RH marcou em <b>Marcar data</b>.",
+      "Cada linha mostra hora, candidato, etapa, vaga, local ou link e quem entrevista. Clique para abrir a vaga; em entrevistas online, <b>Entrar</b> abre o link.",
+      "Use <b>Últimos 30 dias</b> para ver as que já passaram."
     ],
-    dicas: ["Para a planilha do Google ser preenchida sozinha, ela precisa estar ligada ao sistema (docs/planilha-registros.md). O teste fica em Configurações → Planilha de Registros."]
+    dicas: ["Para marcar: <b>Vagas → vaga → candidato → Marcar data</b> (você escolhe o dia) ou <b>+ Nova agenda</b> na vaga (o candidato escolhe o horário).",
+      "As próximas 5 também aparecem no Início do painel."]
   },
 
   "talentos": {

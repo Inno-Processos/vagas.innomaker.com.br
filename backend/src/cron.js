@@ -45,17 +45,14 @@ export async function vencerPropostas(env) {
 export async function avisoVesperaInicio(env) {
   const amanha = hojeISO(1);
   const lista = await todos(env,
-    `SELECT a.*, f.nome, f.email AS email_func, f.funcao, f.departamento, f.data_efetivacao, f.documentos_conferidos, f.ponto_cadastrado, f.acessos_ok, f.onboarding_ok,
+    `SELECT a.*, f.nome, f.email AS email_func, f.funcao, f.departamento, f.data_efetivacao, f.ponto_cadastrado, f.acessos_ok, f.onboarding_ok,
             v.titulo FROM admissoes a JOIN funcionarios f ON f.matricula = a.funcionario_id JOIN vagas v ON v.id = a.vaga_id
       WHERE a.status = 'APROVADA' AND a.onboarding_aviso_em IS NULL AND f.ativo = 1 AND f.data_efetivacao = ?`, amanha);
   if (!lista.length) return 0;
   const config = await lerConfig(env);
   const site = cfg(env).siteUrl;
   for (const a of lista) {
-    const docs = await um(env, "SELECT COUNT(*) AS t, SUM(CASE WHEN status = 'ASSINADO' THEN 1 ELSE 0 END) AS s FROM documentos WHERE admissao_id = ? AND status <> 'CANCELADO'", a.id);
     const pend = [
-      docs.t && docs.s < docs.t ? `Documentos assinados: ${docs.s || 0} de ${docs.t}` : "",
-      !a.documentos_conferidos ? "Conferência dos documentos assinados" : "",
       !a.ponto_cadastrado ? "Cadastro no aplicativo de ponto" : "",
       !a.acessos_ok ? "Acessos (e-mail Innomaker e sistemas)" : ""
     ].filter(Boolean);
@@ -76,7 +73,7 @@ export async function avisoVesperaInicio(env) {
   return lista.length;
 }
 
-// Proposta sem resposta, cadastro incompleto, correção pedida e documentos sem assinatura:
+// Proposta sem resposta, cadastro incompleto e correção pedida:
 // até 3 lembretes, a cada 2 dias, para o candidato.
 export async function avisosAoCandidato(env) {
   const limite = new Date(Date.now() - DIAS_ENTRE_LEMBRETES * 864e5).toISOString();
@@ -122,21 +119,7 @@ export async function avisosAoCandidato(env) {
     await executar(env, "UPDATE admissoes SET lembrete_em = ?, lembretes = lembretes + 1 WHERE id = ?", agora(), a.id);
   }
 
-  const docs = await todos(env,
-    `SELECT d.candidato_id, c.nome, c.email, group_concat(d.titulo, '||') AS titulos, group_concat(d.id, '||') AS ids
-       FROM documentos d JOIN candidatos c ON c.id = d.candidato_id
-      WHERE d.status = 'AGUARDANDO_ASSINATURA' AND d.lembretes < ? AND COALESCE(d.lembrete_em, d.criado_em) < ?
-      GROUP BY d.candidato_id`, MAX_LEMBRETES, limite);
-  for (const d of docs) {
-    const titulos = String(d.titulos || "").split("||");
-    await enviar(d.email, "Lembrete: documentos aguardando sua assinatura", "Documentos para assinar",
-      [`Olá, <b>${esc(String(d.nome).split(" ")[0])}</b>!`, "Estes documentos ainda estão esperando a sua assinatura:",
-        "• " + titulos.map(esc).join("<br>• "), "Entre na Área do candidato, leia com atenção e assine."]);
-    for (const id of String(d.ids || "").split("||")) {
-      await executar(env, "UPDATE documentos SET lembrete_em = ?, lembretes = lembretes + 1 WHERE id = ?", agora(), id);
-    }
-  }
-  return adms.length + docs.length;
+  return adms.length;
 }
 
 export async function rotinaDiaria(env) {

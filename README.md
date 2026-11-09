@@ -15,18 +15,17 @@ vagas.innomaker.com.br/
 │       ├── cli.js            manutenção (backup, migrar)
 │       ├── cron.js           rotina: vagas vencidas, contratos perto do fim
 │       ├── api/              candidato.js (inscrição, área do candidato) e staff.js (painel)
-│       ├── lib/              auth (Authelia), papéis, banco, senhas/sessão, e-mail, arquivos, documentos
+│       ├── lib/              auth (Authelia), papéis, banco, senhas/sessão, e-mail, arquivos, admissão, LGPD
 │       └── infra/            banco SQLite, pasta de arquivos e envio SMTP (nodemailer)
 ├── frontend/                 telas (porta 3000; é o que o Traefik publica)
 │   ├── server.js             entrega public/ e repassa /api, /arquivo, /entrar e /sair ao backend
 │   └── public/
 │       ├── index.html        site público e área do candidato
 │       ├── painel.html       painel interno (funcionário, gerente, RH)
-│       ├── documento.html    leitura, impressão e assinatura de documentos
 │       ├── agendar.html      candidato escolhe o horário da entrevista (/agendar/<token>)
 │       ├── privacidade.html  Política de privacidade (LGPD)
 │       ├── erro.html         página de erro
-│       └── assets/           inicio.js (partida: busca os dados na API), site/painel/documento .js e .css,
+│       └── assets/           inicio.js (partida: busca os dados na API), site/painel .js e .css,
 │                             manual.js (manual de cada aba), tema.js (claro/escuro), logos
 ├── data/                     o banco de dados e os arquivos enviados (faça backup desta pasta)
 ├── scripts/iniciar.js        sobe backend + frontend num só terminal
@@ -47,10 +46,10 @@ vagas.innomaker.com.br/
 
 | Perfil | Onde | O que faz |
 |---|---|---|
-| Candidato | `/` | Vê vagas, se inscreve (currículo em PDF), recebe senha por e-mail, acompanha as candidaturas, aceita a proposta, preenche o cadastro de admissão, envia documentos e assina os termos |
+| Candidato | `/` | Vê vagas, se inscreve (currículo em PDF), recebe senha por e-mail, acompanha as candidaturas, aceita a proposta, preenche o cadastro de admissão e envia os documentos (RG, comprovante etc.) |
 | Funcionário (grupo `funcionarios`) | `/painel` | Vagas abertas para indicar e links úteis |
 | Gerente (grupo `Gerente`) | `/painel` | Solicita vagas, corrige pedidos de reajuste e vê os candidatos das vagas da sua área |
-| RH (grupo `RH`) | `/painel` | Aprova solicitações, vagas e etapas, propostas, admissões, funcionários, documentos, configurações e histórico |
+| RH (grupo `RH`) | `/painel` | Aprova solicitações, vagas e etapas, propostas, admissões, funcionários (registro), entrevistas, configurações e histórico |
 | Sem grupo | `/painel` | Página de acesso negado |
 
 O manual de cada tela abre pelo **ícone de livro** no topo do painel (textos em `frontend/public/assets/manual.js`). O fluxo segue os procedimentos RHC-PROC-2026-001, 002 e 003 ([docs/processos.md](docs/processos.md)).
@@ -65,7 +64,6 @@ GET  /api/vagas               vagas abertas
 POST /api/candidato/<acao>    inscrever, login, sair, esqueci, senha, area, proposta, rascunho, anexar, desanexar, cadastro, assinar, privacidade, excluir
 GET  /api/painel/sessao       200 usuário e permissões · 401 sem login (com loginUrl) · 403 sem grupo
 POST /api/staff/<acao>        ações do painel (lista em backend/src/lib/papeis.js)
-GET  /api/documento/<id>      documento para ler/assinar (candidato dono ou RH)
 GET  /api/agendar/<token>     horários livres para o candidato (link do e-mail, sem login)
 POST /api/agendar/<token>/reservar | liberar
 GET  /api/privacidade         prazos de guarda e contato (página Política de privacidade)
@@ -118,7 +116,7 @@ Antes de subir:
 
 - Fecha vagas com prazo vencido e avisa o RH sobre contratos perto do fim.
 - **Lembretes ao candidato** (só das 8h às 20h): entrevista no dia seguinte (candidato e entrevistadores);
-  proposta sem resposta, cadastro de admissão incompleto (diz o que falta), correção pedida pelo RH e documentos sem assinatura
+  proposta sem resposta, cadastro de admissão incompleto (diz o que falta) e correção pedida pelo RH
   (até 3 lembretes, a cada 2 dias).
 - **Prazo de guarda (LGPD)**, uma vez por dia: apaga candidatos sem atividade há mais tempo que o prazo de Painel → Configurações.
 - **Backup** do banco (um por dia em `data/backups/`, mantém 15) e **cópia externa** (abaixo).
@@ -155,7 +153,7 @@ Para **restaurar**: pare o sistema, copie `<destino>/banco/vagas-AAAA-MM-DD.db` 
 |---|---|
 | Mudar grupos do LLDAP que viram cada papel | `GRUPOS_*` no `backend/.env` |
 | Mudar o que cada papel pode fazer | `backend/src/lib/papeis.js` |
-| Mudar departamentos, listas, modelos e links | Painel → Configurações (sem código) |
+| Mudar departamentos, listas, documentos exigidos e links | Painel → Configurações (sem código) |
 | Criar uma coluna nova no banco | novo arquivo em `backend/migrations/` (ex.: `0004_...sql`); entra sozinho ao reiniciar |
 | Mudar visual, textos das telas ou o manual | `frontend/public/` |
 | Trocar a conta que envia os e-mails | `SMTP_USER`, `SMTP_FROM` e `SMTP_PASS` no `backend/.env` |
@@ -176,7 +174,7 @@ Para **restaurar**: pare o sistema, copie `<destino>/banco/vagas-AAAA-MM-DD.db` 
 
 Currículos, documentos e dados de admissão ficam no servidor da Innomaker, na pasta `data/`, acessível só pelo backend.
 Arquivos só abrem pelo sistema: o próprio candidato, o RH, ou o gerente da vaga (apenas currículos).
-As senhas dos candidatos são guardadas com hash (PBKDF2) e as assinaturas registram nome, CPF, data, IP e o código (hash) do documento.
+As senhas dos candidatos são guardadas com hash (PBKDF2).
 
 - **Consentimento:** a inscrição exige o aceite da [Política de privacidade](/privacidade) (`frontend/public/privacidade.html`);
   o banco de talentos é um aceite separado e opcional, que o candidato liga ou desliga na Área do candidato.

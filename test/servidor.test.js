@@ -120,11 +120,6 @@ test("backend e frontend separados: telas, repasse da API, arquivos estáticos e
     assert.equal(sessao.usuario.papel, "rh");
     assert.ok(sessao.acoes.includes("solic_decidir"), "RH pode aprovar");
 
-    const doc = await fetch(base + "/documento/nao-existe");
-    assert.equal(doc.status, 200);
-    assert.match(doc.headers.get("x-frame-options") || "", /DENY/);
-    assert.equal((await fetch(base + "/api/documento/nao-existe")).status, 404);
-
     const arq = await fetch(base + "/arquivo/nao-existe", { redirect: "manual" });
     assert.equal(arq.status, 302);
     assert.equal(arq.headers.get("location"), "/erro?c=404");
@@ -216,11 +211,6 @@ test("backend e frontend separados: telas, repasse da API, arquivos estáticos e
     assert.equal(reedit.emailEnviado, false);
     const logs = await staff("log_listar");
     assert.equal(logs.emails.filter(m => /Retorno do processo seletivo/.test(m.assunto) && m.para === "ana@example.com").length, 1);
-
-    // Planilha não configurada: o teste da tela avisa
-    const tp = await staff("planilha_testar");
-    assert.equal(tp.ok, true);
-    assert.equal(tp.resultado.ok, false);
 
     // backend fora do ar: o frontend responde 503 "reiniciando" (as telas tentam de novo sozinhas)
     back.filho.kill();

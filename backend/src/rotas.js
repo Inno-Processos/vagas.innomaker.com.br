@@ -8,7 +8,6 @@
 //  POST /api/candidato/<acao>    inscrição e área do candidato
 //  GET  /api/painel/sessao       quem está logado no painel (401 sem login, 403 sem grupo)
 //  POST /api/staff/<acao>        ações do painel interno
-//  GET  /api/documento/<id>      documento para leitura e assinatura (candidato dono ou RH)
 //  GET  /api/agendar/<token>     horários livres para o candidato (link do e-mail, sem login)
 //  POST /api/agendar/<token>/reservar | liberar
 //  GET  /api/privacidade         prazos de guarda e contato (página Política de privacidade)
@@ -22,7 +21,6 @@ import { json, redirecionar, mesmaOrigem, lerJson, lerCookie } from "./lib/http.
 import { um, lerConfig } from "./lib/db.js";
 import { candidatoDaSessao, COOKIE_CANDIDATO } from "./lib/senha.js";
 import { respostaArquivo } from "./lib/arquivos.js";
-import { textoParaHtml } from "./lib/documentos.js";
 import { apiCandidato, vagasPublicas } from "./api/candidato.js";
 import { apiStaff, podeVerVaga } from "./api/staff.js";
 import { apiAgendamento } from "./api/agendamento.js";
@@ -37,7 +35,6 @@ export async function rotear(request, env, ctx) {
     if (p === "/api/vagas") return json({ ok: true, vagas: await vagasPublicas(env) });
     if (p === "/api/site/inicio") return siteInicio(request, env);
     if (p === "/api/painel/sessao") return painelSessao(request, env);
-    if (p.startsWith("/api/documento/")) return documento(request, env, p.slice("/api/documento/".length));
     if (p.startsWith("/api/agendar/")) return apiAgendamento(request, env, ctx, p.slice("/api/agendar/".length));
     if (p === "/api/privacidade") {
       const [prazos, config] = await Promise.all([prazosLgpd(env), lerConfig(env)]);
@@ -117,28 +114,6 @@ async function staff(request, env, ctx, url, acao) {
   return apiStaff(env, ctx, acao, await lerJson(request), s.usuario);
 }
 
-// Documento: o próprio candidato (pode assinar) ou o RH (só leitura)
-async function documento(request, env, id) {
-  const doc = await um(env, "SELECT * FROM documentos WHERE id = ?", decodeURIComponent(id));
-  if (!doc) return json({ ok: false, erro: "Documento não encontrado." }, 404);
-
-  const dados = (podeAssinar, voltar) => json({
-    ok: true, podeAssinar, voltar,
-    documento: {
-      id: doc.id, titulo: doc.titulo, status: doc.status, hash: doc.hash,
-      conteudo_html: textoParaHtml(doc.conteudo), // texto escapado pelo backend
-      assinado_nome: doc.assinado_nome || "", assinado_em: doc.assinado_em || "", assinado_ip: doc.assinado_ip || "",
-      assinado_cpf: String(doc.assinado_cpf || "").replace(/^(\d{3})\d{6}(\d{2})$/, "$1.***.***-$2")
-    }
-  });
-
-  const cand = await candidatoDaSessao(env, request);
-  if (cand && cand.id === doc.candidato_id) return dados(true, "/area-do-candidato");
-  const s = await lerSessao(request, env);
-  if (s.estado === "ok" && s.usuario.papel === "rh") return dados(false, "/painel#funcionario/" + (doc.funcionario_matricula || ""));
-  if (s.estado === "anonimo" && !cand) return json({ ok: false, entrar: "/area-do-candidato", erro: "Entre na Área do candidato para ver o documento." }, 401);
-  return json({ ok: false, erro: "Você não tem acesso a este documento." }, 403);
-}
 
 // Currículos e documentos: dono (candidato), RH, ou gerente da vaga (só currículos).
 // É aberto direto pelo navegador: em caso de erro, manda para a página de erro do frontend.

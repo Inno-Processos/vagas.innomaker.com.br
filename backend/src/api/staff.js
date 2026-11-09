@@ -7,11 +7,8 @@ import {
 } from "../lib/http.js";
 import { um, todos, executar, prep, novoId, registrarLog, lerConfig, historicoMais, quemE } from "../lib/db.js";
 import { enviarEmail, layout, textoSimples, anexoIcs, smtpConfigurado } from "../lib/email.js";
-import { planilhaConfigurada, proximaMatricula, enviarRegistro, testarPlanilha, linhaDoFuncionario, COLUNAS } from "../lib/planilha.js";
 import { estadoDasEtapas } from "../lib/etapas.js";
-import { CAMPOS_DOCUMENTO, validarModelo, valoresDoFuncionario, preencherModelo, camposUsados, modeloAplica } from "../lib/documentos.js";
 import { icsEvento, somarMinutos } from "../lib/agenda.js";
-import { sha256Hex } from "../lib/senha.js";
 import { acoesDoPapel } from "../lib/papeis.js";
 import { cfg, caminhoVaga, CAMINHO_AREA } from "../lib/config.js";
 import {
@@ -516,9 +513,7 @@ async function admCancelar(env, ctx, b, u) {
 // ---------- Trilha pós-aprovação ----------
 async function contextoTrilha(env, a) {
   const f = a.funcionario_id ? await um(env, "SELECT * FROM funcionarios WHERE matricula = ?", a.funcionario_id) : null;
-  const docs = await um(env,
-    "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'ASSINADO' THEN 1 ELSE 0 END) AS assinados FROM documentos WHERE admissao_id = ? AND status <> 'CANCELADO'", a.id);
-  return { f, docs: { total: docs.total || 0, assinados: docs.assinados || 0 } };
+  return { f, docs: null };
 }
 
 // Marca/desmarca um passo manual (conferência, ponto, acessos, onboarding). Grava no funcionário e a data na admissão.
@@ -671,17 +666,13 @@ async function admDetalhe(env, ctx, b) {
   if (!a) throw new ErroApi("Admissão não encontrada.");
   const arquivos = await todos(env, "SELECT id, nome, categoria, tamanho, criado_em FROM arquivos WHERE admissao_id = ? ORDER BY categoria, criado_em", a.id);
   if (a.status === "PROPOSTA_ENVIADA" && a.prazo_resposta && a.prazo_resposta < hojeISO()) a.prazo_vencido = true;
-  const documentos = await todos(env, "SELECT id, titulo, status, assinado_em, criado_em FROM documentos WHERE admissao_id = ? ORDER BY criado_em", a.id);
   const config = await lerConfig(env);
   const x = admPublica(a);
-  const modelos = (await todos(env, "SELECT id, nome, gerar_na_admissao, momento, aplica_a FROM modelos_documento WHERE ativo = 1 ORDER BY nome"))
-    .map(m => ({ id: m.id, nome: m.nome, aplica: modeloAplica(m, x.proposta.tipo_contratacao), momento: m.momento,
-      gerar_na_admissao: modeloAplica(m, x.proposta.tipo_contratacao) && (m.gerar_na_admissao || m.momento === "aceite") ? 1 : 0 }));
   const exigidos = documentosExigidos(config, x.proposta.tipo_contratacao);
   const t = await contextoTrilha(env, a);
   return {
     ok: true, admissao: Object.assign(x, { correcoes: parseJson(a.correcoes, {}), checklist: parseJson(a.checklist, {}) }), hoje: hojeISO(),
-    arquivos: arquivos.map(f => Object.assign(f, { categoria_nome: nomeCategoria(config, f.categoria) })), documentos, modelos,
+    arquivos: arquivos.map(f => Object.assign(f, { categoria_nome: nomeCategoria(config, f.categoria) })),
     documentosExigidos: exigidos, documentosFaltando: documentosFaltando(exigidos, arquivos).map(d => d.id),
     camposCadastro: Object.keys(CAMPOS_CADASTRO).map(k => ({ chave: k, rotulo: CAMPOS_CADASTRO[k][2], obrigatorio: CAMPOS_CADASTRO[k][1], etapa: CAMPOS_CADASTRO[k][3] })),
     trilha: trilha(a, t.f, t.docs), emailAcessos: config.email_acessos || ""
@@ -700,30 +691,8 @@ async function admReenviar(env, ctx, b, u) {
   return { ok: true };
 }
 
-async function extrasDocumento(env, f) {
-  const a = f.admissao_id ? await um(env, "SELECT a.proposta, ca.periodo_curso, ca.previsao_formatura FROM admissoes a JOIN candidaturas ca ON ca.id = a.candidatura_id WHERE a.id = ?", f.admissao_id) : null;
-  return a ? { periodo_curso: a.periodo_curso, previsao_formatura: a.previsao_formatura, gestor: parseJson(a.proposta, {}).gestor_nome } : {};
-}
 
-async function gerarDocumentos(env, f, modelos, u, admissaoId) {
-  const hoje = hojeISO();
-  const valores = valoresDoFuncionario(f, hoje, await extrasDocumento(env, f));
-  const docs = [];
-  for (const m of modelos) {
-    const conteudo = preencherModelo(m, valores, f.matricula);
-    docs.push({ id: crypto.randomUUID(), titulo: m.nome, modelo_id: m.id, conteudo, hash: await sha256Hex(conteudo) });
-  }
-  return docs.map(d => prep(env,
-    `INSERT INTO documentos (id, funcionario_matricula, admissao_id, candidato_id, modelo_id, titulo, conteudo, hash, criado_por, criado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    d.id, f.matricula, admissaoId || null, f.candidato_id, d.modelo_id, d.titulo, d.conteudo, d.hash, quemE(u), agora()));
-}
 
-async function modelosEscolhidos(env, ids) {
-  const lista = (Array.isArray(ids) ? ids : []).map(n => parseInt(n, 10)).filter(n => n > 0);
-  if (!lista.length) return [];
-  return todos(env, `SELECT * FROM modelos_documento WHERE ativo = 1 AND id IN (${lista.map(() => "?").join(",")}) ORDER BY nome`, ...lista);
-}
 
 async function admDecidir(env, ctx, b, u) {
   const a = await um(env, SELECT_ADM + " WHERE a.id = ?", texto(b.id, 30));
@@ -770,7 +739,6 @@ async function admDecidir(env, ctx, b, u) {
   if (b.decisao !== "aprovar") throw new ErroApi("Decisão inválida.");
   const p = parseJson(a.proposta, {});
   const c = parseJson(a.cadastro, {});
-  const modelos = await modelosEscolhidos(env, b.modelos);
   const t = agora();
   const dados = {};
   ["cpf", "rg", "cnh", "ctps", "sexo", "data_nascimento", "cep", "endereco", "bairro", "cidade", "estado", "banco", "agencia", "conta",
@@ -787,45 +755,25 @@ async function admDecidir(env, ctx, b, u) {
     dados: JSON.stringify(dados)
   };
 
-  // Confere os modelos antes de gravar (campo vazio cancela tudo — item 5.2)
-  const hoje = hojeISO();
-  const extrasPrev = { periodo_curso: (await um(env, "SELECT periodo_curso, previsao_formatura FROM candidaturas WHERE id = ?", a.candidatura_id)) || {}, gestor: p.gestor_nome };
-  modelos.forEach(m => preencherModelo(m, valoresDoFuncionario(Object.assign({ matricula: "0" }, func), hoje,
-    { periodo_curso: extrasPrev.periodo_curso.periodo_curso, previsao_formatura: extrasPrev.periodo_curso.previsao_formatura, gestor: extrasPrev.gestor }), "(nova)"));
-
-  // Matrícula: a próxima da planilha Registros (maior da coluna A + 1), para o sistema e a planilha não divergirem
-  if (planilhaConfigurada(env)) {
-    try {
-      func.matricula = await proximaMatricula(env);
-    } catch (e) {
-      throw new ErroApi("Não consegui pegar a próxima matrícula na planilha de Registros: " + e.message + ". Nada foi gravado. Tente de novo em instantes.");
-    }
-  }
-
+  // Registro do funcionário (Funcionários): a matrícula é a próxima do sistema
   const cols = Object.keys(func);
   const r = await executar(env, `INSERT INTO funcionarios (${cols.join(", ")}, criado_em, atualizado_em) VALUES (${cols.map(() => "?").join(", ")}, ?, ?)`,
     ...cols.map(k => func[k]), t, t);
   const matricula = func.matricula || r.meta.last_row_id;
   const f = await um(env, "SELECT * FROM funcionarios WHERE matricula = ?", matricula);
 
-  const stmtsDocs = await gerarDocumentos(env, f, modelos, u, a.id);
   await env.DB.batch([
-    ...stmtsDocs,
     prep(env, "UPDATE admissoes SET status = 'APROVADA', funcionario_id = ?, historico = ?, atualizado_em = ? WHERE id = ?",
       matricula, historicoMais(a.historico, quemE(u), "Aprovada pelo RH", "Matrícula " + matricula), t, a.id),
     prep(env, "UPDATE candidaturas SET status = 'Contratado', atualizado_em = ? WHERE id = ?", t, a.candidatura_id)
   ]);
-  await registrarLog(env, quemE(u), "ADMISSAO_APROVADA", "admissao", a.id, "matrícula " + matricula + ", " + modelos.length + " documento(s)");
-
-  // Planilha Registros: em segundo plano (as rotinas da planilha podem levar alguns minutos)
-  if (planilhaConfigurada(env)) ctx.waitUntil(enviarRegistro(env, matricula, quemE(u)));
+  await registrarLog(env, quemE(u), "ADMISSAO_APROVADA", "admissao", a.id, "matrícula " + matricula);
 
   const ics = anexoIcs("Início — " + f.nome, f.data_efetivacao, `Início de ${f.nome} (${a.titulo_vaga}). Função: ${f.funcao}. Departamento: ${f.departamento}.`);
-  notificar(env, ctx, f.email, "Admissão aprovada — documentos para assinatura", "Sua admissão foi aprovada",
-    [`Olá, <b>${primeiro}</b>! Seu cadastro foi aprovado. Sua matrícula na Innomaker é <b>${matricula}</b>.`,
-      modelos.length ? `Há <b>${modelos.length}</b> documento(s) para você ler e assinar na Área do candidato: ${modelos.map(m => m.nome).join(", ")}.` : "",
-      `Seu primeiro dia (onboarding) será em <b>${dataBR(f.data_efetivacao)}</b>.`].filter(Boolean),
-    { texto: "Assinar documentos", url: linkArea(env) }, ics ? { anexos: [ics] } : null);
+  notificar(env, ctx, f.email, "Admissão aprovada — bem-vindo(a) à Innomaker", "Sua admissão foi aprovada",
+    [`Olá, <b>${esc(primeiro)}</b>! Seu cadastro foi aprovado. Sua matrícula na Innomaker é <b>${matricula}</b>.`,
+      `Seu primeiro dia (onboarding) será em <b>${dataBR(f.data_efetivacao)}</b>. O convite está anexado.`],
+    { texto: "Abrir a Área do candidato", url: linkArea(env) }, ics ? { anexos: [ics] } : null);
 
   const config = await lerConfig(env);
   const gestores = [p.gestor_email, config.email_rh].filter(Boolean);
@@ -834,7 +782,7 @@ async function admDecidir(env, ctx, b, u) {
       `Início: <b>${dataBR(f.data_efetivacao)}</b>. Função: ${f.funcao}. Departamento: ${f.departamento}.`],
     { texto: "Ver no painel", url: linkPainel(env, "funcionario/" + matricula) }, ics ? { anexos: [ics] } : null);
 
-  return { ok: true, matricula, documentos: modelos.length, planilha: planilhaConfigurada(env) ? "enviando" : "nao_configurada" };
+  return { ok: true, matricula };
 }
 
 // =====================================================================
@@ -843,42 +791,30 @@ async function admDecidir(env, ctx, b, u) {
 async function funcListar(env) {
   const linhas = await todos(env,
     `SELECT f.matricula, f.nome, f.email, f.email_innomaker, f.cargo, f.funcao, f.departamento, f.tipo_contratacao,
-            f.data_efetivacao, f.data_final_contrato, f.ponto_cadastrado, f.documentos_conferidos, f.onboarding_ok, f.acessos_ok, f.ativo, f.planilha_status,
-            (SELECT COUNT(*) FROM documentos d WHERE d.funcionario_matricula = f.matricula AND d.status = 'AGUARDANDO_ASSINATURA') AS docs_pendentes,
-            (SELECT COUNT(*) FROM documentos d WHERE d.funcionario_matricula = f.matricula AND d.status = 'ASSINADO') AS docs_assinados
+            f.data_efetivacao, f.data_final_contrato, f.ponto_cadastrado, f.onboarding_ok, f.acessos_ok, f.ativo, f.admissao_id
        FROM funcionarios f ORDER BY f.matricula DESC`);
   return { ok: true, hoje: hojeISO(), itens: linhas };
 }
 
-// Reenvia (ou completa) o funcionário na planilha Registros
-async function funcPlanilha(env, ctx, b, u) {
-  const f = await um(env, "SELECT matricula FROM funcionarios WHERE matricula = ?", parseInt(b.matricula, 10) || 0);
-  if (!f) throw new ErroApi("Funcionário não encontrado.");
-  if (!planilhaConfigurada(env)) throw new ErroApi("A planilha de Registros não está configurada (PLANILHA_REGISTROS_URL e PLANILHA_REGISTROS_TOKEN no backend/.env).");
-  const r = await enviarRegistro(env, f.matricula, quemE(u));
-  if (!r.ok) throw new ErroApi(r.erro);
-  return r;
-}
 
-// Configurações → "Testar planilha": confere URL, token, aba e a próxima matrícula
-async function planilhaTestar(env) {
-  return { ok: true, resultado: await testarPlanilha(env) };
-}
 
 async function funcDetalhe(env, ctx, b) {
   const f = await um(env, "SELECT * FROM funcionarios WHERE matricula = ?", parseInt(b.matricula, 10) || 0);
   if (!f) throw new ErroApi("Funcionário não encontrado.");
-  const documentos = await todos(env,
-    "SELECT id, titulo, status, assinado_em, assinado_nome, criado_em FROM documentos WHERE funcionario_matricula = ? ORDER BY criado_em DESC", f.matricula);
-  const modelos = await todos(env, "SELECT id, nome, gerar_na_admissao FROM modelos_documento WHERE ativo = 1 ORDER BY nome");
-  const arquivos = f.admissao_id ? await todos(env, "SELECT id, nome, categoria FROM arquivos WHERE admissao_id = ?", f.admissao_id) : [];
-  return { ok: true, funcionario: Object.assign(f, { dados: parseJson(f.dados, {}) }), documentos, modelos, arquivos };
+  const config = await lerConfig(env);
+  const arquivos = f.admissao_id ? (await todos(env, "SELECT id, nome, categoria, criado_em FROM arquivos WHERE admissao_id = ? ORDER BY categoria, criado_em", f.admissao_id))
+    .map(x => Object.assign(x, { categoria_nome: nomeCategoria(config, x.categoria) })) : [];
+  const cdt = f.admissao_id ? await um(env, "SELECT ca.periodo_curso, ca.previsao_formatura, ca.curriculo_id FROM admissoes a JOIN candidaturas ca ON ca.id = a.candidatura_id WHERE a.id = ?", f.admissao_id) : null;
+  return {
+    ok: true, funcionario: Object.assign(f, { dados: parseJson(f.dados, {}) }), arquivos, candidatura: cdt || {},
+    camposCadastro: Object.keys(CAMPOS_CADASTRO).map(k => ({ chave: k, rotulo: CAMPOS_CADASTRO[k][2], etapa: CAMPOS_CADASTRO[k][3] }))
+  };
 }
 
 const CAMPOS_FUNC_TEXTO = ["nome", "email", "email_innomaker", "telefone", "situacao", "cargo", "funcao", "departamento", "setor",
   "horario_trabalho", "tipo_contratacao", "bolsa_valor", "auxilio", "responsavel", "entidade_vinculada", "principais_funcoes",
   "data_efetivacao", "data_final_contrato"];
-const CAMPOS_FUNC_FLAG = ["ponto_cadastrado", "documentos_conferidos", "onboarding_ok", "acessos_ok", "ativo"];
+const CAMPOS_FUNC_FLAG = ["ponto_cadastrado", "onboarding_ok", "acessos_ok", "ativo"];
 const CAMPOS_DADOS = ["cpf", "rg", "cnh", "ctps", "sexo", "data_nascimento", "cep", "endereco", "bairro", "cidade", "estado", "banco",
   "agencia", "conta", "tipo_conta", "pix_numero", "pix_banco", "grau_instrucao", "area_formacao", "instituicao_ensino", "cr",
   "matricula_uff", "curriculo_lattes", "nome_emergencia", "telefone_emergencia"];
@@ -916,27 +852,7 @@ async function funcAtualizar(env, ctx, b, u) {
   return { ok: true };
 }
 
-async function docGerar(env, ctx, b, u) {
-  const f = await um(env, "SELECT * FROM funcionarios WHERE matricula = ?", parseInt(b.matricula, 10) || 0);
-  if (!f) throw new ErroApi("Funcionário não encontrado.");
-  if (!f.candidato_id) throw new ErroApi("Este funcionário não tem acesso à Área do candidato para assinar.");
-  const modelos = await modelosEscolhidos(env, b.modelos);
-  if (!modelos.length) throw new ErroApi("Escolha pelo menos um modelo.");
-  const stmts = await gerarDocumentos(env, f, modelos, u, null);
-  await env.DB.batch(stmts);
-  await registrarLog(env, quemE(u), "DOCUMENTOS_GERADOS", "funcionario", f.matricula, modelos.map(m => m.nome).join(", "));
-  notificar(env, ctx, f.email, "Documentos para assinatura — Innomaker", "Documentos para assinatura",
-    [`Olá, <b>${String(f.nome).split(" ")[0]}</b>! Há documento(s) para você ler e assinar: ${modelos.map(m => m.nome).join(", ")}.`],
-    { texto: "Assinar documentos", url: linkArea(env) });
-  return { ok: true, gerados: modelos.length };
-}
 
-async function docCancelar(env, ctx, b, u) {
-  const r = await executar(env, "UPDATE documentos SET status = 'CANCELADO' WHERE id = ? AND status = 'AGUARDANDO_ASSINATURA'", texto(b.id, 60));
-  if (!r.meta || !r.meta.changes) throw new ErroApi("Só é possível cancelar documentos que ainda não foram assinados.");
-  await registrarLog(env, quemE(u), "DOCUMENTO_CANCELADO", "documento", b.id, "");
-  return { ok: true };
-}
 
 // =====================================================================
 //  Configurações e log
@@ -947,9 +863,7 @@ async function cfgObter(env) {
   const listas = {};
   TIPOS_LISTA.forEach(t => { listas[t] = []; });
   (await todos(env, "SELECT tipo, valor FROM listas ORDER BY ordem, valor")).forEach(l => { (listas[l.tipo] = listas[l.tipo] || []).push(l.valor); });
-  const modelos = (await todos(env, "SELECT * FROM modelos_documento ORDER BY nome")).map(m => Object.assign(m, { campos: camposUsados(m.conteudo) }));
-  return { ok: true, config, departamentos, listas, tiposLista: TIPOS_LISTA, modelos, camposDocumento: CAMPOS_DOCUMENTO,
-    planilhaConfigurada: planilhaConfigurada(env), lgpd: await prazosLgpd(env), admissaoDocumentos: listaDocumentos(config),
+  return { ok: true, config, departamentos, listas, tiposLista: TIPOS_LISTA, lgpd: await prazosLgpd(env), admissaoDocumentos: listaDocumentos(config),
     lgpdVencidos: (await candidatosVencidos(env)).length,
     backup: env.BACKUP ? env.BACKUP.status() : null };
 }
@@ -997,26 +911,6 @@ async function listaSalvar(env, ctx, b, u) {
   return { ok: true };
 }
 
-async function modeloSalvar(env, ctx, b, u) {
-  const nome = texto(b.nome, 150);
-  const conteudo = texto(b.conteudo, 60000);
-  obrigatorio(nome, "Nome do modelo");
-  obrigatorio(conteudo, "Texto do modelo");
-  validarModelo(conteudo);
-  const momento = b.momento === "aceite" ? "aceite" : "aprovacao";
-  const aplica = JSON.stringify((Array.isArray(b.aplica_a) ? b.aplica_a : []).map(t => texto(t, 60)).filter(Boolean).slice(0, 20));
-  const args = [texto(b.codigo, 60), nome, conteudo, b.gerar_na_admissao ? 1 : 0, b.ativo === false ? 0 : 1, agora(), momento, aplica];
-  try {
-    if (b.id) {
-      await executar(env, "UPDATE modelos_documento SET codigo = ?, nome = ?, conteudo = ?, gerar_na_admissao = ?, ativo = ?, atualizado_em = ?, momento = ?, aplica_a = ? WHERE id = ?",
-        ...args, parseInt(b.id, 10));
-    } else {
-      await executar(env, "INSERT INTO modelos_documento (codigo, nome, conteudo, gerar_na_admissao, ativo, atualizado_em, momento, aplica_a) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", ...args);
-    }
-  } catch (e) { throw new ErroApi("Já existe um modelo com esse nome."); }
-  await registrarLog(env, quemE(u), "MODELO_SALVO", "modelo", nome, "");
-  return { ok: true };
-}
 
 // ---------- Privacidade (LGPD) ----------
 async function cfgSalvarLgpd(env, ctx, b, u) {
@@ -1200,21 +1094,6 @@ async function indicadores(env, ctx, b) {
   };
 }
 
-// Importa o texto de um Google Docs (o documento precisa estar com "Qualquer pessoa com o link pode ver")
-async function modeloImportar(env, ctx, b) {
-  const m = /docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]{20,})/.exec(String(b.url || ""));
-  if (!m) throw new ErroApi("Cole o link de um documento do Google Docs (docs.google.com/document/d/…).");
-  let r;
-  try { r = await fetch("https://docs.google.com/document/d/" + m[1] + "/export?format=txt", { redirect: "follow", signal: AbortSignal.timeout(20000) }); }
-  catch (e) { throw new ErroApi("Não consegui abrir o documento: " + (e.message || e)); }
-  const tipo = r.headers.get("content-type") || "";
-  if (!r.ok || /html/i.test(tipo)) {
-    throw new ErroApi("O Google pediu login: compartilhe o documento como \"Qualquer pessoa com o link pode ver\" (só o modelo, sem dados pessoais) e tente de novo.");
-  }
-  const t = (await r.text()).replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  if (!t) throw new ErroApi("O documento está vazio.");
-  return { ok: true, conteudo: t.slice(0, 60000) };
-}
 
 // ---------- Data da etapa: RH marca dia/hora/local e o candidato recebe por e-mail (com convite de calendário) ----------
 async function etapaAgendar(env, ctx, b, u) {
@@ -1260,15 +1139,42 @@ async function etapaAgendar(env, ctx, b, u) {
   return { ok: true, avisado: avisar };
 }
 
-// ---------- Registros (mesmas 64 colunas da aba Registros da planilha) ----------
-async function registrosListar(env) {
-  const fs = await todos(env, "SELECT * FROM funcionarios ORDER BY matricula DESC");
-  const linhas = [];
-  for (const f of fs) {
-    linhas.push({ matricula: f.matricula, nome: f.nome, ativo: !!f.ativo, valores: await linhaDoFuncionario(env, f),
-      planilha_status: f.planilha_status || "", planilha_erro: f.planilha_erro || "", planilha_em: f.planilha_em || "", planilha_linha: f.planilha_linha || null });
+
+// =====================================================================
+//  Entrevistas: tudo o que está marcado (agenda com reserva e "Marcar data"), por dia
+// =====================================================================
+async function entrevistasListar(env, ctx, b, u) {
+  const passadas = b.periodo === "passadas";
+  const hoje = hojeISO();
+  const de = passadas ? hojeISO(-30) : hoje, ate = passadas ? hojeISO(-1) : hojeISO(365);
+  const reservas = await todos(env,
+    `SELECT h.id, h.inicio, h.fim, a.etapa_nome, a.local, a.local_tipo, a.participantes, h.participantes_extra, v.id AS vaga_id, v.titulo AS vaga_titulo,
+            v.gestor_email, v.solicitacao_id, c.nome AS candidato_nome, c.email AS candidato_email, ca.id AS candidatura_id
+       FROM agenda_horarios h JOIN agendas a ON a.id = h.agenda_id JOIN vagas v ON v.id = a.vaga_id
+       JOIN etapas e ON e.id = h.etapa_id JOIN candidaturas ca ON ca.id = e.candidatura_id JOIN candidatos c ON c.id = ca.candidato_id
+      WHERE substr(h.inicio, 1, 10) BETWEEN ? AND ? ORDER BY h.inicio`, de, ate);
+  const marcadas = await todos(env,
+    `SELECT e.id, e.nome AS etapa_nome, e.data_prevista, e.hora_prevista, e.local_prevista, e.data_enviada_em, v.id AS vaga_id, v.titulo AS vaga_titulo,
+            v.gestor_email, v.solicitacao_id, c.nome AS candidato_nome, c.email AS candidato_email, ca.id AS candidatura_id
+       FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id JOIN candidatos c ON c.id = ca.candidato_id JOIN vagas v ON v.id = ca.vaga_id
+      WHERE e.data_prevista BETWEEN ? AND ? AND e.resultado = 'Pendente' AND ca.status = 'Em processo'
+        AND NOT EXISTS (SELECT 1 FROM agenda_horarios h WHERE h.etapa_id = e.id)`, de, ate);
+  const itens = [];
+  for (const r of reservas) {
+    if (!(await podeVerVaga(env, u, r))) continue;
+    itens.push({ origem: "agenda", quando: r.inicio, data: r.inicio.slice(0, 10), hora: r.inicio.slice(11, 16), fim: r.fim.slice(11, 16),
+      etapa: r.etapa_nome, local: r.local, online: r.local_tipo === "online", vaga_id: r.vaga_id, vaga_titulo: r.vaga_titulo,
+      candidato_nome: r.candidato_nome, candidato_email: r.candidato_email, candidatura_id: r.candidatura_id,
+      participantes: [...parseJson(r.participantes, []), ...parseJson(r.participantes_extra, [])].map(p => p.nome || p.email) });
   }
-  return { ok: true, colunas: COLUNAS, linhas, planilhaConfigurada: planilhaConfigurada(env) };
+  for (const r of marcadas) {
+    if (!(await podeVerVaga(env, u, r))) continue;
+    itens.push({ origem: "data", quando: r.data_prevista + "T" + (r.hora_prevista || "99:99"), data: r.data_prevista, hora: r.hora_prevista || "", fim: "",
+      etapa: r.etapa_nome, local: r.local_prevista || "", online: /^https?:/i.test(r.local_prevista || ""), vaga_id: r.vaga_id, vaga_titulo: r.vaga_titulo,
+      candidato_nome: r.candidato_nome, candidato_email: r.candidato_email, candidatura_id: r.candidatura_id, avisado: !!r.data_enviada_em, participantes: [] });
+  }
+  itens.sort((x, y) => passadas ? (x.quando < y.quando ? 1 : -1) : (x.quando < y.quando ? -1 : 1));
+  return { ok: true, hoje, itens };
 }
 
 async function logListar(env) {
@@ -1304,9 +1210,9 @@ const HANDLERS = {
   vagas_todas: vagasTodas, minhas_vagas: minhasVagas, vaga_salvar: vagaSalvar, vaga_detalhe: vagaDetalhe,
   etapa_atualizar: etapaAtualizar, candidatura_status: candidaturaStatus,
   proposta_criar: propostaCriar, adm_listar: admListar, adm_detalhe: admDetalhe, adm_decidir: admDecidir, adm_reenviar: admReenviar,
-  func_listar: funcListar, func_detalhe: funcDetalhe, func_atualizar: funcAtualizar, doc_gerar: docGerar, doc_cancelar: docCancelar,
-  cfg_obter: cfgObter, cfg_salvar_geral: cfgSalvarGeral, dep_salvar: depSalvar, lista_salvar: listaSalvar, modelo_salvar: modeloSalvar,
-  log_listar: logListar, email_teste: emailTeste, func_planilha: funcPlanilha, planilha_testar: planilhaTestar,
+  func_listar: funcListar, func_detalhe: funcDetalhe, func_atualizar: funcAtualizar,
+  cfg_obter: cfgObter, cfg_salvar_geral: cfgSalvarGeral, dep_salvar: depSalvar, lista_salvar: listaSalvar,
+  log_listar: logListar, email_teste: emailTeste, entrevistas_listar: entrevistasListar,
   agenda_listar: async (env, ctx, b, u) => {
     const vaga = await um(env, "SELECT * FROM vagas WHERE id = ?", texto(b.vaga_id, 30));
     if (!vaga) throw new ErroApi("Vaga não encontrada.");
@@ -1319,7 +1225,7 @@ const HANDLERS = {
   indicadores, cfg_salvar_lgpd: cfgSalvarLgpd, candidato_excluir: candidatoExcluir,
   adm_proposta_salvar: admPropostaSalvar, adm_cancelar: admCancelar, adm_passo: admPasso, adm_pedir_acessos: admPedirAcessos,
   adm_area: admArea, cfg_salvar_admissao: cfgSalvarAdmissao,
-  etapa_agendar: etapaAgendar, modelo_importar: modeloImportar, registros_listar: registrosListar
+  etapa_agendar: etapaAgendar
 };
 
 export { podeVerVaga };

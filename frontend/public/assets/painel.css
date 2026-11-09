@@ -419,3 +419,14 @@ div.numero:hover{transform:none;border-color:var(--linha)}
 .doc-cfg-nome input[type=text]{flex:1;min-width:220px}
 .doc-cfg-tipos{display:flex;gap:6px 16px;flex-wrap:wrap;align-items:center}
 @media(max-width:760px){.cad-linhas{grid-template-columns:1fr}.passo-adm{grid-template-columns:32px 1fr}.passo-adm .acoes{grid-column:2;justify-content:flex-start}}
+
+/* ---------- Entrevistas ---------- */
+.entrevistas{display:grid;gap:18px}
+.ent-dia h3{display:flex;gap:10px;align-items:center;margin:0 0 8px;font-size:15px;color:var(--tinta)}
+.ent-item{display:grid;grid-template-columns:110px 1fr auto;gap:14px;align-items:center;padding:12px 18px;border-top:1px solid var(--linha);text-decoration:none;color:inherit}
+.ent-item:first-child{border-top:0}
+.ent-item:hover{background:var(--sup2)}
+.ent-hora{font-weight:850;font-size:15px;color:var(--marca-forte)}
+.ent-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ent-info b{color:var(--tinta)}
+@media(max-width:640px){.ent-item{grid-template-columns:1fr}}
