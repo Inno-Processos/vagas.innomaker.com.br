@@ -23,6 +23,8 @@ vagas.innomaker.com.br/
 │       ├── index.html        site público e área do candidato
 │       ├── painel.html       painel interno (funcionário, gerente, RH)
 │       ├── documento.html    leitura, impressão e assinatura de documentos
+│       ├── agendar.html      candidato escolhe o horário da entrevista (/agendar/<token>)
+│       ├── privacidade.html  Política de privacidade (LGPD)
 │       ├── erro.html         página de erro
 │       └── assets/           inicio.js (partida: busca os dados na API), site/painel/documento .js e .css,
 │                             manual.js (manual de cada aba), tema.js (claro/escuro), logos
@@ -51,7 +53,7 @@ vagas.innomaker.com.br/
 | RH (grupo `RH`) | `/painel` | Aprova solicitações, vagas e etapas, propostas, admissões, funcionários, documentos, configurações e histórico |
 | Sem grupo | `/painel` | Página de acesso negado |
 
-Cada aba do painel tem o quadro **"Como usar esta tela"**. O fluxo segue os procedimentos RHC-PROC-2026-001, 002 e 003 ([docs/processos.md](docs/processos.md)).
+O manual de cada tela abre pelo **ícone de livro** no topo do painel (textos em `frontend/public/assets/manual.js`). O fluxo segue os procedimentos RHC-PROC-2026-001, 002 e 003 ([docs/processos.md](docs/processos.md)).
 
 ## API
 
@@ -60,10 +62,13 @@ As telas chamam o backend sempre pelo frontend (mesma origem, sem CORS):
 ```
 GET  /api/site/inicio         vagas, candidato logado e se há sessão de funcionário (site público)
 GET  /api/vagas               vagas abertas
-POST /api/candidato/<acao>    inscrever, login, sair, esqueci, senha, area, proposta, cadastro, assinar
+POST /api/candidato/<acao>    inscrever, login, sair, esqueci, senha, area, proposta, cadastro, assinar, privacidade, excluir
 GET  /api/painel/sessao       200 usuário e permissões · 401 sem login (com loginUrl) · 403 sem grupo
 POST /api/staff/<acao>        ações do painel (lista em backend/src/lib/papeis.js)
 GET  /api/documento/<id>      documento para ler/assinar (candidato dono ou RH)
+GET  /api/agendar/<token>     horários livres para o candidato (link do e-mail, sem login)
+POST /api/agendar/<token>/reservar | liberar
+GET  /api/privacidade         prazos de guarda e contato (página Política de privacidade)
 GET  /arquivo/<id>            currículos e documentos enviados (com permissão)
 GET  /entrar, /sair           login e logout no Authelia
 GET  /saude                   {"ok":true} (backend e frontend, cada um o seu)
@@ -109,13 +114,40 @@ Antes de subir:
   Limite do Gmail: cerca de 500 e-mails por dia.
 - **Authelia e LLDAP:** siga [docs/authelia.md](docs/authelia.md). Coloque as pessoas do RH no grupo `RH`.
 
+## Rotina automática (de hora em hora)
+
+- Fecha vagas com prazo vencido e avisa o RH sobre contratos perto do fim.
+- **Lembretes ao candidato** (só das 8h às 20h): entrevista no dia seguinte (candidato e entrevistadores);
+  proposta sem resposta, cadastro de admissão incompleto (diz o que falta), correção pedida pelo RH e documentos sem assinatura
+  (até 3 lembretes, a cada 2 dias).
+- **Prazo de guarda (LGPD)**, uma vez por dia: apaga candidatos sem atividade há mais tempo que o prazo de Painel → Configurações.
+- **Backup** do banco (um por dia em `data/backups/`, mantém 15) e **cópia externa** (abaixo).
+
+## Backup fora do servidor
+
+Sem isso, se o disco do servidor falhar, perde-se tudo. Monte uma pasta de **outro disco, NAS ou pasta sincronizada
+com a nuvem** no container e informe o caminho:
+
+```yaml
+# docker-compose.yml → backend → volumes
+      - /mnt/nas/vagas-backup:/backup-externo
+```
+```bash
+# backend/.env
+BACKUP_EXTERNO_DIR=/backup-externo
+```
+
+Todo dia o backend copia o banco para `<destino>/banco/` (mantém 30) e espelha `data/arquivos/` em `<destino>/arquivos/`
+(o que é apagado aqui, por pedido LGPD ou prazo, também sai de lá). A situação aparece em **Painel → Configurações → Backup**
+e o RH recebe um e-mail se a cópia falhar. Para testar na hora: `npm run backup`.
+
+Para **restaurar**: pare o sistema, copie `<destino>/banco/vagas-AAAA-MM-DD.db` para `data/vagas.db` e `<destino>/arquivos/` para `data/arquivos/`, e suba de novo.
+
 ## Manutenção
 
 - Testes: `npm test`.
-- Backup manual: `npm run backup` (ou `docker compose exec backend node src/cli.js backup`), ou copie a pasta `data/` inteira.
-  O backend já faz um backup do banco por dia em `data/backups/` (mantém os últimos 15).
-  **Os arquivos enviados (`data/arquivos/`) não entram nesse backup: copie a pasta `data/` inteira de vez em quando.**
-- Mudar um texto do manual de uma aba: `frontend/public/assets/manual.js`.
+- Backup manual: `npm run backup` (ou `docker compose exec backend node src/cli.js backup`).
+- Mudar um texto do manual de uma tela: `frontend/public/assets/manual.js`.
 
 ## Mudanças comuns
 
@@ -145,3 +177,10 @@ Antes de subir:
 Currículos, documentos e dados de admissão ficam no servidor da Innomaker, na pasta `data/`, acessível só pelo backend.
 Arquivos só abrem pelo sistema: o próprio candidato, o RH, ou o gerente da vaga (apenas currículos).
 As senhas dos candidatos são guardadas com hash (PBKDF2) e as assinaturas registram nome, CPF, data, IP e o código (hash) do documento.
+
+- **Consentimento:** a inscrição exige o aceite da [Política de privacidade](/privacidade) (`frontend/public/privacidade.html`);
+  o banco de talentos é um aceite separado e opcional, que o candidato liga ou desliga na Área do candidato.
+- **Exclusão:** o candidato tem o botão *Excluir meus dados* (pede a senha); o RH pode excluir pela ficha do candidato ou pelo Banco de talentos.
+  Apaga conta, currículos, candidaturas, avaliações e horários, e tira o e-mail do Histórico. Admissões e funcionários não são excluídos por aqui (guarda legal).
+- **Prazo de guarda:** Painel → Configurações → Privacidade (padrão: 12 meses; banco de talentos: 24 meses). Código em `backend/src/lib/lgpd.js`.
+- Revise o texto da Política de privacidade com o jurídico antes de publicar.

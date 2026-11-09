@@ -257,20 +257,8 @@ dialog::backdrop{background:rgba(6,8,7,.55);backdrop-filter:blur(2px)}
 }
 
 /* ---------- Manual de cada aba ("Como usar esta tela") ---------- */
-.manual{margin:-8px 0 24px;border:1px solid var(--marca-linha);border-left:4px solid var(--marca);border-radius:14px;background:var(--sup)}
-.manual summary{display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;list-style:none;color:var(--tinta)}
-.manual summary::-webkit-details-marker{display:none}
-.manual summary::after{content:"";margin-left:auto;width:8px;height:8px;border-right:2px solid var(--suave);border-bottom:2px solid var(--suave);transform:rotate(45deg);transition:transform .15s;flex:none}
-.manual[open] summary::after{transform:rotate(-135deg)}
-.manual summary b{display:block;font-size:14px}
 .manual-resumo{display:block;font-size:13px;color:var(--suave)}
-.manual-icone{width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--marca);color:#fff;font-weight:900;font-size:14px}
-.manual-corpo{padding:0 18px 16px 54px;font-size:14px}
-.manual-corpo ol{margin:0;padding-left:18px}
-.manual-corpo li{margin:6px 0}
 .manual-dicas{margin:12px 0 0;padding:10px 14px 10px 30px;border-radius:10px;background:var(--sup2);color:var(--suave);font-size:13.5px}
-.boas-vindas + .manual{margin-top:0}
-@media(max-width:640px){.manual-corpo{padding:0 14px 14px 18px}}
 
 /* ---------- Aviso de página inteira (sem acesso / sistema fora) ---------- */
 .aviso-geral{max-width:620px;margin:40px auto;padding:34px;background:var(--sup);border:1px solid var(--linha);border-radius:22px;box-shadow:var(--sombra)}
@@ -335,3 +323,52 @@ dialog::backdrop{background:rgba(6,8,7,.55);backdrop-filter:blur(2px)}
 .passo.recusada{background:#b42318}
 .passo.atual{background:var(--sup);box-shadow:inset 0 0 0 2px var(--marca)}
 @media(max-width:640px){.decisoes{grid-template-columns:1fr}.estrela{width:44px;height:44px}}
+/* ---------- Manual (ícone de livro no topo) ---------- */
+.manual-escolha{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-weight:750;font-size:13.5px}
+.manual-escolha select{max-width:360px}
+.manual-resumo{margin:0 0 10px;color:var(--suave);font-size:14px}
+.manual-passos{margin:0;padding-left:20px;font-size:14.5px;line-height:1.6}
+.manual-passos li{margin:6px 0}
+/* ---------- Agenda de entrevistas ---------- */
+.card.apagado{opacity:.72}
+.agenda-grade{display:grid;gap:10px;margin-top:14px}
+.agenda-dia{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:start}
+.agenda-dia>b{font-size:13px;text-transform:capitalize;padding-top:7px}
+.agenda-horas{display:flex;flex-wrap:wrap;gap:6px}
+.slot{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:5px 10px;border-radius:10px;border:1px solid var(--linha-forte);background:var(--sup2);font-size:13px;font-weight:750;color:var(--texto);font-family:inherit}
+.slot.livre{color:var(--suave)}
+.slot.novo{border-style:dashed;border-color:var(--marca);color:var(--marca-forte)}
+.slot.ocupado{background:var(--marca-suave);border-color:var(--marca-linha);color:var(--marca-forte);cursor:pointer}
+button.slot.ocupado:hover{border-color:var(--marca)}
+.slot.ocupado span{font-weight:650;color:var(--texto)}
+.slot.passado{opacity:.6}
+.slot.removido{text-decoration:line-through;opacity:.55}
+.slot-x{border:0;background:transparent;color:inherit;font-size:15px;line-height:1;cursor:pointer;padding:0 2px}
+.gerador{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+input[type=time]{width:100%;padding:11px 14px;border:1px solid var(--linha-forte);border-radius:12px;background:var(--sup2);color:var(--texto);font-size:14px}
+.lista-check{display:grid;gap:10px}
+/* ---------- Banco de talentos ---------- */
+.talento-nome{display:flex;gap:12px;align-items:flex-start}
+.talento-nome input{width:18px;height:18px;margin-top:4px;accent-color:var(--marca);flex:none}
+.estrela-tag{color:var(--estrela,#e0a100)}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.tag{padding:3px 10px;border-radius:999px;background:var(--sup3);border:1px solid var(--linha);font-size:12px;font-weight:700}
+.talento-hist{margin:10px 0 0;padding-left:18px;font-size:13px;color:var(--suave)}
+.talento-hist b{color:var(--texto)}
+.bt-perigo-txt{background:transparent;border:0;color:var(--verm);font-weight:750;font-size:13px;cursor:pointer;padding:8px 6px}
+.bt-perigo-txt:hover{text-decoration:underline}
+/* ---------- Indicadores ---------- */
+.numero small{display:block;margin-top:4px;font-size:12px;color:var(--suave)}
+div.numero:hover{transform:none;border-color:var(--linha)}
+.barras{display:grid;gap:12px}
+.barra-linha{display:grid;grid-template-columns:minmax(110px,200px) 1fr 44px;grid-template-areas:"rot trilho num" ". det det";gap:2px 12px;align-items:center}
+.barra-rot{grid-area:rot;font-size:13.5px;font-weight:750;color:var(--tinta)}
+.barra-trilho{grid-area:trilho;height:14px;border-radius:4px;background:var(--sup3);overflow:hidden}
+.barra-val{display:block;height:100%;background:#41A639;border-radius:0 4px 4px 0}
+.barra-num{grid-area:num;text-align:right;font-size:14px;color:var(--tinta)}
+.barra-det{grid-area:det;font-size:12px;color:var(--suave)}
+@media(max-width:640px){
+  .gerador{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .agenda-dia{grid-template-columns:1fr}
+  .barra-linha{grid-template-columns:1fr 40px;grid-template-areas:"rot num" "trilho trilho" "det det"}
+}

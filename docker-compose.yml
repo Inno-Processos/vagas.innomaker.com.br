@@ -8,7 +8,11 @@ services:
     environment:
       DATA_DIR: /data
       API_PORT: 3001
-    volumes: ["./data:/data"]
+    volumes:
+      - ./data:/data
+      # Backup FORA do servidor: monte aqui um disco externo, pasta de rede (NAS) ou pasta sincronizada
+      # com a nuvem e defina BACKUP_EXTERNO_DIR=/backup-externo no backend/.env. Ex.:
+      # - /mnt/nas/vagas-backup:/backup-externo
     # Mesmo DNS do SAC: resolve auth.innomaker.com.br pela rede interna
     dns:
       - 192.168.0.201

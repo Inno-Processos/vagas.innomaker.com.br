@@ -25,6 +25,7 @@ export const ACOES = {
   solic_minhas: GESTAO,
   minhas_vagas: GESTAO,
   vaga_detalhe: GESTAO,       // gerente: só vagas da própria área
+  agenda_listar: GESTAO,      // gerente: só vagas da própria área (só vê)
 
   solic_listar: RH,
   solic_decidir: RH,
@@ -50,7 +51,18 @@ export const ACOES = {
   log_listar: RH,
   email_teste: RH,
   func_planilha: RH,
-  planilha_testar: RH
+  planilha_testar: RH,
+  agenda_salvar: RH,
+  agenda_encerrar: RH,
+  agenda_convidar: RH,
+  agenda_cancelar_reserva: RH,
+  agenda_participante: RH,
+  talentos_listar: RH,
+  talento_salvar: RH,
+  talento_convidar: RH,
+  indicadores: RH,
+  cfg_salvar_lgpd: RH,
+  candidato_excluir: RH
 };
 
 export function podeExecutar(papel, acao) {

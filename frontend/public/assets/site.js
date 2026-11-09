@@ -5,6 +5,7 @@
   const VAGAS = BOOT.vagas || [];
   const MAX_PDF = 10 * 1024 * 1024;
   let vagaAtual = null;
+  const URL_INICIAL = new URLSearchParams(location.search); // origem/indicação do link (a navegação limpa a URL)
   let ultimoTracking = null;
 
   /* ---------- Assets e links ---------- */
@@ -150,6 +151,7 @@
         $("fEmail").value = BOOT.candidato.email || "";
         $("fTel").value = BOOT.candidato.telefone || "";
       }
+      prepararOrigem(v.vaga_id);
       $("form").hidden = false;
       $("formDone").hidden = true;
       $("formBack").hidden = false;
@@ -162,6 +164,21 @@
 
   /* ---------- Inscrição ---------- */
   function erroForm(m){ setMsg("formMsg", "err", null, m); $("formMsg").scrollIntoView({ behavior: "smooth", block: "center" }); }
+
+  // Origem da inscrição: link de indicação (?origem=indicacao&ind=Nome) ou convite do banco de talentos (?origem=talentos)
+  // Chamado ao abrir a vaga (depois do reset do formulário); só vale para a vaga do link.
+  function prepararOrigem(vagaId){
+    const q = new URLSearchParams(location.search);
+    if (!q.get("origem")) q.set("origem", URL_INICIAL.get("vaga_id") === vagaId ? URL_INICIAL.get("origem") || "" : "");
+    if (!q.get("ind") && URL_INICIAL.get("vaga_id") === vagaId && URL_INICIAL.get("ind")) q.set("ind", URL_INICIAL.get("ind"));
+    const o = String(q.get("origem") || "").replace(/[^a-z]/g, "");
+    const opcao = o ? $("fOrigem").querySelector("option[value=" + o + "]") : null;
+    $("fOrigem").querySelector("option[value=talentos]").hidden = o !== "talentos";
+    if (opcao) $("fOrigem").value = o;
+    if (q.get("ind")) $("fIndicado").value = q.get("ind").slice(0, 150);
+    $("campoIndicado").hidden = $("fOrigem").value !== "indicacao";
+  }
+  $("fOrigem").addEventListener("change", () => { $("campoIndicado").hidden = $("fOrigem").value !== "indicacao"; });
 
   $("form").addEventListener("submit", async function(ev){
     ev.preventDefault();
@@ -182,11 +199,17 @@
     if (!file) return erroForm("Selecione seu currículo em PDF.");
     if (!(file.type === "application/pdf" || /\.pdf$/i.test(file.name || ""))) return erroForm("O currículo precisa estar em PDF.");
     if (file.size > MAX_PDF) return erroForm("O currículo passa de 10 MB.");
+    if ($("fOrigem").value === "indicacao" && !$("fIndicado").value.trim()) return erroForm("Informe o nome de quem indicou você.");
+    if (!$("fAceite").checked) return erroForm("Para se inscrever, leia e aceite a Política de privacidade.");
 
     const fd = new FormData();
     fd.append("vaga_id", vagaAtual.vaga_id);
     Object.keys(d).forEach(k => fd.append(k, d[k]));
     fd.append("curriculo", file);
+    fd.append("origem", $("fOrigem").value);
+    fd.append("indicado_por", $("fOrigem").value === "indicacao" ? $("fIndicado").value.trim() : "");
+    fd.append("aceite_privacidade", $("fAceite").checked ? "1" : "");
+    fd.append("banco_talentos", $("fBanco").checked ? "1" : "");
 
     $("btnEnviar").disabled = true;
     $("btnEnviar").textContent = "Enviando…";
@@ -304,6 +327,72 @@
     if (!cands.length) s.append(el("div", "empty", "Você ainda não tem candidaturas."));
     cands.forEach((c, i) => s.append(cardCandidatura(c, cands.length === 1)));
     box.append(s);
+    if (d.privacidade) box.append(secaoPrivacidade(d.privacidade));
+  }
+
+  // ---------- Privacidade (LGPD): banco de talentos e exclusão dos dados ----------
+  function secaoPrivacidade(p){
+    const s = secao("Privacidade e meus dados", "Seus direitos pela LGPD. Veja na Política de privacidade como usamos seus dados.");
+    const card = el("article", "card cand");
+    const lb = el("label", "check-linha");
+    const ck = document.createElement("input");
+    ck.type = "checkbox";
+    ck.checked = !!p.banco_talentos;
+    lb.append(ck, el("span", null, "Quero ficar no banco de talentos da Innomaker e ser chamado(a) para outras vagas."));
+    const st = el("p", "small", "");
+    const pintar = () => { st.textContent = ck.checked ? "Autorizado" + (p.banco_talentos_em ? " em " + fmtData(p.banco_talentos_em) : "") + ". Desmarque para retirar a autorização." : "Você não está no banco de talentos."; };
+    pintar();
+    ck.addEventListener("change", async function(){
+      ck.disabled = true;
+      const r = await api("privacidade", { banco_talentos: ck.checked });
+      ck.disabled = false;
+      if (r.sessaoExpirada) { logado = false; return abrirLogin("info", "Sua sessão expirou. Entre novamente."); }
+      if (!r.ok) { ck.checked = !ck.checked; return alert(r.erro || "Não foi possível salvar."); }
+      p.banco_talentos = r.banco_talentos;
+      p.banco_talentos_em = r.banco_talentos ? new Date().toISOString() : "";
+      pintar();
+    });
+    card.append(lb, st);
+
+    const acoes = el("div", "privacidade-acoes");
+    const pol = el("a", "btn-line", "Política de privacidade");
+    pol.href = "/privacidade"; pol.target = "_blank"; pol.rel = "noopener";
+    const bt = el("button", "btn-perigo", "Excluir meus dados");
+    bt.type = "button";
+    acoes.append(pol, bt);
+    card.append(acoes);
+    const area = el("div");
+    card.append(area);
+    bt.addEventListener("click", function(){
+      area.innerHTML = "";
+      if (p.motivoNaoExclui) { area.append(caixa("warn", "Não é possível excluir por aqui", p.motivoNaoExclui)); return; }
+      const f = document.createElement("form");
+      f.noValidate = true;
+      f.style.marginTop = "14px";
+      f.append(caixa("warn", "Isso não pode ser desfeito", "Vamos apagar sua conta, seus currículos e todas as suas candidaturas. Se houver entrevista marcada, ela será cancelada."));
+      const campo = (rot, tipo, id, auto) => { const d = el("div", "field"); const l = el("label", null, rot); l.htmlFor = id; const i = document.createElement("input"); i.className = "input"; i.type = tipo; i.id = id; i.autocomplete = auto; d.append(l, i); return d; };
+      f.append(campo("Digite EXCLUIR para confirmar", "text", "exConf", "off"), campo("Sua senha", "password", "exSenha", "current-password"));
+      const m = el("div"); f.append(m);
+      const ok = el("button", "btn-perigo", "Excluir definitivamente"); ok.type = "submit";
+      const cancelar = el("button", "btn-line", "Cancelar"); cancelar.type = "button";
+      cancelar.addEventListener("click", () => { area.innerHTML = ""; });
+      const linha = el("div", "privacidade-acoes"); linha.append(ok, cancelar); f.append(linha);
+      f.addEventListener("submit", async function(ev){
+        ev.preventDefault();
+        m.innerHTML = "";
+        ok.disabled = true;
+        const r = await api("excluir", { confirmacao: $("exConf").value, senha: $("exSenha").value });
+        ok.disabled = false;
+        if (r.sessaoExpirada) { logado = false; return abrirLogin("info", "Sua sessão expirou. Entre novamente."); }
+        if (!r.ok) return m.append(caixa("err", null, r.erro || "Não foi possível excluir."));
+        logado = false; areaDados = null; BOOT.candidato = null;
+        abrirLogin("ok", "Seus dados foram excluídos. Enviamos uma confirmação para o seu e-mail.");
+      });
+      area.append(f);
+      $("exConf").focus();
+    });
+    s.append(card);
+    return s;
   }
 
   function cardCandidatura(d, aberto){
@@ -323,6 +412,17 @@
     if (d.etapa_atual && d.status_publico === "Em processo") {
       const cur = el("div", "current");
       cur.append(el("div", "small", "Etapa atual"), el("b", null, d.etapa_atual), el("div", "small", d.mensagem || ""));
+      if (d.agenda) {
+        const ag = el("div", "agenda-cand");
+        const h = d.agenda.horario;
+        ag.append(el("span", "small", h ? (d.agenda.passou ? "Seu horário foi em " : "Seu horário: ") + fmtData(h.slice(0, 10)) + " às " + h.slice(11, 16) : "Escolha o horário da etapa " + d.agenda.etapa + "."));
+        if (!d.agenda.passou) {
+          const a = el("a", h ? "btn-line" : "btn", h ? "Ver ou trocar horário" : "Escolher horário");
+          a.href = d.agenda.url;
+          ag.append(a);
+        }
+        cur.append(ag);
+      }
       card.append(cur);
     } else if (d.mensagem && d.status_publico !== "Contratado") {
       card.append(el("p", "small", d.mensagem));

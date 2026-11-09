@@ -175,7 +175,7 @@ test("backend e frontend separados: telas, repasse da API, arquivos estáticos e
       carga_horaria: "30h", descricao: "x", requisitos: "x", principais_funcoes: "x", status: "Aberta", etapas: ["Triagem", "Entrevista RH"] });
     assert.equal(vg.ok, true, JSON.stringify(vg));
     const fd = new FormData();
-    Object.entries({ vaga_id: vg.id, nome: "Ana Candidata", email: "ana@example.com", telefone: "21999999999", periodo_curso: "5º", previsao_formatura: "2027-12" })
+    Object.entries({ vaga_id: vg.id, nome: "Ana Candidata", email: "ana@example.com", telefone: "21999999999", periodo_curso: "5º", previsao_formatura: "2027-12", aceite_privacidade: "1" })
       .forEach(([k, x]) => fd.set(k, x));
     fd.set("curriculo", new File(["%PDF-1.4 teste"], "cv.pdf", { type: "application/pdf" }));
     const insc = await (await fetch(base + "/api/candidato/inscrever", { method: "POST", headers: { origin: base }, body: fd })).json();

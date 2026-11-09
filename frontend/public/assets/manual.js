@@ -1,4 +1,4 @@
-/* Manual de cada aba do painel — Vagas.Innomaker.
+/* Manual de cada aba do painel — Vagas.Innomaker. Abre pelo ícone de livro no topo do painel.
    Chave = aba (ou rota interna). "passos" vira lista numerada; "dicas" vira lista de observações.
    Para textos diferentes por papel, use { rh: {...}, gerente: {...}, funcionario: {...} }. */
 window.MANUAL_PAINEL = {
@@ -107,15 +107,21 @@ window.MANUAL_PAINEL = {
         "Em <b>Avaliar</b>: dê a nota de <b>1 a 3 estrelas</b> (abaixo do esperado, dentro do esperado, acima do esperado), escreva a <b>análise</b> e escolha <b>Aprovado</b> ou <b>Recusado</b>.",
         "<b>Recusado</b> encerra o processo e envia o texto da análise como <b>feedback ao candidato</b> por e-mail. A janela mostra a prévia do e-mail antes de confirmar.",
         "<b>Aprovado</b> passa para a próxima etapa. Se quiser, marque <b>Avisar o candidato</b> para mandar um e-mail dizendo que ele avançou.",
-        "Quando todas as etapas estiverem aprovadas, clique em <b>Enviar proposta</b> (e-mail pessoal, não pode ser @id.uff.br)."
+        "Quando todas as etapas estiverem aprovadas, clique em <b>Enviar proposta</b> (e-mail pessoal, não pode ser @id.uff.br).",
+        "<b>Agenda de entrevistas:</b> clique em <b>+ Nova agenda</b>, escolha a etapa, o local (ou link online), quem entrevista e gere os horários (dia, das/às e pausa). Salve.",
+        "Clique em <b>Enviar link</b>: cada candidato que está naquela etapa recebe um e-mail para escolher um horário livre. Um horário reservado não pode ser pego por outra pessoa.",
+        "Quando o candidato reserva, ele e os entrevistadores recebem o <b>convite de calendário</b>. No dia anterior, todos recebem um lembrete.",
+        "Clique num horário reservado para <b>convidar mais alguém</b> só para aquela entrevista ou <b>cancelar</b> (o candidato pode escolher outro)."
       ],
-      dicas: ["A Triagem (análise do currículo) não tem data agendada; as outras etapas têm, para marcar entrevista ou teste.",
+      dicas: ["A Triagem (análise do currículo) não tem agenda; as outras etapas têm, para entrevista ou teste.",
+        "O candidato pode trocar de horário sozinho até 2 horas antes. Se for recusado ou desistir, o horário dele é liberado e os entrevistadores são avisados.",
+        "Na ficha do candidato: <b>Banco de talentos</b> guarda o candidato com palavras-chave e anotação; <b>Excluir dados (LGPD)</b> apaga tudo dele a pedido.",
         "Para corrigir uma avaliação, use <b>Editar</b> na etapa. O e-mail de recusa não é enviado de novo.",
         "Se a pessoa desistir, use <b>Registrar desistência</b> no fim da ficha."]
     },
     gerente: {
       resumo: "Candidatos da vaga da sua área.",
-      passos: ["Veja os candidatos e abra os currículos.", "Acompanhe a etapa atual de cada um."],
+      passos: ["Veja os candidatos e abra os currículos.", "Acompanhe a etapa atual de cada um.", "Na <b>Agenda de entrevistas</b> você vê os horários marcados com cada candidato."],
       dicas: ["O resultado das etapas é registrado pelo RH."]
     }
   },
@@ -182,9 +188,36 @@ window.MANUAL_PAINEL = {
       "<b>Departamentos e gestores:</b> informe o gestor e o e-mail de cada departamento. É ele quem recebe os avisos da área.",
       "<b>Listas de opções:</b> etapas, tipos de contratação, horários e outras listas (um item por linha).",
       "<b>Modelos de documento:</b> cole o texto oficial dos termos. Use os campos entre chaves, como {{NOME}} e {{CPF}}.",
-      "<b>Planilha de Registros:</b> clique em <b>Testar planilha</b> para conferir a ligação com a planilha (mostra a próxima matrícula)."
+      "<b>Planilha de Registros:</b> clique em <b>Testar planilha</b> para conferir a ligação com a planilha (mostra a próxima matrícula).",
+      "<b>Privacidade (LGPD):</b> defina por quantos meses guardar as candidaturas e o banco de talentos. Passado o prazo, os dados são apagados sozinhos.",
+      "<b>Backup:</b> mostra se a cópia diária para fora do servidor está em dia. Se aparecer em vermelho, avise quem cuida do servidor."
     ],
-    dicas: ["<b>Links úteis</b> aparecem no início do painel para todos."]
+    dicas: ["<b>Links úteis</b> aparecem no início do painel para todos.",
+      "Candidatos em processo, admissões e funcionários nunca são apagados pelo prazo de guarda."]
+  },
+
+  "talentos": {
+    resumo: "Pessoas para lembrar em novas vagas.",
+    passos: [
+      "Aparecem aqui os candidatos que <b>autorizaram</b> o banco de talentos (na inscrição ou na Área do candidato) e os que o RH <b>marcou</b> pela ficha do candidato.",
+      "Use a busca para achar por nome, palavra-chave, anotação ou vaga anterior. Os filtros separam marcados pelo RH, só autorizados e sem autorização.",
+      "Marque a caixa ao lado de quem autorizou e clique em <b>Convidar para uma vaga</b>. A pessoa recebe um e-mail com o link da vaga.",
+      "<b>Anotar</b> guarda palavras-chave e uma anotação. <b>Excluir dados</b> apaga tudo da pessoa (LGPD)."
+    ],
+    dicas: ["Quem não autorizou não pode receber convite, e os dados dele são apagados no fim do prazo de guarda.",
+      "Inscrições vindas do convite aparecem nos Indicadores como “Convite do banco de talentos”."]
+  },
+
+  "indicadores": {
+    resumo: "Números dos processos seletivos para decidir onde melhorar.",
+    passos: [
+      "Escolha o período (30 dias a 12 meses, ou tudo). Contam as inscrições feitas nesse período.",
+      "Os quadros do topo mostram candidaturas, contratações, tempo médio até contratar, desistências e indicações.",
+      "<b>Funil por etapa</b>: quantos chegaram em cada etapa e o que aconteceu (aprovados, recusados, desistiram, aguardando). A frase acima mostra onde mais candidatos param.",
+      "<b>De onde vêm os candidatos</b>: resposta de “Como soube da vaga?” na inscrição e quantos de cada origem foram contratados.",
+      "<b>Candidatos por vaga</b>: inscritos, em processo e contratados de cada vaga."
+    ],
+    dicas: ["O link copiado pelo funcionário em <b>Vagas abertas</b> já marca a inscrição como indicação, com o nome dele."]
   },
 
   "log": {

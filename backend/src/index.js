@@ -19,6 +19,9 @@ import { rotinaDiaria } from "./cron.js";
 import { abrirBanco } from "./infra/banco.js";
 import { criarArmazenamento } from "./infra/arquivos.js";
 import { criarCorreio } from "./infra/correio.js";
+import { criarBackupExterno } from "./infra/backupExterno.js";
+import { enviarEmail, layout, textoSimples } from "./lib/email.js";
+import { lerConfig } from "./lib/db.js";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DADOS = path.resolve(process.env.DATA_DIR || path.join(RAIZ, "..", "data"));
@@ -30,7 +33,8 @@ const banco = abrirBanco(DADOS, path.join(RAIZ, "migrations"));
 const env = Object.assign({}, process.env, {
   DB: banco,
   ARQUIVOS: criarArmazenamento(path.join(DADOS, "arquivos")),
-  CORREIO: criarCorreio(process.env)
+  CORREIO: criarCorreio(process.env),
+  BACKUP: criarBackupExterno(DADOS, process.env.BACKUP_EXTERNO_DIR ? path.resolve(process.env.BACKUP_EXTERNO_DIR) : "")
 });
 
 // Tarefas em segundo plano (e-mails) que não seguram a resposta
@@ -108,18 +112,37 @@ async function rotina() {
     await rotinaDiaria(env);
     const b = banco.backup();
     if (b) console.log("Backup do banco:", b);
+    const ext = await env.BACKUP.copiar();
+    if (ext && ext.ok) console.log("Cópia externa:", env.BACKUP.destino, ext.arquivos);
+    if (ext && !ext.ok) await avisarFalhaBackup(ext);
   } catch (e) {
     console.error("Rotina falhou:", e);
   } finally {
     rodando = false;
   }
 }
+// Cópia externa falhou: avisa o RH (uma vez por dia)
+let avisoBackupDia = "";
+async function avisarFalhaBackup(s) {
+  console.error("Cópia externa do backup falhou:", s.erro);
+  if (avisoBackupDia === s.dia) return;
+  avisoBackupDia = s.dia;
+  const config = await lerConfig(env);
+  if (!config.email_rh) return;
+  const ps = ["A cópia do backup para fora do servidor não foi feita hoje.", "<b>Erro:</b> " + String(s.erro).replace(/[<>&]/g, ""),
+    s.ultimoOk ? "Última cópia que deu certo: " + new Date(s.ultimoOk).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "Ainda não houve cópia que desse certo.",
+    "Peça para quem cuida do servidor conferir se o disco/pasta de destino está montado (BACKUP_EXTERNO_DIR)."];
+  await enviarEmail(env, { para: config.email_rh, assunto: "Atenção: backup externo do sistema de vagas falhou",
+    html: layout({ titulo: "Backup externo falhou", paragrafos: ps }), texto: textoSimples("Backup externo falhou", ps) });
+}
+
 const relogio = setInterval(rotina, UMA_HORA);
 const primeira = setTimeout(rotina, 15 * 1000);
 
 servidor.listen(PORTA, () => {
   console.log(`Backend (API) no ar: http://localhost:${servidor.address().port}  (dados em ${DADOS})`);
   console.log("Login: Authelia " + (env.AUTHELIA_URL || "https://auth.innomaker.com.br") + (env.DEV_USUARIO_FALSO ? "  + usuário falso em localhost" : ""));
+  console.log("Backup externo: " + (env.BACKUP.destino || "NÃO configurado (defina BACKUP_EXTERNO_DIR)"));
   console.log("E-mail: " + (env.CORREIO ? `SMTP ${env.SMTP_HOST || "smtp.gmail.com"} como ${env.SMTP_FROM || env.SMTP_USER}` : "sem SMTP (os e-mails ficam só no Histórico do painel)"));
 });
 

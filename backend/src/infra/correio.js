@@ -21,7 +21,9 @@ export function criarCorreio(e) {
         text: m.texto,
         html: m.html,
         attachments: (m.anexos || []).filter(a => a && a.filename && a.content)
-          .map(a => ({ filename: a.filename, content: a.content, encoding: "base64" }))
+          .map(a => ({ filename: a.filename, content: a.content, encoding: "base64" })),
+        // convite de calendário: o Gmail/Outlook mostram como evento, com Sim / Não / Talvez
+        icalEvent: m.convite && m.convite.ics ? { method: m.convite.metodo || "REQUEST", filename: "convite.ics", content: m.convite.ics } : undefined
       });
     }
   };

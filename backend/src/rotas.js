@@ -9,6 +9,9 @@
 //  GET  /api/painel/sessao       quem está logado no painel (401 sem login, 403 sem grupo)
 //  POST /api/staff/<acao>        ações do painel interno
 //  GET  /api/documento/<id>      documento para leitura e assinatura (candidato dono ou RH)
+//  GET  /api/agendar/<token>     horários livres para o candidato (link do e-mail, sem login)
+//  POST /api/agendar/<token>/reservar | liberar
+//  GET  /api/privacidade         prazos de guarda e contato (página Política de privacidade)
 //  GET  /arquivo/<id>            currículos e documentos enviados (com permissão)
 //  GET  /entrar, /sair           login e logout no Authelia
 // =====================================================================
@@ -22,6 +25,8 @@ import { respostaArquivo } from "./lib/arquivos.js";
 import { textoParaHtml } from "./lib/documentos.js";
 import { apiCandidato, vagasPublicas } from "./api/candidato.js";
 import { apiStaff, podeVerVaga } from "./api/staff.js";
+import { apiAgendamento } from "./api/agendamento.js";
+import { prazosLgpd } from "./lib/lgpd.js";
 
 const MAX_UPLOAD_BYTES = 60 * 1024 * 1024;
 
@@ -33,6 +38,11 @@ export async function rotear(request, env, ctx) {
     if (p === "/api/site/inicio") return siteInicio(request, env);
     if (p === "/api/painel/sessao") return painelSessao(request, env);
     if (p.startsWith("/api/documento/")) return documento(request, env, p.slice("/api/documento/".length));
+    if (p.startsWith("/api/agendar/")) return apiAgendamento(request, env, ctx, p.slice("/api/agendar/".length));
+    if (p === "/api/privacidade") {
+      const [prazos, config] = await Promise.all([prazosLgpd(env), lerConfig(env)]);
+      return json({ ok: true, prazos, contato: config.email_rh || "" });
+    }
 
     if (p.startsWith("/api/candidato/")) {
       if (request.method !== "POST") return json({ ok: false, erro: "Use POST." }, 405);

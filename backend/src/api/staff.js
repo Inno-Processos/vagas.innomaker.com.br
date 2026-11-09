@@ -13,6 +13,11 @@ import { CAMPOS_DOCUMENTO, validarModelo, valoresDoFuncionario, preencherModelo,
 import { sha256Hex } from "../lib/senha.js";
 import { acoesDoPapel } from "../lib/papeis.js";
 import { cfg } from "../lib/config.js";
+import {
+  agendaListar, agendaSalvar, agendaEncerrar, agendaConvidar, agendaCancelarReserva, agendaParticipante, liberarReservasDaCandidatura
+} from "./agendamento.js";
+import { excluirCandidato, prazosLgpd, candidatosVencidos } from "../lib/lgpd.js";
+import { ORIGENS } from "./candidato.js";
 
 const STATUS_VAGA = ["Aberta", "Pausada", "Fechada", "Concluída"];
 const TIPOS_LISTA = ["etapa", "tipo_contratacao", "tipo_vaga", "horario", "situacao", "auxilio", "cargo", "funcao", "setor", "grau_instrucao"];
@@ -61,11 +66,12 @@ async function opcoes(env) {
   return { ok: true, listas, departamentos };
 }
 
-async function vagasAbertas(env) {
+async function vagasAbertas(env, ctx, b, u) {
+  const ind = u && u.nome ? "&origem=indicacao&ind=" + encodeURIComponent(u.nome) : "";
   const linhas = await todos(env,
     `SELECT id, titulo, localidade, tipo_contratacao, carga_horaria, remuneracao, data_limite FROM vagas
       WHERE status = 'Aberta' AND (data_limite IS NULL OR data_limite = '' OR data_limite >= ?) ORDER BY data_limite`, hojeISO());
-  return { ok: true, vagas: linhas.map(v => Object.assign(v, { link: linkVaga(env, v.id), prazo: dataBR(v.data_limite) })) };
+  return { ok: true, vagas: linhas.map(v => Object.assign(v, { link: linkVaga(env, v.id) + ind, prazo: dataBR(v.data_limite) })) };
 }
 
 // =====================================================================
@@ -296,7 +302,7 @@ async function vagaDetalhe(env, ctx, b, u) {
   if (!(await podeVerVaga(env, u, vaga))) throw new ErroApi("Esta vaga não é da sua área.", 403);
 
   const cands = await todos(env,
-    `SELECT ca.*, c.nome, c.email, c.telefone,
+    `SELECT ca.*, c.nome, c.email, c.telefone, c.banco_talentos, c.talento_marcado, c.talento_nota, c.talento_tags,
             (SELECT a.id FROM admissoes a WHERE a.candidatura_id = ca.id ORDER BY a.criado_em DESC LIMIT 1) AS admissao_id,
             (SELECT a.status FROM admissoes a WHERE a.candidatura_id = ca.id ORDER BY a.criado_em DESC LIMIT 1) AS admissao_status
        FROM candidaturas ca JOIN candidatos c ON c.id = ca.candidato_id
@@ -307,7 +313,7 @@ async function vagaDetalhe(env, ctx, b, u) {
   const candidatos = cands.map(c => {
     const etapas = ets.filter(e => e.candidatura_id === c.id);
     const est = estadoDasEtapas(etapas);
-    return Object.assign(c, { etapas, etapa_atual: est.etapaAtual, status_publico: est.status });
+    return Object.assign(c, { etapas, etapa_atual: est.etapaAtual, status_publico: est.status, origem_nome: ORIGENS[c.origem] || c.origem });
   });
 
   return { ok: true, vaga: vagaPublica(env, vaga), candidatos, podeEditar: u.papel === "rh" };
@@ -359,6 +365,7 @@ async function etapaAtualizar(env, ctx, b, u) {
   const novoStatus = depois.some(x => x.resultado === "Reprovado") ? "Encerrado"
     : depois.every(x => x.resultado === "Aprovado") ? "Aprovado" : "Em processo";
   if (novoStatus !== ca.status) await executar(env, "UPDATE candidaturas SET status = ?, atualizado_em = ? WHERE id = ?", novoStatus, agora(), ca.id);
+  if (novoStatus === "Encerrado") await liberarReservasDaCandidatura(env, ctx, ca.id, "o candidato não segue no processo");
   await registrarLog(env, quemE(u), "ETAPA_" + resultado.toUpperCase(), "candidatura", ca.id, e.nome + (nota ? " — " + nota + " estrela(s)" : ""));
 
   // E-mail: recusa sempre (com o feedback); aprovação se o RH marcar "avisar o candidato"
@@ -391,6 +398,7 @@ async function candidaturaStatus(env, ctx, b, u) {
   const r = await executar(env, "UPDATE candidaturas SET status = ?, obs = ?, atualizado_em = ? WHERE id = ?",
     status, texto(b.obs, 2000), agora(), texto(b.id, 30));
   if (!r.meta || !r.meta.changes) throw new ErroApi("Candidatura não encontrada.");
+  if (status === "Desistiu" || status === "Encerrado") await liberarReservasDaCandidatura(env, ctx, texto(b.id, 30), "o candidato saiu do processo seletivo");
   await registrarLog(env, quemE(u), "CANDIDATURA_STATUS", "candidatura", b.id, status);
   return { ok: true };
 }
@@ -715,7 +723,9 @@ async function cfgObter(env) {
   (await todos(env, "SELECT tipo, valor FROM listas ORDER BY ordem, valor")).forEach(l => { (listas[l.tipo] = listas[l.tipo] || []).push(l.valor); });
   const modelos = (await todos(env, "SELECT * FROM modelos_documento ORDER BY nome")).map(m => Object.assign(m, { campos: camposUsados(m.conteudo) }));
   return { ok: true, config, departamentos, listas, tiposLista: TIPOS_LISTA, modelos, camposDocumento: CAMPOS_DOCUMENTO,
-    planilhaConfigurada: planilhaConfigurada(env) };
+    planilhaConfigurada: planilhaConfigurada(env), lgpd: await prazosLgpd(env),
+    lgpdVencidos: (await candidatosVencidos(env)).length,
+    backup: env.BACKUP ? env.BACKUP.status() : null };
 }
 
 async function cfgSalvarGeral(env, ctx, b, u) {
@@ -780,6 +790,188 @@ async function modeloSalvar(env, ctx, b, u) {
   return { ok: true };
 }
 
+// ---------- Privacidade (LGPD) ----------
+async function cfgSalvarLgpd(env, ctx, b, u) {
+  const r = parseInt(b.lgpd_meses_retencao, 10), bt = parseInt(b.lgpd_meses_banco, 10);
+  if (!(r >= 3 && r <= 120)) throw new ErroApi("Prazo de guarda: de 3 a 120 meses.");
+  if (!(bt >= r && bt <= 120)) throw new ErroApi("O prazo do banco de talentos precisa ser igual ou maior que o prazo de guarda (até 120 meses).");
+  await env.DB.batch([["lgpd_meses_retencao", r], ["lgpd_meses_banco", bt]].map(([k, v]) => prep(env,
+    "INSERT INTO config (chave, valor) VALUES (?, ?) ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor", k, String(v))));
+  await registrarLog(env, quemE(u), "CONFIG_LGPD", "config", "", r + " / " + bt + " meses");
+  return { ok: true };
+}
+
+// RH exclui os dados de um candidato (pedido recebido por e-mail, por exemplo)
+async function candidatoExcluir(env, ctx, b, u) {
+  const id = texto(b.candidato_id, 30);
+  if (String(b.confirmacao || "").trim().toUpperCase() !== "EXCLUIR") throw new ErroApi("Digite EXCLUIR para confirmar.");
+  const r = await excluirCandidato(env, ctx, id, quemE(u), texto(b.motivo, 300) || "pedido ao RH");
+  return Object.assign({ ok: true }, r);
+}
+
+// =====================================================================
+//  Banco de talentos
+//  Aparece quem aceitou (consentimento) ou foi marcado pelo RH. Convite por e-mail só para quem aceitou.
+// =====================================================================
+async function talentosListar(env) {
+  const p = await prazosLgpd(env);
+  const cands = await todos(env,
+    `SELECT id, nome, email, telefone, banco_talentos, banco_talentos_em, talento_marcado, talento_nota, talento_tags, talento_por, talento_em, criado_em
+       FROM candidatos WHERE banco_talentos = 1 OR talento_marcado = 1 ORDER BY talento_marcado DESC, nome`);
+  if (!cands.length) return { ok: true, itens: [], prazoBanco: p.banco };
+  const cdts = await todos(env,
+    `SELECT ca.id, ca.candidato_id, ca.status, ca.criado_em, ca.curriculo_id, ca.periodo_curso, ca.previsao_formatura, v.titulo, v.departamento,
+            (SELECT COALESCE(sum(e.nota), 0) FROM etapas e WHERE e.candidatura_id = ca.id) AS estrelas,
+            (SELECT count(*) FROM etapas e WHERE e.candidatura_id = ca.id AND e.nota > 0) AS avaliadas,
+            (SELECT e.nome FROM etapas e WHERE e.candidatura_id = ca.id AND e.resultado <> 'Aprovado' ORDER BY e.ordem LIMIT 1) AS parou_em
+       FROM candidaturas ca JOIN vagas v ON v.id = ca.vaga_id
+      WHERE ca.candidato_id IN (SELECT id FROM candidatos WHERE banco_talentos = 1 OR talento_marcado = 1)
+      ORDER BY ca.criado_em DESC`);
+  const itens = cands.map(c => {
+    const minhas = cdts.filter(x => x.candidato_id === c.id);
+    const ultimo = minhas[0] || {};
+    return Object.assign(c, {
+      candidaturas: minhas.map(x => ({ id: x.id, titulo: x.titulo, departamento: x.departamento, status: x.status, criado_em: x.criado_em,
+        estrelas: x.estrelas, avaliadas: x.avaliadas, parou_em: x.parou_em || "" })),
+      curriculo_id: ultimo.curriculo_id || "", periodo_curso: ultimo.periodo_curso || "", previsao_formatura: ultimo.previsao_formatura || "",
+      melhor: minhas.reduce((m, x) => x.avaliadas ? Math.max(m, x.estrelas / x.avaliadas) : m, 0),
+      em_processo: minhas.some(x => ["Em processo", "Aprovado", "Proposta"].indexOf(x.status) >= 0),
+      contratado: minhas.some(x => x.status === "Contratado")
+    });
+  });
+  return { ok: true, itens, prazoBanco: p.banco };
+}
+
+async function talentoSalvar(env, ctx, b, u) {
+  const c = await um(env, "SELECT id FROM candidatos WHERE id = ?", texto(b.candidato_id, 30));
+  if (!c) throw new ErroApi("Candidato não encontrado.");
+  const tags = [...new Set(String(b.tags || "").split(/[,;\n]+/).map(t => texto(t, 40).toLowerCase()).filter(Boolean))].slice(0, 15).join(", ");
+  const marcado = b.marcado === true ? 1 : 0;
+  await executar(env, "UPDATE candidatos SET talento_marcado = ?, talento_nota = ?, talento_tags = ?, talento_por = ?, talento_em = ? WHERE id = ?",
+    marcado, texto(b.nota, 2000), tags, marcado ? (u.nome || u.login || "") : "", marcado ? agora() : null, c.id);
+  await registrarLog(env, quemE(u), marcado ? "TALENTO_MARCADO" : "TALENTO_DESMARCADO", "candidato", c.id, tags);
+  return { ok: true };
+}
+
+async function talentoConvidar(env, ctx, b, u) {
+  const vaga = await um(env, "SELECT * FROM vagas WHERE id = ?", texto(b.vaga_id, 30));
+  if (!vaga || vaga.status !== "Aberta" || (vaga.data_limite && vaga.data_limite < hojeISO())) throw new ErroApi("Escolha uma vaga aberta e com prazo em dia.");
+  const ids = (Array.isArray(b.candidato_ids) ? b.candidato_ids : []).map(x => texto(x, 30)).filter(Boolean).slice(0, 100);
+  if (!ids.length) throw new ErroApi("Escolha pelo menos um candidato.");
+  const extra = texto(b.mensagem, 1500);
+  const link = linkVaga(env, vaga.id) + "&origem=talentos";
+  const enviados = [], ignorados = [];
+  for (const id of ids) {
+    const c = await um(env, "SELECT id, nome, email, banco_talentos FROM candidatos WHERE id = ?", id);
+    if (!c) continue;
+    if (!c.banco_talentos) { ignorados.push({ nome: c.nome, motivo: "não autorizou o banco de talentos" }); continue; }
+    if (await um(env, "SELECT id FROM candidaturas WHERE candidato_id = ? AND vaga_id = ?", c.id, vaga.id)) {
+      ignorados.push({ nome: c.nome, motivo: "já se inscreveu nesta vaga" }); continue;
+    }
+    notificar(env, ctx, c.email, "Uma vaga na Innomaker combina com você — " + vaga.titulo, "Temos uma vaga para você",
+      [`Olá, <b>${esc(String(c.nome).split(" ")[0])}</b>!`,
+        `Você está no nosso banco de talentos e lembramos de você para a vaga <b>${esc(vaga.titulo)}</b>${vaga.localidade ? " (" + esc(vaga.localidade) + ")" : ""}.`,
+        extra ? esc(extra).replace(/\n/g, "<br>") : "",
+        vaga.data_limite ? "Inscrições até <b>" + dataBR(vaga.data_limite) + "</b>." : "",
+        "Se tiver interesse, veja os detalhes e se inscreva pelo botão abaixo. Se não quiser mais receber convites, desligue o banco de talentos na sua Área do candidato."].filter(Boolean),
+      { texto: "Ver a vaga e me inscrever", url: link });
+    enviados.push(c.nome);
+  }
+  await registrarLog(env, quemE(u), "TALENTOS_CONVIDADOS", "vaga", vaga.id, enviados.length + " convite(s)");
+  return { ok: true, enviados, ignorados };
+}
+
+// =====================================================================
+//  Indicadores (RH)
+// =====================================================================
+const diasEntre = (a, b) => (new Date(b).getTime() - new Date(a).getTime()) / 864e5;
+const media = l => l.length ? Math.round(l.reduce((t, x) => t + x, 0) / l.length * 10) / 10 : null;
+const mediana = l => { if (!l.length) return null; const o = l.slice().sort((x, y) => x - y); const m = o.length >> 1; return Math.round((o.length % 2 ? o[m] : (o[m - 1] + o[m]) / 2) * 10) / 10; };
+
+async function indicadores(env, ctx, b) {
+  const dias = [30, 90, 180, 365, 0].indexOf(parseInt(b.dias, 10)) >= 0 ? parseInt(b.dias, 10) : 90;
+  const desde = dias ? new Date(Date.now() - dias * 864e5).toISOString() : "0000";
+
+  const cdts = await todos(env,
+    `SELECT ca.id, ca.vaga_id, ca.status, ca.origem, ca.criado_em, ca.atualizado_em FROM candidaturas ca WHERE ca.criado_em >= ?`, desde);
+  const ids = new Set(cdts.map(c => c.id));
+  const ets = (await todos(env,
+    `SELECT e.candidatura_id, e.ordem, e.nome, e.resultado, e.nota FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id WHERE ca.criado_em >= ?`, desde))
+    .filter(e => ids.has(e.candidatura_id));
+
+  // Funil: quantos chegaram a cada etapa, quantos passaram, foram recusados ou ainda estão nela
+  const funil = new Map();
+  const porCdt = new Map();
+  ets.forEach(e => { if (!porCdt.has(e.candidatura_id)) porCdt.set(e.candidatura_id, []); porCdt.get(e.candidatura_id).push(e); });
+  const statusDe = new Map(cdts.map(c => [c.id, c.status]));
+  porCdt.forEach((lista, cid) => {
+    lista.sort((x, y) => x.ordem - y.ordem);
+    for (const e of lista) {
+      const k = e.nome;
+      if (!funil.has(k)) funil.set(k, { etapa: k, ordem: e.ordem, chegaram: 0, aprovados: 0, recusados: 0, desistiram: 0, aguardando: 0, notas: [] });
+      const f = funil.get(k);
+      f.ordem = Math.min(f.ordem, e.ordem);
+      f.chegaram++;
+      if (e.nota) f.notas.push(e.nota);
+      if (e.resultado === "Aprovado") { f.aprovados++; continue; }
+      if (e.resultado === "Reprovado") f.recusados++;
+      else if (statusDe.get(cid) === "Desistiu") f.desistiram++;
+      else f.aguardando++;
+      break;
+    }
+  });
+  const etapas = [...funil.values()].sort((a, b2) => a.ordem - b2.ordem || b2.chegaram - a.chegaram)
+    .map(f => ({ etapa: f.etapa, chegaram: f.chegaram, aprovados: f.aprovados, recusados: f.recusados, desistiram: f.desistiram, aguardando: f.aguardando,
+      nota_media: media(f.notas) }));
+
+  // Origem das candidaturas e quantas viraram contratação
+  const origens = Object.keys(ORIGENS).map(k => ({
+    origem: k, nome: ORIGENS[k],
+    candidaturas: cdts.filter(c => (c.origem || "site") === k).length,
+    contratados: cdts.filter(c => (c.origem || "site") === k && c.status === "Contratado").length
+  })).filter(o => o.candidaturas);
+
+  // Tempo até a contratação: da inscrição até a aprovação da admissão
+  const adms = await todos(env,
+    `SELECT a.id, a.atualizado_em, a.historico, ca.criado_em AS inscricao, v.criado_em AS vaga_criada, v.id AS vaga_id
+       FROM admissoes a JOIN candidaturas ca ON ca.id = a.candidatura_id JOIN vagas v ON v.id = a.vaga_id
+      WHERE a.status = 'APROVADA' AND a.atualizado_em >= ?`, desde);
+  const aprovadaEm = a => {
+    const h = parseJson(a.historico, []).filter(x => /aprovad/i.test(x.acao || "")).pop();
+    return h && h.quando ? h.quando : a.atualizado_em;
+  };
+  const tInscricao = adms.map(a => diasEntre(a.inscricao, aprovadaEm(a))).filter(x => x >= 0);
+  const tVaga = adms.map(a => diasEntre(a.vaga_criada, aprovadaEm(a))).filter(x => x >= 0);
+
+  // Candidatos por vaga (vagas com inscrições no período ou abertas)
+  const vagas = await todos(env,
+    `SELECT v.id, v.titulo, v.status, v.departamento, v.criado_em,
+            (SELECT count(*) FROM candidaturas c WHERE c.vaga_id = v.id AND c.criado_em >= ?) AS inscritos,
+            (SELECT count(*) FROM candidaturas c WHERE c.vaga_id = v.id AND c.criado_em >= ? AND c.status IN ('Em processo', 'Aprovado', 'Proposta')) AS em_processo,
+            (SELECT count(*) FROM candidaturas c WHERE c.vaga_id = v.id AND c.criado_em >= ? AND c.status = 'Contratado') AS contratados
+       FROM vagas v
+      WHERE v.status IN ('Aberta', 'Pausada') OR EXISTS (SELECT 1 FROM candidaturas c WHERE c.vaga_id = v.id AND c.criado_em >= ?)
+      ORDER BY inscritos DESC, v.criado_em DESC LIMIT 30`, desde, desde, desde, desde);
+
+  const total = cdts.length;
+  const conta = st => cdts.filter(c => c.status === st).length;
+  return {
+    ok: true, dias,
+    resumo: {
+      candidaturas: total,
+      contratados: conta("Contratado"),
+      desistencias: conta("Desistiu"),
+      encerrados: conta("Encerrado"),
+      em_andamento: cdts.filter(c => ["Em processo", "Aprovado", "Proposta"].indexOf(c.status) >= 0).length,
+      dias_ate_contratar: media(tInscricao), dias_ate_contratar_mediana: mediana(tInscricao),
+      dias_vaga_ate_contratar: media(tVaga), admissoes_aprovadas: adms.length,
+      indicacoes: cdts.filter(c => c.origem === "indicacao").length,
+      inscritos_por_vaga: vagas.length ? Math.round(vagas.reduce((t, v) => t + v.inscritos, 0) / vagas.length * 10) / 10 : null
+    },
+    etapas, origens, vagas
+  };
+}
+
 async function logListar(env) {
   return {
     ok: true,
@@ -815,7 +1007,17 @@ const HANDLERS = {
   proposta_criar: propostaCriar, adm_listar: admListar, adm_detalhe: admDetalhe, adm_decidir: admDecidir, adm_reenviar: admReenviar,
   func_listar: funcListar, func_detalhe: funcDetalhe, func_atualizar: funcAtualizar, doc_gerar: docGerar, doc_cancelar: docCancelar,
   cfg_obter: cfgObter, cfg_salvar_geral: cfgSalvarGeral, dep_salvar: depSalvar, lista_salvar: listaSalvar, modelo_salvar: modeloSalvar,
-  log_listar: logListar, email_teste: emailTeste, func_planilha: funcPlanilha, planilha_testar: planilhaTestar
+  log_listar: logListar, email_teste: emailTeste, func_planilha: funcPlanilha, planilha_testar: planilhaTestar,
+  agenda_listar: async (env, ctx, b, u) => {
+    const vaga = await um(env, "SELECT * FROM vagas WHERE id = ?", texto(b.vaga_id, 30));
+    if (!vaga) throw new ErroApi("Vaga não encontrada.");
+    if (!(await podeVerVaga(env, u, vaga))) throw new ErroApi("Esta vaga não é da sua área.", 403);
+    return Object.assign(await agendaListar(env, ctx, b), { podeEditar: u.papel === "rh" });
+  },
+  agenda_salvar: agendaSalvar, agenda_encerrar: agendaEncerrar, agenda_convidar: agendaConvidar,
+  agenda_cancelar_reserva: agendaCancelarReserva, agenda_participante: agendaParticipante,
+  talentos_listar: talentosListar, talento_salvar: talentoSalvar, talento_convidar: talentoConvidar,
+  indicadores, cfg_salvar_lgpd: cfgSalvarLgpd, candidato_excluir: candidatoExcluir
 };
 
 export { podeVerVaga };

@@ -11,6 +11,12 @@ import { enviarEmail, layout, textoSimples } from "../lib/email.js";
 import { salvarArquivo, apagarArquivo, ehArquivo } from "../lib/arquivos.js";
 import { estadoDasEtapas } from "../lib/etapas.js";
 import { cfg } from "../lib/config.js";
+import { excluirCandidato, bloqueioExclusao } from "../lib/lgpd.js";
+import { agoraLocal } from "../lib/agenda.js";
+
+// De onde o candidato soube da vaga (indicadores do RH)
+export const ORIGENS = { site: "Site de vagas", indicacao: "Indicação de funcionário", linkedin: "LinkedIn", instagram: "Instagram",
+  universidade: "Universidade / empresa júnior", talentos: "Convite do banco de talentos", outro: "Outro" };
 
 const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MIN = 15;
@@ -36,7 +42,7 @@ export async function vagasPublicas(env) {
 }
 
 // ---------- Roteamento ----------
-const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, assinar };
+const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, assinar, privacidade, excluir };
 
 export async function apiCandidato(request, env, ctx, acao) {
   const fn = ACOES[acao];
@@ -78,6 +84,11 @@ async function inscrever(request, env, ctx) {
   if (!f("previsao_formatura")) throw new ErroApi("Preencha sua previsão de formatura.");
   const cv = fd.get("curriculo");
   if (!ehArquivo(cv)) throw new ErroApi("Selecione seu currículo em PDF.");
+  if (f("aceite_privacidade") !== "1") throw new ErroApi("Para se inscrever, leia e aceite a Política de privacidade.");
+  const querBanco = f("banco_talentos") === "1";
+  const origem = ORIGENS[f("origem", 20)] ? f("origem", 20) : "site";
+  const indicadoPor = origem === "indicacao" ? f("indicado_por", 150) : "";
+  if (origem === "indicacao" && !indicadoPor) throw new ErroApi("Informe o nome de quem indicou você.");
 
   // Conta do candidato (criada na 1ª inscrição, com senha enviada por e-mail)
   let cand = await um(env, "SELECT * FROM candidatos WHERE email = ?", email);
@@ -87,11 +98,17 @@ async function inscrever(request, env, ctx) {
     const salt = novoSalt();
     const id = await novoId(env, "CAN", 6);
     await executar(env,
-      "INSERT INTO candidatos (id, email, nome, telefone, senha_hash, senha_salt, senha_enviada_em, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      id, email, nome, telefone, await hashSenha(senhaNova, salt), salt, agora(), agora());
+      `INSERT INTO candidatos (id, email, nome, telefone, senha_hash, senha_salt, senha_enviada_em, criado_em,
+                               consentimento_em, banco_talentos, banco_talentos_em, ultima_atividade) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, email, nome, telefone, await hashSenha(senhaNova, salt), salt, agora(), agora(), agora(), querBanco ? 1 : 0, querBanco ? agora() : null, agora());
     cand = await um(env, "SELECT * FROM candidatos WHERE id = ?", id);
-  } else if (!cand.telefone && telefone) {
-    await executar(env, "UPDATE candidatos SET telefone = ? WHERE id = ?", telefone, cand.id);
+  } else {
+    // Nova inscrição renova o aceite; o banco de talentos só liga aqui (desligar é pela Área do candidato)
+    await executar(env,
+      `UPDATE candidatos SET telefone = CASE WHEN telefone = '' THEN ? ELSE telefone END, consentimento_em = ?, ultima_atividade = ?,
+              banco_talentos = CASE WHEN ? = 1 THEN 1 ELSE banco_talentos END,
+              banco_talentos_em = CASE WHEN ? = 1 THEN ? ELSE banco_talentos_em END WHERE id = ?`,
+      telefone, agora(), agora(), querBanco ? 1 : 0, querBanco ? 1 : 0, agora(), cand.id);
   }
 
   if (await um(env, "SELECT id FROM candidaturas WHERE candidato_id = ? AND vaga_id = ?", cand.id, vaga.id)) {
@@ -105,9 +122,11 @@ async function inscrever(request, env, ctx) {
 
   try {
     await env.DB.batch([
-      prep(env, `INSERT INTO candidaturas (id, candidato_id, vaga_id, periodo_curso, previsao_formatura, mensagem, curriculo_id, criado_em, atualizado_em)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        cdtId, cand.id, vaga.id, f("periodo_curso", 80), f("previsao_formatura", 40), texto(fd.get("mensagem"), 2000), arq.id, t, t),
+      prep(env, `INSERT INTO candidaturas (id, candidato_id, vaga_id, periodo_curso, previsao_formatura, mensagem, curriculo_id, criado_em, atualizado_em,
+                                         origem, indicado_por, convite_talento)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        cdtId, cand.id, vaga.id, f("periodo_curso", 80), f("previsao_formatura", 40), texto(fd.get("mensagem"), 2000), arq.id, t, t,
+        origem, indicadoPor, origem === "talentos" ? 1 : 0),
       ...etapas.map((nomeEtapa, i) => prep(env, "INSERT INTO etapas (candidatura_id, ordem, nome) VALUES (?, ?, ?)", cdtId, i + 1, nomeEtapa))
     ]);
   } catch (e) {
@@ -164,7 +183,7 @@ async function login(request, env) {
     return generico;
   }
 
-  await executar(env, "UPDATE candidatos SET tentativas = 0, bloqueado_ate = NULL, ultimo_login = ? WHERE id = ?", agora(), c.id);
+  await executar(env, "UPDATE candidatos SET tentativas = 0, bloqueado_ate = NULL, ultimo_login = ?, ultima_atividade = ? WHERE id = ?", agora(), agora(), c.id);
   return json({ ok: true, nome: c.nome }, 200, { "set-cookie": await cookieSessao(env, c) });
 }
 
@@ -217,6 +236,37 @@ async function trocarSenha(request, env) {
   return json({ ok: true, mensagem: "Senha alterada." }, 200, { "set-cookie": await cookieSessao(env, atualizado) });
 }
 
+// ---------- Privacidade (LGPD) ----------
+// Liga/desliga o banco de talentos (consentimento separado do da inscrição)
+async function privacidade(request, env) {
+  const c = await exigirSessao(env, request);
+  const b = await lerJson(request);
+  const quer = b.banco_talentos === true;
+  await executar(env, "UPDATE candidatos SET banco_talentos = ?, banco_talentos_em = ?, ultima_atividade = ? WHERE id = ?",
+    quer ? 1 : 0, quer ? agora() : null, agora(), c.id);
+  await registrarLog(env, c.email, quer ? "BANCO_TALENTOS_ACEITO" : "BANCO_TALENTOS_RETIRADO", "candidato", c.id, "");
+  return { ok: true, banco_talentos: quer };
+}
+
+// "Excluir meus dados": confirma com a senha e apaga tudo (exceto o que tem guarda obrigatória)
+async function excluir(request, env, ctx) {
+  const c = await exigirSessao(env, request);
+  const b = await lerJson(request);
+  if (String(b.confirmacao || "").trim().toUpperCase() !== "EXCLUIR") return { ok: false, erro: "Digite EXCLUIR para confirmar." };
+  if (await hashSenha(String(b.senha || "").trim(), c.senha_salt) !== c.senha_hash) return { ok: false, erro: "Senha incorreta." };
+  const r = await excluirCandidato(env, ctx, c.id, "candidato " + c.id, "a pedido do candidato");
+  ctx.waitUntil(enviarEmail(env, {
+    para: c.email,
+    registroPara: "(e-mail excluído)", // o Histórico não guarda o e-mail de quem pediu a exclusão
+    assunto: "Seus dados foram excluídos — Innomaker",
+    html: layout({ titulo: "Seus dados foram excluídos", paragrafos: [
+      `Olá, <b>${String(c.nome).split(" ")[0]}</b>. Conforme o seu pedido, excluímos sua conta da Área do candidato, seus currículos e suas candidaturas (${r.candidaturas}).`,
+      "Se quiser participar de novos processos seletivos, é só se inscrever de novo pelo site."] }),
+    texto: "Seus dados foram excluídos da Área do candidato Innomaker, conforme o seu pedido."
+  }));
+  return json({ ok: true }, 200, { "set-cookie": cookieSair() });
+}
+
 // ---------- Área do candidato ----------
 const CAMPOS_PROPOSTA_PUBLICOS = ["tipo_contratacao", "cargo", "funcao", "departamento", "setor", "horario_trabalho",
   "bolsa_valor", "auxilio", "data_inicio", "data_final_bolsa"];
@@ -230,17 +280,25 @@ async function area(request, env) {
        FROM candidaturas ca JOIN vagas v ON v.id = ca.vaga_id
       WHERE ca.candidato_id = ? ORDER BY ca.criado_em DESC`, c.id);
   const ets = await todos(env,
-    `SELECT e.candidatura_id, e.ordem, e.nome, e.resultado, e.data_prevista, e.data_realizada
+    `SELECT e.id, e.candidatura_id, e.ordem, e.nome, e.resultado, e.data_prevista, e.data_realizada, e.agenda_token,
+            (SELECT a.ativo FROM agendas a WHERE a.id = e.agenda_id) AS agenda_ativa,
+            (SELECT h.inicio FROM agenda_horarios h WHERE h.etapa_id = e.id) AS horario
        FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id WHERE ca.candidato_id = ?`, c.id);
 
   const candidaturas = cdts.map(ca => {
-    const est = estadoDasEtapas(ets.filter(e => e.candidatura_id === ca.id));
+    const minhas = ets.filter(e => e.candidatura_id === ca.id);
+    const est = estadoDasEtapas(minhas);
     let status = est.status;
+    // Etapa atual com agenda: link para escolher (ou ver) o horário
+    const atual = ca.status === "Em processo" ? minhas.find(e => e.nome === est.etapaAtual && e.resultado === "Pendente") : null;
+    const agenda = atual && atual.agenda_token && (atual.agenda_ativa || atual.horario)
+      ? { url: "/agendar/" + atual.agenda_token, etapa: atual.nome, horario: atual.horario || "", passou: !!atual.horario && atual.horario < agoraLocal() }
+      : null;
     if (ca.status === "Desistiu") status = "Desistência registrada";
     if (ca.status === "Contratado") status = "Contratado";
     return {
       id: ca.id, vaga_id: ca.vaga_id, titulo_vaga: ca.titulo, data_inscricao: ca.criado_em,
-      status_publico: status, etapa_atual: est.etapaAtual, mensagem: est.mensagem, etapas: est.etapas
+      status_publico: status, etapa_atual: est.etapaAtual, mensagem: est.mensagem, etapas: est.etapas, agenda
     };
   });
 
@@ -275,6 +333,10 @@ async function area(request, env) {
   return {
     ok: true,
     conta: { nome: c.nome, email: c.email },
+    privacidade: {
+      consentimento_em: c.consentimento_em || "", banco_talentos: !!c.banco_talentos, banco_talentos_em: c.banco_talentos_em || "",
+      motivoNaoExclui: await bloqueioExclusao(env, c.id)
+    },
     candidaturas, admissoes, documentos,
     links: { cartilha: config.link_cartilha || "", onboarding: config.link_onboarding || "" }
   };

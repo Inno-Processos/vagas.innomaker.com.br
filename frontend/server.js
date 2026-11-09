@@ -4,7 +4,7 @@
 //  Entrega as telas de public/ e repassa ao backend só o que é dele:
 //    /api/*, /arquivo/*, /entrar, /sair   →  API_URL (backend, rede interna)
 //
-//  Páginas:  /  (site público)   /painel   /documento/<id>   /erro
+//  Páginas:  /  (site público)   /painel   /documento/<id>   /agendar/<token>   /privacidade   /erro
 //  Inicie com: npm start (na raiz sobe backend + frontend) ou docker compose up -d
 // =====================================================================
 "use strict";
@@ -22,9 +22,10 @@ const PAGINAS = {
   "/": "index.html",
   "/painel": "painel.html",
   "/documento": "documento.html",
-  "/erro": "erro.html"
+  "/erro": "erro.html",
+  "/privacidade": "privacidade.html"
 };
-const PROTEGIDAS = new Set(["painel.html", "documento.html"]); // não podem abrir dentro de outro site (iframe)
+const PROTEGIDAS = new Set(["painel.html", "documento.html", "agendar.html"]); // não podem abrir dentro de outro site (iframe)
 
 const TIPOS = {
   ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json",
@@ -107,6 +108,7 @@ const servidor = http.createServer((req, res) => {
     const limpo = caminho.replace(/\/+$/, "") || "/";
     if (PAGINAS[limpo]) return enviarPagina(res, PAGINAS[limpo], req.method);
     if (limpo.startsWith("/documento/")) return enviarPagina(res, "documento.html", req.method);
+    if (limpo.startsWith("/agendar/")) return enviarPagina(res, "agendar.html", req.method);
 
     // Qualquer outro endereço volta para o site
     res.writeHead(302, { location: "/" + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "") });

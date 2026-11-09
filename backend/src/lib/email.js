@@ -28,7 +28,8 @@ export async function enviarEmail(env, msg) {
         assunto: msg.assunto,
         html: msg.html,
         texto: msg.texto,
-        anexos: msg.anexos
+        anexos: msg.anexos,
+        convite: msg.convite // { metodo: "REQUEST" | "CANCEL", ics } — convite de calendário
       };
       await env.CORREIO.enviar(envio);
       status = "ENVIADO";
@@ -40,7 +41,7 @@ export async function enviarEmail(env, msg) {
 
   try {
     await executar(env, "INSERT INTO emails (quando, para, assunto, status, erro, corpo) VALUES (?, ?, ?, ?, ?, ?)",
-      agora(), para.join(", "), msg.assunto, status, erro, env.DEV_USUARIO_FALSO ? (msg.texto || "") : "");
+      agora(), msg.registroPara || para.join(", "), msg.assunto, status, erro, env.DEV_USUARIO_FALSO && !msg.registroPara ? (msg.texto || "") : "");
   } catch (e) { console.log("registro de e-mail falhou", e); }
 
   return { ok: status === "ENVIADO", status, erro };

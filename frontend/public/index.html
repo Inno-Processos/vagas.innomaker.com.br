@@ -8,7 +8,7 @@
 <meta property="og:title" content="Vagas.Innomaker">
 <meta property="og:description" content="Vagas e oportunidades na Innomaker. Veja as vagas abertas e inscreva-se.">
 <meta name="color-scheme" content="light dark">
-<script>(function(){var t;try{t=localStorage.getItem("tema")}catch(e){}if(t!=="claro"&&t!=="escuro")t=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"escuro":"claro";document.documentElement.dataset.tema=t})();</script>
+<script>(function(){document.documentElement.dataset.tema=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"escuro":"claro"})();</script>
 <link rel="preconnect" href="https://lh3.googleusercontent.com">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%2341A639%22/></svg>">
 <link rel="stylesheet" href="/assets/site.css?v=__VERSAO__">
@@ -27,7 +27,6 @@
     <div class="header-actions">
       <a class="btn-contact" id="lnkWhats" target="_blank" rel="noopener">Entre em contato</a>
       <a class="btn-staff" id="btnStaff" href="/painel" title="Acesso de funcionários, gestores e RH">Entrar</a>
-      <button class="tema-bt" type="button" data-tema-botao aria-label="Mudar tema"></button>
       <button class="menu-toggle" id="menuToggle" type="button" aria-expanded="false" aria-controls="navPrincipal" aria-label="Abrir menu">☰</button>
     </div>
   </div>
@@ -160,6 +159,19 @@
           <div class="field"><label for="fPrev">Previsão de formatura *</label><input class="input" id="fPrev" placeholder="Ex.: 12/2027"></div>
           <div class="field"><label for="fObs">Mensagem (opcional)</label><textarea class="input" id="fObs" placeholder="Escreva uma breve mensagem para a equipe de recrutamento."></textarea></div>
           <div class="field"><label for="fPdf">Currículo em PDF *</label><input class="input" id="fPdf" type="file" accept="application/pdf,.pdf"><p class="hint">Apenas PDF, até 10 MB.</p></div>
+          <div class="field"><label for="fOrigem">Como soube da vaga?</label>
+            <select class="input" id="fOrigem">
+              <option value="site">Site da Innomaker</option>
+              <option value="indicacao">Indicação de alguém da Innomaker</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="instagram">Instagram</option>
+              <option value="universidade">Universidade / empresa júnior</option>
+              <option value="talentos" hidden>Convite do banco de talentos</option>
+              <option value="outro">Outro</option>
+            </select></div>
+          <div class="field" id="campoIndicado" hidden><label for="fIndicado">Quem indicou você? *</label><input class="input" id="fIndicado" autocomplete="off" placeholder="Nome de quem trabalha na Innomaker"></div>
+          <label class="check-linha"><input type="checkbox" id="fAceite"> <span>Li e aceito a <a href="/privacidade" target="_blank" rel="noopener">Política de privacidade</a>. Meus dados serão usados só no processo seletivo. *</span></label>
+          <label class="check-linha"><input type="checkbox" id="fBanco"> <span>Quero ficar no <b>banco de talentos</b> e ser chamado(a) para outras vagas (opcional; posso desistir quando quiser).</span></label>
           <button class="btn full" id="btnEnviar" type="submit">Enviar candidatura</button>
         </form>
         <div class="stack" id="formDone" hidden>
@@ -244,7 +256,7 @@
   <div class="wrap">
     <div class="footer-grid">
       <div><img src="/assets/logo-escuro.png" alt="Innomaker" loading="lazy"><p>Integramos engenharia, processos e tecnologia para desenvolver soluções de acordo com as necessidades de cada projeto.</p></div>
-      <div><h4>Vagas.Innomaker</h4><div class="footer-links"><button data-go="home">Início</button><button data-go="central">Vagas</button><button data-go="acompanhar">Área do candidato</button></div></div>
+      <div><h4>Vagas.Innomaker</h4><div class="footer-links"><button data-go="home">Início</button><button data-go="central">Vagas</button><button data-go="acompanhar">Área do candidato</button><a href="/privacidade">Política de privacidade</a></div></div>
       <div><h4>Contato</h4><div class="footer-links"><a id="fWhats" target="_blank" rel="noopener">WhatsApp</a><a id="fMail">E-mail</a><a id="fSite" target="_blank" rel="noopener">Site oficial</a></div></div>
     </div>
     <div class="footer-bottom">© <span id="ano"></span> Innomaker. Todos os direitos reservados.</div>
