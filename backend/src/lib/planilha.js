@@ -152,6 +152,17 @@ export async function proximaMatricula(env) {
   return Math.max(daPlanilha, Number(local.n) || 1);
 }
 
+// Linha completa (64 colunas) do funcionário, com os links dos termos de compromisso e de imagem
+export async function linhaDoFuncionario(env, f) {
+  const docs = await todos(env, "SELECT id, titulo FROM documentos WHERE funcionario_matricula = ? AND status <> 'CANCELADO' ORDER BY criado_em", f.matricula);
+  const link = rx => { const d = docs.find(x => rx.test(x.titulo)); return d ? cfg(env).siteUrl + "/documento/" + d.id : ""; };
+  return linhaRegistro(f, {
+    dataMatricula: String(f.criado_em || "").slice(0, 10) || hojeISO(),
+    linkCompromisso: link(/compromisso/i),
+    linkImagem: link(/imagem/i)
+  });
+}
+
 // Envia (ou completa) a linha do funcionário e grava o resultado no registro dele
 export async function enviarRegistro(env, matricula, quem) {
   const f = await um(env, "SELECT * FROM funcionarios WHERE matricula = ?", matricula);
@@ -161,13 +172,7 @@ export async function enviarRegistro(env, matricula, quem) {
       "PLANILHA_REGISTROS_URL e PLANILHA_REGISTROS_TOKEN não estão no backend/.env.", agora(), matricula);
     return { ok: false, erro: "Planilha não configurada no backend/.env." };
   }
-  const docs = await todos(env, "SELECT id, titulo FROM documentos WHERE funcionario_matricula = ? AND status <> 'CANCELADO' ORDER BY criado_em", matricula);
-  const link = rx => { const d = docs.find(x => rx.test(x.titulo)); return d ? cfg(env).siteUrl + "/documento/" + d.id : ""; };
-  const linha = linhaRegistro(f, {
-    dataMatricula: String(f.criado_em || "").slice(0, 10) || hojeISO(),
-    linkCompromisso: link(/compromisso/i),
-    linkImagem: link(/imagem/i)
-  });
+  const linha = await linhaDoFuncionario(env, f);
   await executar(env, "UPDATE funcionarios SET planilha_status = 'ENVIANDO', planilha_erro = '', planilha_em = ? WHERE matricula = ?", agora(), matricula);
   try {
     // a planilha roda as rotinas dela (pastas no Drive, planilhas, formatação): pode levar alguns minutos

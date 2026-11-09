@@ -19,6 +19,13 @@ export function cfg(env) {
   };
 }
 
+// Endereços públicos do site (bonitos): /vagas, /vagas/estagio-em-software-vag-2026-0002, /area-do-candidato
+export function slug(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70).replace(/-+$/, "");
+}
+export const caminhoVaga = (id, titulo) => "/vagas/" + [slug(titulo), String(id || "").toLowerCase()].filter(Boolean).join("-");
+export const CAMINHO_AREA = "/area-do-candidato";
+
 export function urlsLogin(c) {
   return {
     loginUrl: c.autheliaUrl + "/?rd=" + encodeURIComponent(c.siteUrl + "/painel"),

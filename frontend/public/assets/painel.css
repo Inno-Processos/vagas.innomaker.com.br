@@ -372,6 +372,11 @@ div.numero:hover{transform:none;border-color:var(--linha)}
   .agenda-dia{grid-template-columns:1fr}
   .barra-linha{grid-template-columns:1fr 40px;grid-template-areas:"rot num" "trilho trilho" "det det"}
 }
+/* ---------- Registros e modelos ---------- */
+.tabela-registros th,.tabela-registros td{white-space:nowrap;font-size:13px;padding:9px 12px}
+.tabela-registros td:nth-child(2),.tabela-registros th:nth-child(2){position:sticky;left:0;background:var(--sup);z-index:1}
+.importar-docs{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--linha)}
+.importar-docs .campo{flex:1;min-width:260px}
 /* ---------- Admissão: trilha, conferência por item, documentos ---------- */
 .trilha-mini{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
 .passo.bloqueada{background:var(--sup3)}

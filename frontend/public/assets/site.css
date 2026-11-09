@@ -344,4 +344,9 @@ select.input{appearance:auto}
 .lista-ajustes .link-btn,.arq-lista .link-btn,.rev-cab .link-btn{display:inline;margin:0 0 0 10px;padding:0}
 .lista-ajustes .link-btn{margin:0}
 .passo-cad.ok.atual .passo-num{color:#fff}
+.termo-ler{border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin:8px 0}
+.termo-ler summary{font-weight:800;cursor:pointer}
+.termo-texto{font-family:Georgia,"Times New Roman",serif;font-size:15px;line-height:1.7;max-height:420px;overflow:auto;margin-top:10px;padding-right:6px}
+.termo-texto h2{font-size:17px;text-align:center}
+.termo-texto p{text-align:justify}
 .rev-cab .status{font-size:12px;padding:4px 10px}

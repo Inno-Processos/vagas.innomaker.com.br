@@ -7,7 +7,7 @@ export function estadoDasEtapas(etapas) {
     if (et.resultado === "Reprovado") { estado = "encerrada"; encerrado = true; }
     else if (et.resultado === "Aprovado") estado = "concluida";
     else if (!atual && !encerrado) { estado = "atual"; atual = et.nome; }
-    return { ordem: et.ordem, nome: et.nome, estado, data: et.data_realizada || et.data_prevista || "" };
+    return { ordem: et.ordem, nome: et.nome, estado, data: et.data_realizada || et.data_prevista || "", hora: et.data_realizada ? "" : (et.hora_prevista || "") };
   });
 
   if (encerrado) {

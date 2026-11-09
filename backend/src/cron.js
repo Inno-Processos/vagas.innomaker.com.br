@@ -80,7 +80,7 @@ export async function avisoVesperaInicio(env) {
 // até 3 lembretes, a cada 2 dias, para o candidato.
 export async function avisosAoCandidato(env) {
   const limite = new Date(Date.now() - DIAS_ENTRE_LEMBRETES * 864e5).toISOString();
-  const area = cfg(env).siteUrl + "/?page=acompanhar";
+  const area = cfg(env).siteUrl + "/area-do-candidato";
   const config = await lerConfig(env);
   const enviar = (para, assunto, titulo, paragrafos) => enviarEmail(env, {
     para, assunto, html: layout({ titulo, paragrafos, botao: { texto: "Abrir a Área do candidato", url: area } }),

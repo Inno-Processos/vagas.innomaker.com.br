@@ -133,10 +133,10 @@ async function documento(request, env, id) {
   });
 
   const cand = await candidatoDaSessao(env, request);
-  if (cand && cand.id === doc.candidato_id) return dados(true, "/?page=acompanhar");
+  if (cand && cand.id === doc.candidato_id) return dados(true, "/area-do-candidato");
   const s = await lerSessao(request, env);
   if (s.estado === "ok" && s.usuario.papel === "rh") return dados(false, "/painel#funcionario/" + (doc.funcionario_matricula || ""));
-  if (s.estado === "anonimo" && !cand) return json({ ok: false, entrar: "/?page=acompanhar", erro: "Entre na Área do candidato para ver o documento." }, 401);
+  if (s.estado === "anonimo" && !cand) return json({ ok: false, entrar: "/area-do-candidato", erro: "Entre na Área do candidato para ver o documento." }, 401);
   return json({ ok: false, erro: "Você não tem acesso a este documento." }, 403);
 }
 

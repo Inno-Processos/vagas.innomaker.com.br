@@ -4,7 +4,7 @@
 //  Entrega as telas de public/ e repassa ao backend só o que é dele:
 //    /api/*, /arquivo/*, /entrar, /sair   →  API_URL (backend, rede interna)
 //
-//  Páginas:  /  (site público)   /painel   /documento/<id>   /agendar/<token>   /privacidade   /erro
+//  Páginas:  /  /vagas  /vagas/<titulo>-<id>  /area-do-candidato  (site público)   /painel   /documento/<id>   /agendar/<token>   /privacidade   /erro
 //  Inicie com: npm start (na raiz sobe backend + frontend) ou docker compose up -d
 // =====================================================================
 "use strict";
@@ -23,7 +23,9 @@ const PAGINAS = {
   "/painel": "painel.html",
   "/documento": "documento.html",
   "/erro": "erro.html",
-  "/privacidade": "privacidade.html"
+  "/privacidade": "privacidade.html",
+  "/vagas": "index.html",                // lista de vagas
+  "/area-do-candidato": "index.html"     // login e área do candidato
 };
 const PROTEGIDAS = new Set(["painel.html", "documento.html", "agendar.html"]); // não podem abrir dentro de outro site (iframe)
 
@@ -109,6 +111,7 @@ const servidor = http.createServer((req, res) => {
     if (PAGINAS[limpo]) return enviarPagina(res, PAGINAS[limpo], req.method);
     if (limpo.startsWith("/documento/")) return enviarPagina(res, "documento.html", req.method);
     if (limpo.startsWith("/agendar/")) return enviarPagina(res, "agendar.html", req.method);
+    if (/^\/vagas\/[^/]+$/.test(limpo)) return enviarPagina(res, "index.html", req.method); // /vagas/<titulo>-vag-2026-0001
 
     // Qualquer outro endereço volta para o site
     res.writeHead(302, { location: "/" + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "") });

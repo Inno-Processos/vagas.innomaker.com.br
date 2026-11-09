@@ -100,6 +100,14 @@ test("backend e frontend separados: telas, repasse da API, arquivos estáticos e
     assert.match(htmlSite, /<title>Vagas\.Innomaker<\/title>/);
     assert.ok(!/__VERSAO__|__BOOT__/.test(htmlSite), "marcadores trocados");
 
+    // endereços bonitos do site: todos abrem a página do site
+    for (const c of ["/vagas", "/vagas/estagio-em-software-vag-2026-0002", "/area-do-candidato"]) {
+      const r = await fetch(base + c, { redirect: "manual" });
+      assert.equal(r.status, 200, c);
+      assert.match(await r.text(), /<title>Vagas\.Innomaker<\/title>/, c);
+    }
+    assert.equal((await fetch(base + "/vagas/a/b", { redirect: "manual" })).status, 302, "endereço desconhecido volta ao site");
+
     const inicio = await (await fetch(base + "/api/site/inicio")).json();
     assert.equal(inicio.ok, true);
     assert.ok(Array.isArray(inicio.vagas));

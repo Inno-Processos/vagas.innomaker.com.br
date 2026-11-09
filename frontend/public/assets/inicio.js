@@ -64,9 +64,12 @@
     var q = new URLSearchParams(location.search);
     buscar("/api/site/inicio").then(function (r) {
       var d = r.dados && r.dados.ok ? r.dados : { vagas: [], candidato: null, staff: { temSessao: false }, erro: "Não foi possível carregar as vagas agora. Recarregue a página em instantes." };
+      var caminho = location.pathname.replace(/\/+$/, "");
+      var mVaga = /^\/vagas\/(?:.*-)?(vag-\d{4}-\d+)$/i.exec(caminho);
+      var page = mVaga ? "vaga" : caminho === "/vagas" ? "central" : caminho === "/area-do-candidato" ? "acompanhar" : String(q.get("page") || "home").toLowerCase();
       window.BOOT = Object.assign({}, SITE, d, {
-        page: String(q.get("page") || "home").toLowerCase(),
-        params: { vaga_id: q.get("vaga_id") || "" }
+        page: page,
+        params: { vaga_id: mVaga ? mVaga[1].toUpperCase() : (q.get("vaga_id") || "") }
       });
       carregarScripts(0);
     });

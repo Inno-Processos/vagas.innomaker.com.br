@@ -6,6 +6,18 @@
   const MAX_PDF = 10 * 1024 * 1024;
   let vagaAtual = null;
   const URL_INICIAL = new URLSearchParams(location.search); // origem/indicação do link (a navegação limpa a URL)
+  if (BOOT.params && BOOT.params.vaga_id) URL_INICIAL.set("vaga_id", BOOT.params.vaga_id);
+  const slug = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70).replace(/-+$/, "");
+  function caminhoDe(page, vagaId){
+    if (page === "central") return "/vagas";
+    if (page === "acompanhar") return "/area-do-candidato";
+    if (page === "vaga" && vagaId) {
+      const v = VAGAS.find(x => x.vaga_id === vagaId);
+      return "/vagas/" + [slug(v && v.titulo_vaga), vagaId.toLowerCase()].filter(Boolean).join("-");
+    }
+    if (page === "msg") return location.pathname;
+    return "/";
+  }
   let ultimoTracking = null;
 
   /* ---------- Assets e links ---------- */
@@ -67,10 +79,10 @@
     mostrar(page);
 
     const estado = { page: page, vaga_id: params.vaga_id || "" };
-    const q = new URLSearchParams();
-    if (page !== "home") q.set("page", page);
-    if (estado.vaga_id) q.set("vaga_id", estado.vaga_id);
-    const url = q.toString() ? "?" + q.toString() : "/";
+    // origem/indicação ficam no endereço da vaga (para o link copiado continuar valendo)
+    const extra = new URLSearchParams();
+    if (page === "vaga" && URL_INICIAL.get("vaga_id") === estado.vaga_id) ["origem", "ind"].forEach(k => { if (URL_INICIAL.get(k)) extra.set(k, URL_INICIAL.get(k)); });
+    const url = caminhoDe(page, estado.vaga_id) + (extra.toString() ? "?" + extra.toString() : "");
     if (push === false) history.replaceState(estado, "", url);
     else history.pushState(estado, "", url);
   }
@@ -412,6 +424,12 @@
     if (d.etapa_atual && d.status_publico === "Em processo") {
       const cur = el("div", "current");
       cur.append(el("div", "small", "Etapa atual"), el("b", null, d.etapa_atual), el("div", "small", d.mensagem || ""));
+      if (d.marcada) {
+        const m = d.marcada;
+        const ag = el("div", "agenda-cand");
+        ag.append(el("span", null, "📅 ", el("b", null, "Marcada para " + fmtData(m.data) + (m.hora ? " às " + m.hora : "")), m.local ? " — " + m.local : ""));
+        cur.append(ag);
+      }
       if (d.agenda) {
         const ag = el("div", "agenda-cand");
         const h = d.agenda.horario;
@@ -438,7 +456,7 @@
         const s = el("div", "step " + e.estado);
         s.append(el("div", "dot", e.estado === "concluida" ? "✓" : e.estado === "encerrada" ? "×" : e.estado === "atual" ? "●" : String(i + 1)));
         const t = el("div");
-        t.append(el("h3", null, e.nome || "Etapa"), el("p", null, (rot[e.estado] || "Aguardando") + (e.data ? " • " + fmtData(e.data) : "")));
+        t.append(el("h3", null, e.nome || "Etapa"), el("p", null, (rot[e.estado] || "Aguardando") + (e.data ? " • " + fmtData(e.data) + (e.hora ? " às " + e.hora : "") : "")));
         s.append(t);
         tl.append(s);
       });
@@ -516,6 +534,7 @@
         c.append(l);
         card.append(c);
       }
+      card.append(termosParaLer(a));
       card.append(assistenteCadastro(a, d));
       return card;
     }
@@ -523,7 +542,7 @@
     if (a.status === "PROPOSTA_EXPIRADA") { card.append(caixa("warn", "O prazo para responder terminou", "Esta proposta não está mais valendo. Se ainda tiver interesse, fale com o RH.")); return card; }
     if (a.status === "CANCELADA") { card.append(caixa("warn", "Proposta cancelada pelo RH", a.recusa || "")); return card; }
     card.append(resumo);
-    if (a.status === "AGUARDANDO_APROVACAO") card.append(caixa("info", null, "Recebemos seu cadastro. O RH está conferindo seus dados e documentos. Você recebe um e-mail com a decisão."));
+    if (a.status === "AGUARDANDO_APROVACAO") { card.append(caixa("info", null, "Recebemos seu cadastro. O RH está conferindo seus dados e documentos. Você recebe um e-mail com a decisão.")); card.append(termosParaLer(a)); }
     if (a.status === "APROVADA") {
       card.append(caixa("ok", "Bem-vindo(a) à Innomaker!", "Assine os documentos listados abaixo. Seu onboarding será no primeiro dia, " + fmtData(p.data_inicio) + "."));
       if (d.links && d.links.onboarding) {
@@ -534,6 +553,23 @@
     }
     if (a.status === "RECUSADA" && a.recusa) card.append(caixa("warn", "Justificativa do RH", a.recusa));
     return card;
+  }
+
+  // Termos que chegam ao aceitar a proposta: leitura agora, assinatura depois da aprovação do cadastro
+  function termosParaLer(a){
+    const box = el("div");
+    if (!(a.termos || []).length) return box;
+    box.append(el("h3", "cad-titulo", "Termos da sua contratação"),
+      el("p", "small", "Leia com calma. Os dados que faltam entram quando você preencher o cadastro; a assinatura é feita aqui, depois que o RH aprovar."));
+    a.termos.forEach(t => {
+      const det = el("details", "termo-ler");
+      det.append(el("summary", null, t.titulo));
+      const corpo = el("div", "termo-texto");
+      corpo.innerHTML = t.conteudo_html; // gerado e escapado pelo backend (textoParaHtml)
+      det.append(corpo);
+      box.append(det);
+    });
+    return box;
   }
 
   // ---------- Cadastro de admissão em etapas (salva sozinho) ----------

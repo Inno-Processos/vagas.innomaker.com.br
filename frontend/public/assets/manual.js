@@ -107,6 +107,7 @@ window.MANUAL_PAINEL = {
         "Em <b>Avaliar</b>: dê a nota de <b>1 a 3 estrelas</b> (abaixo do esperado, dentro do esperado, acima do esperado), escreva a <b>análise</b> e escolha <b>Aprovado</b> ou <b>Recusado</b>.",
         "<b>Recusado</b> encerra o processo e envia o texto da análise como <b>feedback ao candidato</b> por e-mail. A janela mostra a prévia do e-mail antes de confirmar.",
         "<b>Aprovado</b> passa para a próxima etapa. Se quiser, marque <b>Avisar o candidato</b> para mandar um e-mail dizendo que ele avançou.",
+        "<b>Marcar data</b> (na etapa atual): escolha dia, hora e local ou link. O candidato recebe por e-mail, com convite para a agenda, e vê a data na Área do candidato. Use <b>Mudar data</b> para remarcar.",
         "Quando todas as etapas estiverem aprovadas, clique em <b>Enviar proposta</b> (e-mail pessoal, não pode ser @id.uff.br).",
         "<b>Agenda de entrevistas:</b> clique em <b>+ Nova agenda</b>, escolha a etapa, o local (ou link online), quem entrevista e gere os horários (dia, das/às e pausa). Salve.",
         "Clique em <b>Enviar link</b>: cada candidato que está naquela etapa recebe um e-mail para escolher um horário livre. Um horário reservado não pode ser pego por outra pessoa.",
@@ -161,7 +162,8 @@ window.MANUAL_PAINEL = {
       "Depois, siga a <b>Trilha da admissão</b>: as assinaturas se marcam sozinhas; conferência, ponto, acessos e onboarding você marca em <b>Marcar como feito</b>.",
       "<b>Pedir acessos</b> manda um e-mail para quem cria o e-mail Innomaker e os sistemas (configure em Configurações → Admissão)."
     ],
-    dicas: ["Os documentos exigidos dependem do tipo de contratação (Configurações → Admissão). Sem os obrigatórios, não dá para aprovar.",
+    dicas: ["Quando o candidato aceita a proposta, ele recebe por e-mail (e vê na Área do candidato) os termos marcados para o aceite, como o Termo de Compromisso de Estágio e o de Direito de Imagem, para ler. Na aprovação esses termos já vêm marcados para assinatura.",
+      "Os documentos exigidos dependem do tipo de contratação (Configurações → Admissão). Sem os obrigatórios, não dá para aprovar.",
       "Na véspera do primeiro dia, o gestor e o RH recebem um e-mail com o que ainda falta, e o novo colaborador recebe as boas-vindas.",
       "<b>Cancelar admissão</b> devolve o candidato a “Aprovado no processo”, para você mandar outra proposta.",
       "<b>Recusar</b> encerra a admissão e envia a justificativa ao candidato."]
@@ -203,10 +205,21 @@ window.MANUAL_PAINEL = {
       "<b>Planilha de Registros:</b> clique em <b>Testar planilha</b> para conferir a ligação com a planilha (mostra a próxima matrícula).",
       "<b>Privacidade (LGPD):</b> defina por quantos meses guardar as candidaturas e o banco de talentos. Passado o prazo, os dados são apagados sozinhos.",
       "<b>Backup:</b> mostra se a cópia diária para fora do servidor está em dia. Se aparecer em vermelho, avise quem cuida do servidor.",
-      "<b>Admissão:</b> e-mail de quem cria os acessos e a lista de documentos que o candidato envia, com os obrigatórios por tipo de contratação."
+      "<b>Admissão:</b> e-mail de quem cria os acessos e a lista de documentos que o candidato envia, com os obrigatórios por tipo de contratação.",
+      "<b>Modelos de documento:</b> em cada modelo, escolha <b>quando o candidato recebe</b> (ao aceitar a proposta, para ler, ou só na aprovação) e <b>para quais tipos de contratação</b> ele vale. Para trazer o texto oficial, cole o link do Google Docs e clique em <b>Importar texto</b>; depois troque nome, CPF, datas etc. pelos campos {{…}}."
     ],
     dicas: ["<b>Links úteis</b> aparecem no início do painel para todos.",
       "Candidatos em processo, admissões e funcionários nunca são apagados pelo prazo de guarda."]
+  },
+
+  "registros": {
+    resumo: "A aba Registros da planilha, dentro do site.",
+    passos: [
+      "Cada admissão aprovada vira uma linha aqui, com as mesmas 64 colunas da aba Registros da planilha do Google.",
+      "A primeira coluna mostra se a linha já está na planilha. Se falhou, passe o mouse para ver o motivo e clique em <b>Enviar</b>.",
+      "<b>Baixar CSV</b> gera o arquivo com as 64 colunas na ordem da planilha (abre no Excel e no Google Sheets)."
+    ],
+    dicas: ["Para a planilha do Google ser preenchida sozinha, ela precisa estar ligada ao sistema (docs/planilha-registros.md). O teste fica em Configurações → Planilha de Registros."]
   },
 
   "talentos": {

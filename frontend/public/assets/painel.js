@@ -282,6 +282,8 @@
       desc: "Propostas, cadastros para conferir e aprovação da admissão." },
     { id: "funcionarios", nome: "Funcionários", acao: "func_listar", render: viewFuncionarios,
       desc: "Registros, documentos assinados, ponto, onboarding e renovações." },
+    { id: "registros", nome: "Registros", acao: "registros_listar", render: viewRegistros,
+      desc: "A aba Registros da planilha, dentro do site." },
     { id: "talentos", nome: "Banco de talentos", acao: "talentos_listar", render: viewTalentos,
       desc: "Candidatos para lembrar em novas vagas, com convite por e-mail." },
     { id: "indicadores", nome: "Indicadores", acao: "indicadores", render: viewIndicadores,
@@ -315,6 +317,7 @@
     "admissoes": "M9 4h6v3H9zM15 5h3v16H6V5h3M9 13l2 2 4-4",
     "adm-area": "M9 4h6v3H9zM15 5h3v16H6V5h3M9 13l2 2 4-4",
     "funcionarios": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
+    "registros": "M3 3h18v18H3zM3 9h18M3 15h18M9 3v18",
     "talentos": "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z",
     "indicadores": "M3 3v18h18M8 17v-5M13 17V8M18 17v-8",
     "configuracoes": "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
@@ -828,6 +831,45 @@
     desenhar(90);
   }
 
+  // =================================================================
+  //  Registros: a aba Registros da planilha, dentro do site (mesmas 64 colunas)
+  // =================================================================
+  const ROT_PLANILHA = { ENVIADO: ["Na planilha", "verde"], ENVIANDO: ["Enviando…", "azul"], FALHOU: ["Falhou", "verm"], NAO_CONFIGURADA: ["Planilha não configurada", "cinza"] };
+  function viewRegistros(box) {
+    box.append(cabecalho("Registros", "As mesmas colunas da aba Registros da planilha. Cada admissão aprovada entra aqui e na planilha."));
+    carregarEm(box, "registros_listar", {}, (area, r) => {
+      if (!r.planilhaConfigurada) area.append(el("div", { class: "nota ambar", style: "margin:0 0 14px" }, el("strong", null, "A planilha do Google ainda não está ligada"),
+        "Os registros ficam aqui no site. Para preencher também a aba Registros da planilha, siga docs/planilha-registros.md e teste em Configurações → Planilha de Registros."));
+      const baixar = el("button", { type: "button", class: "bt-sec", onclick: () => {
+        const cel = v => { const s = String(v == null ? "" : v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+        const csv = [r.colunas.map(cel).join(";")].concat(r.linhas.map(l => l.valores.map(cel).join(";"))).join("\r\n");
+        const a = el("a", { href: URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" })), download: "registros-" + new Date().toISOString().slice(0, 10) + ".csv" });
+        document.body.append(a); a.click(); a.remove();
+      } }, "Baixar CSV (64 colunas)");
+      area.append(el("div", { class: "acoes", style: "margin-bottom:12px" }, baixar));
+      if (!r.linhas.length) return area.append(el("div", { class: "vazio" }, "Nenhum funcionário registrado ainda. Eles aparecem aqui quando o RH aprova uma admissão."));
+      const visiveis = r.colunas.map((c, i) => [c, i]).filter(([c]) => c !== "vazio");
+      listaFiltrada(area, r.linhas, {
+        filtros: [["todas", "Todos"], ["ok", "Na planilha"], ["pendente", "Fora da planilha"]],
+        grupo: l => l.planilha_status === "ENVIADO" ? "ok" : "pendente", placeholder: "Buscar por nome, matrícula, CPF ou função",
+        texto: l => l.valores.join(" "), vazio: "Ninguém neste filtro.",
+        desenhar: (alvo, vis) => alvo.append(el("div", { class: "rolagem registros" }, el("table", { class: "tabela tabela-registros" },
+          el("thead", null, el("tr", null, el("th", null, "Planilha"), visiveis.map(([c]) => el("th", null, c)))),
+          el("tbody", null, vis.map(l => el("tr", null,
+            el("td", null, (() => { const s = ROT_PLANILHA[l.planilha_status] || ["Não enviado", "cinza"]; return el("span", { class: "pill " + s[1], title: l.planilha_erro || "" }, s[0]); })(),
+              r.planilhaConfigurada && l.planilha_status !== "ENVIADO" ? el("button", { type: "button", class: "bt-flag", style: "margin-top:6px", onclick: async ev => {
+                ev.currentTarget.disabled = true;
+                const res = await api("func_planilha", { matricula: l.matricula });
+                if (!res.ok) { ev.currentTarget.disabled = false; return toast(res.erro, true); }
+                toast("Enviado para a planilha (linha " + res.linha + ")."); recarregar();
+              } }, "Enviar") : null),
+            visiveis.map(([c, i]) => el("td", null, i === 0 ? el("a", { href: "#funcionario/" + l.matricula }, String(l.valores[i])) :
+              /^https?:/.test(String(l.valores[i])) ? el("a", { href: l.valores[i], target: "_blank", rel: "noopener" }, "abrir") :
+              /^\d{4}-\d{2}-\d{2}$/.test(String(l.valores[i])) ? fmtData(l.valores[i]) : String(l.valores[i] == null ? "" : l.valores[i])))))))))
+      });
+    });
+  }
+
   async function carregarEm(box, acao, dados, desenhar) {
     const area = el("div", null, carregando());
     box.append(area);
@@ -874,7 +916,7 @@
         el("p", null, textos[U.papel])),
       el("div", { class: "acoes" },
         pode("solic_criar") ? el("a", { class: "bt", href: "#solicitar" }, "+ Solicitar vaga") : null,
-        el("a", { class: "bt-sec", href: "/?page=central", target: "_blank", rel: "noopener" }, "Ver vagas no site"))));
+        el("a", { class: "bt-sec", href: "/vagas", target: "_blank", rel: "noopener" }, "Ver vagas no site"))));
 
     if (U.papel === "rh") inicioRH(box);
     else if (U.papel === "gerente") inicioGerente(box);
@@ -987,7 +1029,7 @@
   // =================================================================
   function viewVagasAbertas(box) {
     box.append(cabecalho("Vagas abertas", "Oportunidades publicadas no site. Copie o link para indicar alguém.",
-      el("a", { class: "bt-sec", href: "/?page=central", target: "_blank", rel: "noopener" }, "Abrir site de vagas")));
+      el("a", { class: "bt-sec", href: "/vagas", target: "_blank", rel: "noopener" }, "Abrir site de vagas")));
     carregarEm(box, "vagas_abertas", {}, (area, r) => {
       if (!r.vagas.length) return area.append(el("div", { class: "vazio" }, "Não há vagas abertas no momento."));
       area.append(el("div", { class: "lista" }, r.vagas.map(v => el("article", { class: "card" },
@@ -1425,12 +1467,16 @@
       el("div", { class: "etapa-corpo" },
         el("div", { class: "etapa-topo" },
           el("b", null, e.nome), pillEtapa(e.resultado), e.nota ? estrelas(e.nota) : null,
+          rh && !travado && e.estado === "atual" && !ehTriagem(e) && c.status === "Em processo" ? el("button", {
+            type: "button", class: "bt-sec", onclick: () => marcarDataEtapa(e, c, vaga)
+          }, e.data_prevista ? "Mudar data" : "Marcar data") : null,
           rh && !travado && e.estado !== "bloqueada" ? el("button", {
             type: "button", class: e.estado === "atual" ? "bt" : "bt-sec", onclick: () => editarEtapa(e, c, vaga)
           }, e.estado === "atual" ? "Avaliar" : "Editar") : null),
         e.motivo ? el("p", { class: "etapa-analise" }, e.motivo) : null,
         el("div", { class: "mini" }, [
-          e.data_prevista ? "Agendada para " + fmtData(e.data_prevista) : "",
+          e.data_prevista ? "Marcada para " + fmtData(e.data_prevista) + (e.hora_prevista ? " às " + e.hora_prevista : "") + (e.local_prevista ? " (" + e.local_prevista + ")" : "") : "",
+          e.data_enviada_em && e.resultado === "Pendente" ? "data enviada ao candidato em " + fmtData(e.data_enviada_em, true) : "",
           e.data_realizada && e.resultado !== "Pendente" ? "Avaliada em " + fmtData(e.data_realizada) : "",
           e.responsavel && e.resultado !== "Pendente" ? "por " + e.responsavel : "",
           e.notificado_em ? "e-mail ao candidato em " + fmtData(e.notificado_em, true) : ""].filter(Boolean).join(" · ")),
@@ -1445,6 +1491,33 @@
 
     dialogo({ titulo: c.nome + " — " + vaga.titulo, corpo: el("div", null, topo, mensagem, fim, el("h3", { class: "titulo-etapas" }, "Etapas do processo"), linha, rodape),
       semOk: true, largo: true });
+  }
+
+  // Marca dia, hora e local da etapa e envia ao candidato (com convite de calendário)
+  async function marcarDataEtapa(e, c, vaga) {
+    const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const data = entrada("data", e.data_prevista || "", { type: "date", min: hoje });
+    const hora = entrada("hora", e.hora_prevista || "", { type: "time" });
+    const dur = entrada("duracao_min", "60", { type: "number", min: "10", max: "480", step: "5" });
+    const local = entrada("local", e.local_prevista || "", { placeholder: "Endereço e sala, ou link da reunião" });
+    const mensagem = areaTexto("mensagem", "", { rows: "3", placeholder: "Ex.: leve um documento com foto. A entrevista será com o gestor da área." });
+    const avisar = el("input", { type: "checkbox", checked: true });
+    const corpo = el("div", null,
+      el("p", { class: "suave pequeno", style: "margin:0 0 12px" }, e.nome + " · " + vaga.titulo +
+        (e.data_enviada_em ? " · última data enviada em " + fmtData(e.data_enviada_em, true) : "")),
+      el("div", { class: "campos" }, campo("Data", data, { obrigatorio: true }), campo("Hora", hora, { dica: "Com hora, o candidato recebe um convite para a agenda." }),
+        campo("Duração (min)", dur), campo("Local ou link", local), campo("Mensagem ao candidato (opcional)", mensagem, { largo: true })),
+      el("label", { class: "check", style: "margin-top:12px" }, avisar, el("span", null, "Enviar a data ao candidato por e-mail (" + c.email + ")")));
+    const ok = await dialogo({ titulo: (e.data_prevista ? "Mudar data — " : "Marcar data — ") + c.nome, corpo, okTexto: "Salvar e enviar",
+      aoConfirmar: async () => {
+        if (!data.value) return "Escolha a data.";
+        const r = await api("etapa_agendar", { etapa_id: e.id, data: data.value, hora: hora.value, duracao_min: dur.value, local: local.value, mensagem: mensagem.value, avisar: avisar.checked });
+        if (!r.ok) return r.erro;
+        toast(r.avisado ? "Data marcada e enviada ao candidato." : "Data marcada (o candidato não foi avisado).");
+        return true;
+      } });
+    avisar.addEventListener("change", () => { $("dlgOk").textContent = avisar.checked ? "Salvar e enviar" : "Salvar"; });
+    if (await ok) { reabrirCandidato = c.id; recarregar(); }
   }
 
   async function editarEtapa(e, c, vaga) {
@@ -2252,17 +2325,36 @@
         el("p", { class: "suave pequeno", style: "margin:-6px 0 10px" }, "Cole o texto oficial (Termo de Compromisso, Direito de Imagem, Apêndice de Bolsa) e use os campos entre chaves duplas."),
         el("div", { class: "lista" }, r.modelos.map(m => el("div", { class: "card item-topo" },
           el("div", null, el("b", null, m.nome), el("div", { class: "mini" }, [m.codigo, m.gerar_na_admissao ? "gerado na admissão" : "sob demanda", m.ativo ? "" : "inativo"].filter(Boolean).join(" · "))),
-          el("button", { type: "button", class: "bt-sec", onclick: () => editarModelo(m, r.camposDocumento) }, "Editar")))),
-        el("div", { class: "acoes", style: "margin-top:12px" }, el("button", { type: "button", class: "bt-sec", onclick: () => editarModelo({ ativo: 1, gerar_na_admissao: 0 }, r.camposDocumento) }, "Novo modelo")));
+          el("button", { type: "button", class: "bt-sec", onclick: () => editarModelo(m, r.camposDocumento, r.listas.tipo_contratacao || []) }, "Editar")))),
+        el("div", { class: "acoes", style: "margin-top:12px" }, el("button", { type: "button", class: "bt-sec", onclick: () => editarModelo({ ativo: 1, gerar_na_admissao: 0 }, r.camposDocumento, r.listas.tipo_contratacao || []) }, "Novo modelo")));
     });
   }
 
-  async function editarModelo(m, campos) {
+  async function editarModelo(m, campos, tipos) {
+    tipos = tipos || [];
+    const aplica = (() => { try { return JSON.parse(m.aplica_a || "[]"); } catch (e) { return []; } })();
+    const momento = el("select", { name: "momento" },
+      el("option", { value: "aprovacao", selected: m.momento !== "aceite" }, "Na aprovação do cadastro (para assinar)"),
+      el("option", { value: "aceite", selected: m.momento === "aceite" }, "Assim que o candidato aceitar a proposta (para ler) e para assinar na aprovação"));
+    const cbTipos = tipos.map(t => el("input", { type: "checkbox", value: t, checked: aplica.some(x => x.toLowerCase() === t.toLowerCase()) }));
+    const linkDocs = entrada("link_docs", "", { placeholder: "https://docs.google.com/document/d/…" });
+    const btImportar = el("button", { type: "button", class: "bt-sec", onclick: async () => {
+      btImportar.disabled = true; btImportar.textContent = "Importando…";
+      const r = await api("modelo_importar", { url: linkDocs.value });
+      btImportar.disabled = false; btImportar.textContent = "Importar texto";
+      if (!r.ok) return toast(r.erro, true);
+      f.querySelector("[name=conteudo]").value = r.conteudo;
+      toast("Texto importado. Troque nome, CPF, datas etc. pelos campos {{…}} antes de salvar.");
+    } }, "Importar texto");
     const f = el("form", { novalidate: true },
+      el("div", { class: "importar-docs" }, campo("Importar de um Google Docs (opcional)", linkDocs, { dica: "O documento precisa estar com \"Qualquer pessoa com o link pode ver\" (é só o modelo, sem dados pessoais)." }), btImportar),
       el("div", { class: "campos" },
         campo("Nome", entrada("nome", m.nome)), campo("Código (ex.: ADM-TEMP-2026-001)", entrada("codigo", m.codigo)),
         campo("Texto", areaTexto("conteudo", m.conteudo, { style: "min-height:340px;font-family:ui-monospace,Consolas,monospace;font-size:13px" }), { largo: true,
           dica: "Use # para título e ## para subtítulo. Deixe uma linha em branco entre parágrafos." })),
+      el("div", { class: "campos", style: "margin-top:12px" }, campo("Quando o candidato recebe", momento, { largo: true })),
+      tipos.length ? el("div", { class: "doc-cfg-tipos", style: "margin-top:10px" }, el("span", { class: "mini" }, "Só para:"),
+        tipos.map((t, k) => el("label", { class: "check pequeno" }, cbTipos[k], el("span", null, t))), el("span", { class: "mini" }, "(nenhum marcado = todos)")) : null,
       el("label", { class: "check", style: "margin-top:10px" }, el("input", { type: "checkbox", name: "gerar_na_admissao", checked: !!m.gerar_na_admissao }), el("span", null, "Marcar por padrão na aprovação da admissão")),
       el("label", { class: "check", style: "margin-top:8px" }, el("input", { type: "checkbox", name: "ativo", checked: m.ativo !== 0 }), el("span", null, "Ativo")),
       el("details", { class: "mais" }, el("summary", null, "Campos disponíveis"),
@@ -2270,7 +2362,9 @@
     await dialogo({
       titulo: m.id ? "Editar modelo" : "Novo modelo", corpo: f, okTexto: "Salvar modelo", largo: true,
       aoConfirmar: async () => {
-        const res = await api("modelo_salvar", Object.assign(lerForm(f), { id: m.id }));
+        const d = lerForm(f);
+        delete d.link_docs;
+        const res = await api("modelo_salvar", Object.assign(d, { id: m.id, aplica_a: cbTipos.filter(x => x.checked).map(x => x.value) }));
         if (!res.ok) return res.erro;
         toast("Modelo salvo.");
         return true;

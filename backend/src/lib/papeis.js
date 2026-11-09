@@ -68,7 +68,10 @@ export const ACOES = {
   adm_passo: RH,
   adm_pedir_acessos: RH,
   cfg_salvar_admissao: RH,
-  adm_area: GESTAO           // gerente: admissões das vagas da área (sem dados pessoais)
+  adm_area: GESTAO,          // gerente: admissões das vagas da área (sem dados pessoais)
+  etapa_agendar: RH,
+  modelo_importar: RH,
+  registros_listar: RH
 };
 
 export function podeExecutar(papel, acao) {

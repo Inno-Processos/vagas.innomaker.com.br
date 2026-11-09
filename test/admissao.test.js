@@ -193,3 +193,52 @@ test("proposta vence sem resposta, é reaberta pelo RH, e cancelamento libera no
   const nova = await t.staff("proposta_criar", { candidatura_id: c.id, proposta: PROPOSTA, prazo_resposta: hoje(3) });
   assert.equal(nova.ok, true, "cancelada não bloqueia uma nova proposta");
 });
+
+test("data da etapa enviada ao candidato, termos no aceite da proposta e Registros", async () => {
+  const t = ambiente();
+  // vaga com entrevista: RH marca data/hora e o candidato recebe com convite de agenda
+  const vaga = await criarVaga(t.staff, "Vaga Entrevista");
+  await t.inscrever(vaga, { nome: "Eva Data", email: "eva@x.com" });
+  let c = (await t.staff("vaga_detalhe", { id: vaga })).candidatos[0];
+  const [tri, ent] = c.etapas.sort((x, y) => x.ordem - y.ordem);
+  assert.equal((await t.staff("etapa_agendar", { etapa_id: tri.id, data: hoje(3) })).ok, false, "Triagem não tem data");
+  await t.staff("etapa_atualizar", { etapa_id: tri.id, resultado: "Aprovado", nota: 3, analise: "Bom currículo" });
+  assert.equal((await t.staff("etapa_agendar", { etapa_id: ent.id, data: hoje(-1) })).ok, false, "data no passado");
+  const ag = await t.staff("etapa_agendar", { etapa_id: ent.id, data: hoje(3), hora: "14:30", local: "https://meet.example/x", mensagem: "Traga seu portfólio." });
+  assert.equal(ag.avisado, true, JSON.stringify(ag));
+  const m = t.enviados.find(x => /^Data marcada/.test(x.assunto));
+  assert.ok(m && m.convite && /DTSTART:/.test(m.convite.ics) && /portfólio/.test(m.html));
+  c = (await t.staff("vaga_detalhe", { id: vaga })).candidatos[0];
+  const e2 = c.etapas.find(x => x.id === ent.id);
+  assert.equal(e2.hora_prevista, "14:30");
+  assert.ok(e2.data_enviada_em);
+  const s0 = await t.entrar("eva@x.com");
+  const cd = (await t.comoCandidato(s0, "area")).json.candidaturas[0];
+  assert.deepEqual(cd.marcada, { data: hoje(3), hora: "14:30", local: "https://meet.example/x" });
+  assert.equal(cd.etapas.find(x => x.nome === "Entrevista RH").hora, "14:30");
+
+  // termos: os modelos do processo já vêm configurados (migração 0009) — imagem para todos, compromisso só para estágio
+  assert.equal((await t.staff("modelo_salvar", { nome: "Contrato CLT", conteudo: "{{NOME}}", momento: "aceite", aplica_a: ["CLT"], ativo: true })).ok, true);
+  const { c: cand } = await aprovado(t, "Fábio Termo", "fabio@x.com");
+  const pr = await t.staff("proposta_criar", { candidatura_id: cand.id, proposta: PROPOSTA, prazo_resposta: hoje(3) });
+  const s = await t.entrar("fabio@x.com");
+  await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar" });
+  const mail = t.enviados.find(x => /termos de contratação/i.test(x.assunto));
+  assert.ok(mail, "e-mail com os termos");
+  assert.deepEqual(mail.anexos.map(a => a.filename).sort(), ["Termo de Compromisso de Estágio.html", "Termo de Direito de Imagem.html"]);
+  const html = Buffer.from(mail.anexos.find(a => /imagem/i.test(a.filename)).content, "base64").toString("utf8");
+  assert.match(html, /Fábio Termo/);
+  assert.match(html, /CPF ______________/, "o que ainda não foi preenchido fica em branco");
+  const adm = (await t.comoCandidato(s, "area")).json.admissoes[0];
+  assert.equal(adm.termos.length, 2);
+  // na aprovação, os termos do aceite já vêm marcados para assinatura (e o de CLT não)
+  const det = await t.staff("adm_detalhe", { id: pr.id });
+  assert.deepEqual(det.modelos.filter(x => x.gerar_na_admissao).map(x => x.nome).sort(),
+    ["Apêndice — Bolsa-auxílio e forma de pagamento", "Termo de Compromisso de Estágio", "Termo de Direito de Imagem"]);
+
+  // Registros: mesmas 64 colunas da planilha
+  const reg = await t.staff("registros_listar");
+  assert.equal(reg.colunas.length, 64);
+  assert.equal(reg.planilhaConfigurada, false);
+  assert.equal((await t.staff("registros_listar", {}, "gerente")).ok, false);
+});

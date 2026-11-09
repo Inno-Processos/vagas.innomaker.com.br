@@ -10,8 +10,9 @@ import { hashSenha, novoSalt, gerarSenha, cookieSessao, cookieSair, candidatoDaS
 import { enviarEmail, layout, textoSimples } from "../lib/email.js";
 import { salvarArquivo, apagarArquivo, ehArquivo } from "../lib/arquivos.js";
 import { estadoDasEtapas } from "../lib/etapas.js";
-import { cfg } from "../lib/config.js";
+import { cfg, CAMINHO_AREA } from "../lib/config.js";
 import { excluirCandidato, bloqueioExclusao } from "../lib/lgpd.js";
+import { funcionarioDaAdmissao, previaModelo, valoresDoFuncionario, modeloAplica, textoParaHtml } from "../lib/documentos.js";
 import { agoraLocal } from "../lib/agenda.js";
 import {
   ADM_CANDIDATO_PREENCHE, CAMPOS_PROPOSTA, lerCadastro, validarCadastro, cpfValido, documentosExigidos, documentosFaltando,
@@ -26,7 +27,7 @@ const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MIN = 15;
 const INTERVALO_NOVA_SENHA_MS = 2 * 60 * 1000;
 
-const linkArea = env => cfg(env).siteUrl + "/?page=acompanhar";
+const linkArea = env => cfg(env).siteUrl + CAMINHO_AREA;
 const linkPainel = (env, hash) => cfg(env).siteUrl + "/painel#" + hash;
 
 // ---------- Vagas abertas (site público) ----------
@@ -283,7 +284,7 @@ async function area(request, env) {
        FROM candidaturas ca JOIN vagas v ON v.id = ca.vaga_id
       WHERE ca.candidato_id = ? ORDER BY ca.criado_em DESC`, c.id);
   const ets = await todos(env,
-    `SELECT e.id, e.candidatura_id, e.ordem, e.nome, e.resultado, e.data_prevista, e.data_realizada, e.agenda_token,
+    `SELECT e.id, e.candidatura_id, e.ordem, e.nome, e.resultado, e.data_prevista, e.data_realizada, e.agenda_token, e.hora_prevista, e.local_prevista,
             (SELECT a.ativo FROM agendas a WHERE a.id = e.agenda_id) AS agenda_ativa,
             (SELECT h.inicio FROM agenda_horarios h WHERE h.etapa_id = e.id) AS horario
        FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id WHERE ca.candidato_id = ?`, c.id);
@@ -301,7 +302,8 @@ async function area(request, env) {
     if (ca.status === "Contratado") status = "Contratado";
     return {
       id: ca.id, vaga_id: ca.vaga_id, titulo_vaga: ca.titulo, data_inscricao: ca.criado_em,
-      status_publico: status, etapa_atual: est.etapaAtual, mensagem: est.mensagem, etapas: est.etapas, agenda
+      status_publico: status, etapa_atual: est.etapaAtual, mensagem: est.mensagem, etapas: est.etapas, agenda,
+      marcada: atual && atual.data_prevista && !agenda ? { data: atual.data_prevista, hora: atual.hora_prevista || "", local: atual.local_prevista || "" } : null
     };
   });
 
@@ -313,6 +315,12 @@ async function area(request, env) {
     `SELECT id, nome, categoria, admissao_id, criado_em FROM arquivos WHERE admissao_id IN (SELECT id FROM admissoes WHERE candidato_id = ?)`, c.id) : [];
 
   const configAdm = await lerConfig(env);
+  const termosPorAdm = {};
+  for (const a of adms) {
+    if (["COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO"].indexOf(a.status) >= 0) {
+      termosPorAdm[a.id] = (await termosDaAdmissao(env, c, a)).map(t => ({ titulo: t.titulo, conteudo_html: textoParaHtml(t.texto) }));
+    }
+  }
   const admissoes = adms.map(a => {
     const p = parseJson(a.proposta, {});
     const proposta = {};
@@ -331,6 +339,7 @@ async function area(request, env) {
       arquivos: arquivos.filter(x => x.admissao_id === a.id).map(x => ({ id: x.id, nome: x.nome, categoria: x.categoria, criado_em: x.criado_em,
         categoria_nome: nomeCategoria(configAdm, x.categoria) })),
       documentos_exigidos: documentosExigidos(configAdm, p.tipo_contratacao),
+      termos: ["COMPLETANDO_CADASTRO", "CORRECAO_SOLICITADA", "AGUARDANDO_APROVACAO"].indexOf(a.status) >= 0 ? termosPorAdm[a.id] || [] : [],
       correcao: ultimaCorrecao ? ultimaCorrecao.texto : "",
       correcoes: a.status === "CORRECAO_SOLICITADA" ? { em: corr.em || "", texto: corr.texto || "", itens: (corr.itens || []).map(i => ({ tipo: i.tipo, chave: i.chave, rotulo: i.rotulo, comentario: i.comentario })) } : null,
       recusa: recusa ? recusa.texto : ""
@@ -350,6 +359,35 @@ async function area(request, env) {
     candidaturas, admissoes, documentos,
     links: { cartilha: config.link_cartilha || "", onboarding: config.link_onboarding || "" }
   };
+}
+
+// Termos que o candidato recebe para ler ao aceitar a proposta (assina depois da aprovação do cadastro)
+async function termosDaAdmissao(env, c, a) {
+  const p = parseJson(a.proposta, {});
+  const modelos = (await todos(env, "SELECT * FROM modelos_documento WHERE ativo = 1 AND momento = 'aceite' ORDER BY nome")).filter(m => modeloAplica(m, p.tipo_contratacao));
+  if (!modelos.length) return [];
+  const vaga = await um(env, "SELECT principais_funcoes FROM vagas WHERE id = ?", a.vaga_id);
+  const cdt = await um(env, "SELECT periodo_curso, previsao_formatura FROM candidaturas WHERE id = ?", a.candidatura_id) || {};
+  const valores = valoresDoFuncionario(funcionarioDaAdmissao(a, c, vaga), hojeISO(), { periodo_curso: cdt.periodo_curso, previsao_formatura: cdt.previsao_formatura, gestor: p.gestor_nome });
+  return modelos.map(m => ({ id: m.id, titulo: m.nome, texto: previaModelo(m, valores) }));
+}
+
+async function enviarTermos(env, ctx, c, a) {
+  const termos = await termosDaAdmissao(env, c, a);
+  if (!termos.length) return;
+  const pagina = t => `<!DOCTYPE html><html lang="pt-br"><head><meta charset="utf-8"><title>${esc(t.titulo)}</title>
+<style>body{font-family:Georgia,serif;max-width:760px;margin:40px auto;padding:0 20px;line-height:1.7;color:#1b1b1b}h2{text-align:center}p{text-align:justify}</style></head>
+<body>${textoParaHtml(t.texto)}<hr><p style="font-family:Arial;font-size:13px;color:#666">Cópia para leitura. A assinatura é feita na Área do candidato, depois que o RH aprovar seu cadastro.</p></body></html>`;
+  const anexos = termos.map(t => ({ filename: t.titulo.replace(/[\\/:*?"<>|]/g, "-") + ".html", content: Buffer.from(pagina(t), "utf8").toString("base64") }));
+  const ps = [`Olá, <b>${esc(String(c.nome).split(" ")[0])}</b>! Obrigado por aceitar a proposta.`,
+    "Seguem para você ler com calma os termos da sua contratação:",
+    "• " + termos.map(t => esc(t.titulo)).join("<br>• "),
+    "Os dados que ainda faltam (CPF, endereço etc.) entram quando você preencher o cadastro. A assinatura eletrônica é feita na Área do candidato, depois que o RH aprovar seu cadastro."];
+  ctx.waitUntil(enviarEmail(env, { para: a.email_contato || c.email, assunto: "Seus termos de contratação — Innomaker",
+    html: layout({ titulo: "Termos da sua contratação", paragrafos: ps, botao: { texto: "Preencher meu cadastro", url: linkArea(env) } }),
+    texto: textoSimples("Termos da sua contratação", ps, linkArea(env)), anexos }));
+  await executar(env, "UPDATE admissoes SET termos_enviados_em = ?, historico = ? WHERE id = ?", agora(),
+    historicoMais(a.historico, "sistema", "Termos enviados para leitura", termos.map(t => t.titulo).join(", ")), a.id);
 }
 
 async function admissaoDoCandidato(env, c, id) {
@@ -386,6 +424,7 @@ async function proposta(request, env, ctx) {
     ...(aceitar ? [] : [prep(env, "UPDATE candidaturas SET status = 'Desistiu', atualizado_em = ? WHERE id = ?", agora(), a.candidatura_id)])
   ]);
   await registrarLog(env, c.email, aceitar ? "PROPOSTA_ACEITA" : "PROPOSTA_RECUSADA", "admissao", a.id, "");
+  if (aceitar) await enviarTermos(env, ctx, c, await um(env, "SELECT * FROM admissoes WHERE id = ?", a.id));
 
   await emailRH(env, ctx,
     (aceitar ? "Proposta aceita — " : "Proposta recusada — ") + c.nome,
