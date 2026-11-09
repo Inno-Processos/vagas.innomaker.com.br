@@ -481,8 +481,13 @@
 
     const resumo = dl([
       ["Contratação", p.tipo_contratacao], ["Cargo", p.cargo], ["Função", p.funcao], ["Departamento", p.departamento],
-      ["Setor", p.setor], ["Horário", p.horario_trabalho], ["Bolsa / remuneração", p.bolsa_valor], ["Auxílio", p.auxilio],
-      ["Início", fmtData(p.data_inicio)], ["Fim da bolsa / contrato", fmtData(p.data_final_bolsa)], ["Local", p.localidade]
+      ["Setor", p.setor], ["Horário", p.horario_trabalho],
+      ...(p.bolsa_innomaker ? [["Bolsa Innomaker", p.bolsa_innomaker],
+        ...(p.tem_outra_bolsa ? [["Outra bolsa", p.bolsa_valor + (p.entidade_vinculada ? " (" + p.entidade_vinculada + ")" : "")],
+          ["Período da outra bolsa", [fmtData(p.data_inicial_bolsa), fmtData(p.data_final_bolsa)].filter(Boolean).join(" até ")]] : []),
+        ["Salário bruto", p.salario_bruto]] : [["Bolsa / remuneração", p.bolsa_valor]]),
+      ["Auxílio", p.auxilio],
+      ["Início", fmtData(p.data_inicio)], ["Fim do contrato", fmtData(p.data_fim_contrato || (p.bolsa_innomaker ? "" : p.data_final_bolsa))], ["Local", p.localidade]
     ]);
 
     if (a.status === "PROPOSTA_ENVIADA") {
@@ -593,9 +598,11 @@
   // [campo, rótulo, tipo, obrigatório, etapa, opções]
   const CAD_CAMPOS = [
     ["nome", "Nome completo", "text", 1, "pessoais", { largo: 1, auto: "name" }], ["cpf", "CPF", "text", 1, "pessoais", { ph: "000.000.000-00", modo: "numeric" }],
-    ["rg", "RG", "text", 1, "pessoais"], ["data_nascimento", "Data de nascimento", "date", 1, "pessoais"],
+    ["data_nascimento", "Data de nascimento", "date", 1, "pessoais"],
     ["sexo", "Sexo", "select", 0, "pessoais", { op: ["Feminino", "Masculino", "Prefiro não informar"] }],
-    ["cnh", "CNH", "text", 0, "pessoais"], ["ctps", "CTPS", "text", 0, "pessoais"],
+    ["rg", "RG", "text", 1, "pessoais"], ["rg_orgao", "Órgão expedidor/UF do RG", "text", 1, "pessoais", { ph: "Ex.: DETRAN/RJ" }],
+    ["cnh", "CNH", "text", 0, "pessoais"], ["cnh_orgao", "Órgão expedidor/UF da CNH", "text", 0, "pessoais", { ph: "Ex.: DETRAN/RJ" }],
+    ["ctps", "CTPS", "text", 0, "pessoais"], ["ctps_orgao", "Órgão expedidor/UF da CTPS", "text", 0, "pessoais", { ph: "Ex.: MTE/RJ" }],
     ["telefone", "Telefone / WhatsApp", "tel", 1, "pessoais", { auto: "tel" }], ["email_pessoal", "E-mail pessoal", "email", 1, "pessoais", { dica: "Não use o IdUFF.", auto: "email" }],
     ["curriculo_lattes", "Link do Currículo Lattes", "url", 0, "pessoais", { largo: 1 }],
     ["cep", "CEP", "text", 1, "endereco", { modo: "numeric", auto: "postal-code", dica: "O endereço é preenchido sozinho pelo CEP." }],
@@ -606,6 +613,8 @@
     ["area_formacao", "Curso / área de formação", "text", 1, "formacao"], ["instituicao_ensino", "Instituição de ensino", "text", 1, "formacao"],
     ["matricula_uff", "Matrícula UFF", "text", 0, "formacao", { dica: "Obrigatória para estágio ou bolsa vinculados à UFF." }], ["cr", "CR acadêmico", "text", 0, "formacao"],
     ["email_innomaker", "E-mail Innomaker", "email", 0, "formacao", { largo: 1, dica: "Se já tiver: nomesobrenome.innomaker@gmail.com." }],
+    ["resumo", "Resumo sobre você", "textarea", 1, "formacao", { largo: 1, max: 2000, ph: "Ex.: Estudante de Engenharia Mecânica (6º período) na UFF, com experiência em modelagem 3D e interesse em manufatura.",
+      dica: "Conte em poucas linhas quem você é: profissão ou curso, experiências e interesses." }],
     ["pix_numero", "Chave PIX", "text", 0, "banco", { largo: 1, dica: "Informe a chave PIX ou banco, agência e conta." }], ["pix_banco", "Banco do PIX", "text", 0, "banco"],
     ["banco", "Banco", "text", 0, "banco"], ["agencia", "Agência", "text", 0, "banco"], ["conta", "Conta", "text", 0, "banco"],
     ["tipo_conta", "Tipo de conta", "select", 0, "banco", { op: ["Corrente", "Poupança", "Pagamento"] }]
@@ -725,6 +734,12 @@
           inp = el("select", "input");
           inp.append(new Option("Selecione", ""));
           o.op.forEach(x => inp.append(new Option(x, x, false, v[nome] === x)));
+        } else if (tipo === "textarea") {
+          inp = el("textarea", "input");
+          inp.rows = 5;
+          if (o.ph) inp.placeholder = o.ph;
+          if (o.max) inp.maxLength = o.max;
+          inp.value = v[nome] || "";
         } else {
           inp = el("input", "input");
           inp.type = tipo;
@@ -764,6 +779,7 @@
 
     function desenharDocumentos(){
       corpo.append(el("p", "hint", "PDF, JPG ou PNG, até 10 MB cada. Cada documento é salvo assim que você escolhe o arquivo. Os itens sem * só são necessários se você tiver."));
+      corpo.append(blocoFoto());
       const lista = exigidos.slice();
       // envios antigos (documentos pessoais juntos) continuam aparecendo
       if (arqs.some(x => x.categoria === "doc_pessoais")) lista.unshift({ id: "doc_pessoais", nome: "Documentos pessoais (enviados antes)", obrigatorio: false, antigo: true });
@@ -816,13 +832,54 @@
             inp.disabled = false; inp.value = "";
             if (!res.ok) { st.textContent = res.erro || "Não foi possível enviar."; return; }
             const agora = new Date().toISOString();
-            res.arquivos.forEach(x => arqs.push({ id: x.id, nome: x.nome, categoria: doc.id, criado_em: agora }));
+            res.arquivos.forEach(x => arqs.push({ id: x.id, nome: x.nome, categoria: doc.id, criado_em: x.criado_em || agora }));
             desenhar();
           });
           w.append(inp, st);
         }
         corpo.append(w);
       });
+    }
+
+    // Foto 3x4 (opcional): JPG ou PNG, uma só; a nova substitui a anterior
+    function blocoFoto(){
+      const w = el("div", "field doc-cand foto-cand");
+      w.dataset.campo = "foto";
+      const atual = arqs.filter(x => x.categoria === "foto").slice(-1)[0];
+      const ok = atual && docNovo("foto");
+      w.append(el("div", "doc-cand-topo", null));
+      w.firstChild.append(el("b", null, "Foto 3x4"), el("span", "status " + (ok ? "ok" : ""), ok ? "Enviada" : "Opcional"));
+      const aj = apontado.get("foto");
+      if (aj) { w.classList.add("ajuste"); w.append(el("p", "hint ajuste-txt", "RH: " + aj.comentario + (docNovo("foto") ? " (foto nova enviada)" : " — envie uma foto nova."))); }
+      const linha = el("div", "foto-linha");
+      if (atual) {
+        const img = el("img", "foto-3x4"); img.src = "/arquivo/" + atual.id; img.alt = "Sua foto 3x4";
+        linha.append(img);
+      }
+      const txt = el("div");
+      txt.append(el("p", "hint", "Uma foto bonita, de rosto, com fundo claro e boa luz (como em documento). JPG ou PNG, até 10 MB."));
+      const inp = el("input", "input");
+      inp.type = "file"; inp.accept = "image/jpeg,image/png,.jpg,.jpeg,.png"; inp.id = "arq_foto";
+      inp.setAttribute("aria-label", atual ? "Trocar a foto 3x4" : "Enviar foto 3x4");
+      const st = el("p", "hint");
+      inp.addEventListener("change", async () => {
+        const f = inp.files[0];
+        if (!f) return;
+        if (f.size > MAX_PDF) { st.textContent = '"' + f.name + '" passa de 10 MB.'; inp.value = ""; return; }
+        inp.disabled = true; st.textContent = "Enviando…";
+        const fd = new FormData();
+        fd.append("admissao_id", a.id); fd.append("categoria", "foto"); fd.append("arquivo", f);
+        const res = await api("anexar", fd);
+        inp.disabled = false; inp.value = "";
+        if (!res.ok) { st.textContent = res.erro || "Não foi possível enviar."; return; }
+        arqs = arqs.filter(x => x.categoria !== "foto");
+        res.arquivos.forEach(x => arqs.push({ id: x.id, nome: x.nome, categoria: "foto", criado_em: x.criado_em || new Date().toISOString() }));
+        desenhar();
+      });
+      txt.append(inp, st);
+      linha.append(txt);
+      w.append(linha);
+      return w;
     }
 
     function desenharRevisao(){
@@ -843,6 +900,7 @@
             const n = arqs.filter(y => y.categoria === x.id).length;
             ul.append(el("li", n ? "ok" : "falta", (n ? "✓ " : "✕ ") + x.nome + (n ? " (" + n + ")" : x.obrigatorio ? " — falta" : "")));
           });
+          if (arqs.some(y => y.categoria === "foto")) ul.append(el("li", "ok", "✓ Foto 3x4"));
           sec.append(ul);
         } else {
           sec.append(dl(CAD_CAMPOS.filter(c => c[4] === id).map(c => [c[1], c[2] === "date" ? fmtData(v[c[0]]) : v[c[0]]])));

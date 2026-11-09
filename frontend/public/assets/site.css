@@ -357,3 +357,6 @@ select.input{appearance:auto}
 .inicio-mudar{display:inline-flex;gap:8px;align-items:center}
 [data-tema="escuro"] .horario-inicio{color:#7fd877}
 [data-tema="escuro"] .horario-inicio.sel{color:#fff}
+.foto-linha{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.foto-3x4{width:96px;height:128px;object-fit:cover;border-radius:6px;flex:none}
+.foto-cand input[type="file"]{max-width:100%}

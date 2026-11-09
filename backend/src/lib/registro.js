@@ -17,6 +17,7 @@ const so = s => String(s == null ? "" : s).trim();
 const digitos = s => so(s).replace(/\D/g, "");
 const ehIso = s => /^\d{4}-\d{2}-\d{2}$/.test(so(s));
 const data = s => ehIso(s) ? { t: "data", v: so(s) } : so(s);
+const moeda = s => { const n = valorMonetario(s); return typeof n === "number" ? { t: "moeda", v: n } : n; };
 
 export function cpfFormatado(cpf) {
   const d = digitos(cpf);
@@ -48,27 +49,28 @@ export function linhaRegistro(f, opts) {
   const o = opts || {};
   const hoje = o.hoje || hojeISO();
   const cr = so(d.cr).replace(",", ".");
-  const bolsa = valorMonetario(f.bolsa_valor);
   const v = {
     0: f.matricula ? Number(f.matricula) : "",
     2: so(f.situacao) || (f.ativo === 0 ? "Não ativo" : "Ativo"),
     3: so(f.nome), 4: so(d.sexo),
     5: data(d.data_nascimento), 6: ehIso(d.data_nascimento) ? { t: "mes", v: so(d.data_nascimento) } : "", 7: idade(d.data_nascimento, hoje),
-    8: cpfFormatado(d.cpf), 9: so(d.rg), 11: so(d.cnh), 13: so(d.ctps),
+    8: cpfFormatado(d.cpf), 9: so(d.rg), 10: so(d.rg_orgao), 11: so(d.cnh), 12: so(d.cnh_orgao), 13: so(d.ctps), 14: so(d.ctps_orgao),
     15: so(f.telefone), 16: so(f.email),
     18: digitos(d.cep), 19: so(d.endereco), 20: so(d.bairro), 21: so(d.cidade), 22: so(d.estado),
     24: data(o.dataMatricula || String(f.criado_em || "").slice(0, 10) || hoje),
-    25: so(f.auxilio), 26: typeof bolsa === "number" ? { t: "moeda", v: bolsa } : bolsa,
+    25: so(f.auxilio), 26: moeda(f.bolsa_valor),
     27: so(f.responsavel), 28: so(f.entidade_vinculada),
-    29: data(f.data_efetivacao), 30: data(f.data_final_contrato),
+    // registros antigos (antes da bolsa Innomaker separada) usam as datas do contrato
+    29: data(f.bolsa_innomaker ? f.data_inicial_bolsa : f.data_efetivacao), 30: data(f.bolsa_innomaker ? f.data_final_bolsa : f.data_final_contrato),
+    31: moeda(f.bolsa_innomaker), 32: moeda(f.salario_bruto),
     35: so(f.funcao), 36: so(f.departamento), 37: so(f.setor), 38: so(f.horario_trabalho),
     39: data(f.data_efetivacao), 40: data(f.data_final_contrato),
     41: f.admissao_id ? "Admitido pelo sistema de vagas (" + f.admissao_id + ")" + (f.tipo_contratacao ? " — " + f.tipo_contratacao : "") : "",
     42: so(d.curriculo_lattes), 43: so(d.grau_instrucao), 44: so(d.area_formacao), 45: so(d.instituicao_ensino),
     46: cr && Number.isFinite(Number(cr)) ? Number(cr) : so(d.cr),
     49: so(d.matricula_uff), 50: so(f.email_innomaker),
-    53: so(d.pix_numero), 54: so(d.pix_banco),
-    60: so(f.principais_funcoes)
+    53: so(d.pix_numero), 54: so(d.pix_banco), 55: d.foto_id && o.siteUrl ? o.siteUrl + "/arquivo/" + d.foto_id : "",
+    60: so(f.principais_funcoes), 62: so(d.resumo)
   };
   return COLUNAS.map((_, i) => (i in v ? v[i] : ""));
 }

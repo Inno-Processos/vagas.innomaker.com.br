@@ -9,9 +9,9 @@ import { trilha, documentosExigidos, documentosFaltando, validarCadastro, lerCad
 const hoje = d => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() + (d || 0) * 864e5));
 
 const PROPOSTA = { tipo_contratacao: "Estágio", cargo: "Estagiário", funcao: "Estágio em Mecânica", departamento: "Engenharia",
-  horario_trabalho: "30h semanais", data_inicio: hoje(20), bolsa_valor: "R$ 1.200,00", gestor_email: "gestor@innomaker.com.br",
+  horario_trabalho: "30h semanais", data_inicio: hoje(20), bolsa_innomaker: "R$ 1.200,00", gestor_email: "gestor@innomaker.com.br",
   horarios_inicio: "9h, 14:00", local_inicio: "Rua da Conceição, 100 — sala 2" };
-const CADASTRO = { nome: "Ana Admissão", cpf: "529.982.247-25", rg: "12345", data_nascimento: "2003-04-05", telefone: "21999990000",
+const CADASTRO = { nome: "Ana Admissão", cpf: "529.982.247-25", rg: "12345", rg_orgao: "DETRAN/RJ", resumo: "Estudante de Engenharia Mecânica.", data_nascimento: "2003-04-05", telefone: "21999990000",
   email_pessoal: "ana.adm@x.com", cep: "24000-000", endereco: "Rua A, 1", bairro: "Centro", cidade: "Niterói", estado: "rj",
   nome_emergencia: "Mãe", telefone_emergencia: "21988880000", grau_instrucao: "Graduando", area_formacao: "Engenharia Mecânica",
   instituicao_ensino: "UFF", pix_numero: "ana.adm@x.com" };
@@ -64,7 +64,7 @@ test("admissão completa: prazo, edição, rascunho, documentos, correção por 
   assert.ok(t.enviados.some(m => /Responda até/.test(m.html) && [].concat(m.para).includes("ana.adm@x.com")));
 
   // RH muda a bolsa antes da resposta: candidato é avisado e vê a alteração
-  const ed = await t.staff("adm_proposta_salvar", { id: pr.id, proposta: { bolsa_valor: "R$ 1.500,00" } });
+  const ed = await t.staff("adm_proposta_salvar", { id: pr.id, proposta: { bolsa_innomaker: "R$ 1.500,00" } });
   assert.equal(ed.ok, true, JSON.stringify(ed));
   assert.ok(t.enviados.some(m => /proposta foi atualizada/i.test(m.assunto) && /1\.500/.test(m.html)));
   assert.equal((await t.staff("adm_proposta_salvar", { id: pr.id, proposta: {} })).ok, false, "nada mudou");
@@ -74,7 +74,7 @@ test("admissão completa: prazo, edição, rascunho, documentos, correção por 
   let adm = area.admissoes[0];
   assert.equal(adm.prazo_resposta, hoje(3));
   assert.equal(adm.alteracoes.length, 1);
-  assert.equal(adm.proposta.bolsa_valor, "R$ 1.500,00");
+  assert.equal(adm.proposta.bolsa_innomaker, "R$ 1.500,00");
   assert.ok(adm.documentos_exigidos.find(d => d.id === "doc_matricula").obrigatorio, "estágio: matrícula obrigatória");
   assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar", hora_inicio: "09:00" })).json.status, "COMPLETANDO_CADASTRO");
 
@@ -325,4 +325,61 @@ test("documentos anexados na etapa e registro dos funcionários em Excel", async
   assert.equal(linha[8], "529.982.247-25");
   assert.deepEqual(linha[26], { t: "moeda", v: 1200 });
   assert.equal((await t.staff("opcoes")).listas.situacao.join(), "Ativo,Não ativo");
+});
+
+test("proposta com bolsa Innomaker + outra bolsa (salário bruto), órgãos expedidores, resumo e foto 3x4 até o Excel", async () => {
+  const t = ambiente();
+  const { c } = await aprovado(t, "Bia Bolsa", "bia@x.com");
+  const base = Object.assign({}, PROPOSTA, { tem_outra_bolsa: true, bolsa_innomaker: "R$ 700,00" });
+  assert.equal((await t.staff("proposta_criar", { candidatura_id: c.id, proposta: base, prazo_resposta: hoje(3) })).ok, false, "outra bolsa sem valor/entidade");
+  const pr = await t.staff("proposta_criar", { candidatura_id: c.id, prazo_resposta: hoje(3), proposta: Object.assign(base, {
+    bolsa_valor: "R$ 1.000,00", entidade_vinculada: "FAPERJ", responsavel: "Prof. Silva", data_inicial_bolsa: hoje(20), data_final_bolsa: hoje(200) }) });
+  assert.equal(pr.ok, true, JSON.stringify(pr));
+  let det = await t.staff("adm_detalhe", { id: pr.id });
+  assert.equal(det.admissao.proposta.salario_bruto, "R$ 1.700,00");
+  assert.equal(det.admissao.proposta.tem_outra_bolsa, "Sim");
+  assert.ok(t.enviados.some(m => /Salário bruto:<\/b> R\$ 1\.700,00/.test(m.html)));
+
+  // tirar a outra bolsa limpa os campos dela e refaz o salário
+  await t.staff("adm_proposta_salvar", { id: pr.id, proposta: { tem_outra_bolsa: false } });
+  det = await t.staff("adm_detalhe", { id: pr.id });
+  assert.equal(det.admissao.proposta.salario_bruto, "R$ 700,00");
+  assert.equal(det.admissao.proposta.entidade_vinculada, "");
+  await t.staff("adm_proposta_salvar", { id: pr.id, proposta: { tem_outra_bolsa: "Sim", bolsa_valor: "R$ 1.000,00", entidade_vinculada: "FAPERJ", data_final_bolsa: hoje(200) } });
+
+  const s = await t.entrar("bia@x.com");
+  assert.equal((await t.comoCandidato(s, "proposta", { admissao_id: pr.id, decisao: "aceitar", hora_inicio: "09:00" })).json.ok, true);
+  for (const cat of ["doc_rg", "doc_comprovante", "doc_matricula", "doc_cr"]) assert.equal((await anexar(t, s, pr.id, cat)).ok, true);
+  // foto: só imagem; a nova substitui a anterior
+  const foto = (nome, tipo) => { const fd = new FormData(); fd.set("admissao_id", pr.id); fd.set("categoria", "foto");
+    fd.set("arquivo", new File(["x"], nome, { type: tipo })); return t.chamar("/api/candidato/anexar", { body: fd, headers: { cookie: s.cookie } }).then(r => r.json); };
+  assert.equal((await foto("foto.pdf", "application/pdf")).ok, false);
+  assert.equal((await foto("a.jpg", "image/jpeg")).ok, true);
+  const f2 = await foto("b.png", "image/png");
+  assert.equal(f2.ok, true);
+  assert.equal((await t.env.DB.prepare("SELECT COUNT(*) AS n FROM arquivos WHERE admissao_id = ? AND categoria = 'foto'").bind(pr.id).first()).n, 1);
+
+  const semResumo = Object.assign({}, CADASTRO, { email_pessoal: "bia@x.com", resumo: "" });
+  assert.deepEqual((await t.comoCandidato(s, "cadastro", { admissao_id: pr.id, dados: semResumo })).json.campos, ["resumo"]);
+  const cad = Object.assign({}, CADASTRO, { email_pessoal: "bia@x.com", cnh: "999", cnh_orgao: "DETRAN/RJ", ctps: "123", ctps_orgao: "MTE/RJ" });
+  assert.equal((await t.comoCandidato(s, "cadastro", { admissao_id: pr.id, dados: cad })).json.ok, true);
+  const ap = await t.staff("adm_decidir", { id: pr.id, decisao: "aprovar" });
+  assert.equal(ap.ok, true, JSON.stringify(ap));
+  const f = await t.env.DB.prepare("SELECT * FROM funcionarios WHERE admissao_id = ?").bind(pr.id).first();
+  assert.equal(f.bolsa_innomaker, "R$ 700,00");
+  assert.equal(f.salario_bruto, "R$ 1.700,00");
+  assert.equal(f.data_final_bolsa, hoje(200));
+  assert.equal(f.data_final_contrato > f.data_efetivacao, true);
+
+  const { linhaRegistro } = await import("../backend/src/lib/registro.js");
+  const l = linhaRegistro(f, { siteUrl: "https://vagas.x" });
+  assert.equal(l[10], "DETRAN/RJ"); assert.equal(l[12], "DETRAN/RJ"); assert.equal(l[14], "MTE/RJ");
+  assert.deepEqual(l[26], { t: "moeda", v: 1000 }); assert.equal(l[28], "FAPERJ");
+  assert.deepEqual(l[31], { t: "moeda", v: 700 }); assert.deepEqual(l[32], { t: "moeda", v: 1700 });
+  assert.equal(l[55], "https://vagas.x/arquivo/" + f2.arquivos[0].id);
+  assert.equal(l[62], "Estudante de Engenharia Mecânica.");
+
+  // editar a bolsa no funcionário refaz o salário bruto
+  await t.staff("func_atualizar", { matricula: f.matricula, bolsa_innomaker: "R$ 800,00" });
+  assert.equal((await t.env.DB.prepare("SELECT salario_bruto FROM funcionarios WHERE matricula = ?").bind(f.matricula).first()).salario_bruto, "R$ 1.800,00");
 });

@@ -490,3 +490,11 @@ button.grade-slot{cursor:pointer}
 .hora-op[aria-pressed="true"]{background:var(--acao);border-color:var(--acao);color:#fff;font-weight:650}
 .horas-outro{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .horas-outro input[type=time]{width:auto}
+
+/* ---------- Bolsas da proposta e foto do funcionário ---------- */
+.bolsas{padding:12px;border:1px solid var(--linha);border-radius:8px;background:var(--sup2)}
+.bolsas .outra-bolsa{margin-top:8px;padding-top:12px;border-top:1px dashed var(--linha-forte)}
+.rot-total{font-size:13px;font-weight:600;color:var(--suave)}
+.salario-total{display:block;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--tinta);padding-top:6px}
+.ficha-func{display:flex;gap:16px;align-items:center}
+.foto-3x4{width:72px;height:96px;object-fit:cover;border-radius:6px;border:1px solid var(--linha);flex:none}

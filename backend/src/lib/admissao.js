@@ -1,6 +1,7 @@
 // Admissão (RHC-PROC-2026-003): campos do cadastro, documentos exigidos por tipo de contrato,
 // validação do cadastro e trilha da admissão (do aceite ao onboarding).
 import { texto, parseJson, normalizar, emailValido, ehDataISO, soDigitos } from "./http.js";
+import { valorMonetario } from "./registro.js";
 
 // ---------- Situações ----------
 export const ADM_ENCERRADAS = ["PROPOSTA_RECUSADA", "RECUSADA", "CANCELADA", "PROPOSTA_EXPIRADA"];
@@ -24,21 +25,37 @@ export const CAMPOS_PROPOSTA = {
   tipo_contratacao: [60, "Tipo de contratação", true, true], situacao: [80, "Situação", false, true],
   cargo: [120, "Cargo", true, true], funcao: [120, "Função", true, true], departamento: [120, "Departamento", true, true],
   setor: [120, "Setor", false, true], horario_trabalho: [80, "Horário de trabalho", true, true],
-  data_inicio: [10, "Data de início", true, true], bolsa_valor: [120, "Bolsa / remuneração", true, true],
-  auxilio: [120, "Auxílio", false, true], data_inicial_bolsa: [10, "Início da bolsa", false, true],
-  data_final_bolsa: [10, "Fim da bolsa / contrato", false, true],
+  data_inicio: [10, "Data de início", true, true], data_fim_contrato: [10, "Fim do contrato Innomaker", false, true],
+  bolsa_innomaker: [120, "Bolsa - Innomaker", true, true], auxilio: [120, "Auxílio", false, true],
+  // outra bolsa (paga por outra entidade), além da bolsa Innomaker
+  tem_outra_bolsa: [3, "Tem outra bolsa", false, true], bolsa_valor: [120, "Bolsa - Valor (outra bolsa)", false, true],
+  responsavel: [150, "Responsável pela outra bolsa", false, true], entidade_vinculada: [150, "Entidade vinculada", false, true],
+  data_inicial_bolsa: [10, "Início da outra bolsa", false, true], data_final_bolsa: [10, "Fim da outra bolsa", false, true],
+  salario_bruto: [120, "Salário bruto", false, true],
   horarios_inicio: [120, "Horários de início", false, true], local_inicio: [300, "Local do primeiro dia", false, true],
-  responsavel: [150, "Responsável", false, false], entidade_vinculada: [150, "Entidade vinculada", false, false],
   gestor_nome: [150, "Gestor", false, false], gestor_email: [200, "E-mail do gestor", false, false], observacao: [3000, "Observação interna", false, false]
 };
-export const CAMPOS_DATA_PROPOSTA = ["data_inicio", "data_inicial_bolsa", "data_final_bolsa"];
+export const CAMPOS_DATA_PROPOSTA = ["data_inicio", "data_fim_contrato", "data_inicial_bolsa", "data_final_bolsa"];
+export const CAMPOS_OUTRA_BOLSA = ["bolsa_valor", "responsavel", "entidade_vinculada", "data_inicial_bolsa", "data_final_bolsa"];
+
+// "R$ 1.200,00" (sem espaço especial)
+export const moedaBR = n => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }).replace(/\s/g, " ");
+
+// Salário bruto = bolsa Innomaker + outra bolsa (se houver). Vazio se algum valor não for número.
+export function somaSalario(innomaker, outra) {
+  const vals = [innomaker, outra].map(x => String(x || "").trim()).filter(Boolean).map(valorMonetario);
+  if (!vals.length || vals.some(v => typeof v !== "number")) return "";
+  return moedaBR(vals.reduce((s, v) => s + v, 0));
+}
 
 // ---------- Cadastro do candidato ----------
 // [tamanho máx., obrigatório, rótulo, etapa do formulário]
 export const CAMPOS_CADASTRO = {
-  nome: [150, true, "Nome completo", "pessoais"], cpf: [20, true, "CPF", "pessoais"], rg: [30, true, "RG", "pessoais"],
+  nome: [150, true, "Nome completo", "pessoais"], cpf: [20, true, "CPF", "pessoais"],
+  rg: [30, true, "RG", "pessoais"], rg_orgao: [40, true, "Órgão expedidor/UF do RG", "pessoais"],
   data_nascimento: [10, true, "Data de nascimento", "pessoais"], sexo: [40, false, "Sexo", "pessoais"],
-  cnh: [30, false, "CNH", "pessoais"], ctps: [30, false, "CTPS", "pessoais"],
+  cnh: [30, false, "CNH", "pessoais"], cnh_orgao: [40, false, "Órgão expedidor/UF da CNH", "pessoais"],
+  ctps: [30, false, "CTPS", "pessoais"], ctps_orgao: [40, false, "Órgão expedidor/UF da CTPS", "pessoais"],
   telefone: [40, true, "Telefone / WhatsApp", "pessoais"], email_pessoal: [200, true, "E-mail pessoal", "pessoais"],
   curriculo_lattes: [300, false, "Currículo Lattes", "pessoais"],
   cep: [12, true, "CEP", "endereco"], endereco: [250, true, "Endereço", "endereco"], bairro: [120, true, "Bairro", "endereco"],
@@ -47,6 +64,7 @@ export const CAMPOS_CADASTRO = {
   grau_instrucao: [60, true, "Grau de instrução", "formacao"], area_formacao: [150, true, "Curso / área", "formacao"],
   instituicao_ensino: [150, true, "Instituição de ensino", "formacao"], matricula_uff: [40, false, "Matrícula UFF", "formacao"],
   cr: [20, false, "CR acadêmico", "formacao"], email_innomaker: [200, false, "E-mail Innomaker", "formacao"],
+  resumo: [2000, true, "Resumo sobre você", "formacao"],
   banco: [80, false, "Banco", "banco"], agencia: [20, false, "Agência", "banco"], conta: [30, false, "Conta", "banco"],
   tipo_conta: [40, false, "Tipo de conta", "banco"], pix_numero: [120, false, "Chave PIX", "banco"], pix_banco: [80, false, "Banco do PIX", "banco"]
 };
@@ -102,6 +120,8 @@ export const DOCUMENTOS_PADRAO = [
 ];
 // Categoria antiga (um único envio com RG, CPF e comprovante): continua valendo para admissões já iniciadas
 export const CATEGORIA_ANTIGA = { doc_pessoais: "Documentos pessoais (RG, CPF, comprovante)" };
+// Foto 3x4 (opcional, uma só; JPG ou PNG)
+export const CATEGORIA_FOTO = "foto";
 const CUMPRE_COM_ANTIGA = ["doc_rg", "doc_cpf", "doc_comprovante"];
 
 export function listaDocumentos(config) {
@@ -117,8 +137,8 @@ export function documentosExigidos(config, tipoContratacao) {
   }));
 }
 
-export const nomeCategoria = (config, cat) => (listaDocumentos(config).find(d => d.id === cat) || {}).nome || CATEGORIA_ANTIGA[cat] || cat;
-export const categoriaValida = (config, cat) => !!(listaDocumentos(config).some(d => d.id === cat) || CATEGORIA_ANTIGA[cat]);
+export const nomeCategoria = (config, cat) => (listaDocumentos(config).find(d => d.id === cat) || {}).nome || CATEGORIA_ANTIGA[cat] || (cat === CATEGORIA_FOTO ? "Foto 3x4" : cat);
+export const categoriaValida = (config, cat) => !!(listaDocumentos(config).some(d => d.id === cat) || CATEGORIA_ANTIGA[cat] || cat === CATEGORIA_FOTO);
 
 // Documentos obrigatórios que ainda faltam (arquivos = [{ categoria, criado_em }])
 export function documentosFaltando(exigidos, arquivos) {

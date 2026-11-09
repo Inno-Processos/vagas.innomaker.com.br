@@ -17,6 +17,7 @@ import {
 } from "../lib/agenda.js";
 import { ehDataISO, hojeISO } from "../lib/http.js";
 import { etapaAgendavel } from "../lib/admissao.js";
+import { enfileirarGoogle } from "../lib/googleCalendar.js";
 
 const linkAgendar = (env, token) => cfg(env).siteUrl + "/agendar/" + encodeURIComponent(token);
 const linkPainel = (env, hash) => cfg(env).siteUrl + "/painel#" + hash;
@@ -47,13 +48,18 @@ async function contextoDoHorario(env, horarioId) {
 }
 
 // Convite (REQUEST) ou cancelamento (CANCEL) para o candidato e todos os participantes do horário
-function avisarHorario(env, ctx, x, metodo, opts) {
+async function avisarHorario(env, ctx, x, metodo, opts) {
   const { h, a, e, ca } = x;
   const o = opts || {};
   const participantes = participantesDoHorario(a, h);
   const candidato = { nome: ca.nome, email: ca.email };
   const organizador = { nome: env.EMAIL_NOME || "Innomaker Recrutamento", email: String(env.SMTP_FROM || env.SMTP_USER || "rh.innomaker@gmail.com").trim() };
   const quando = dataHoraExtenso(h.inicio) + " até " + horaDe(h.fim);
+  await enfileirarGoogle(env, ctx, `etapa-${e.id}`, {
+    titulo: `${a.etapa_nome} · ${ca.nome} · ${ca.vaga_titulo}`,
+    descricao: [`ID de agendamento: ${h.id}`, `Candidato: ${ca.nome} — ${ca.email}`, `Vaga: ${ca.vaga_titulo}`, a.instrucoes].filter(Boolean).join("\n"),
+    local: a.local, inicio: h.inicio, fim: h.fim, participantes: [candidato, ...participantes]
+  }, metodo === "CANCEL");
   const ics = icsEvento({
     uid: `horario-${h.id}@vagas.innomaker.com.br`, metodo, sequencia: h.sequencia,
     inicio: h.inicio, fim: h.fim, titulo: `${a.etapa_nome} · ${ca.nome} · ${ca.vaga_titulo}`,
@@ -250,7 +256,7 @@ export async function agendaSalvar(env, ctx, b, u) {
     for (const h of reservados) {
       await executar(env, "UPDATE agenda_horarios SET sequencia = sequencia + 1 WHERE id = ?", h.id);
       const x = await contextoDoHorario(env, h.id);
-      if (x && x.ca) avisarHorario(env, ctx, x, "REQUEST", { atualizado: true });
+      if (x && x.ca) await avisarHorario(env, ctx, x, "REQUEST", { atualizado: true });
     }
   }
   const total = await um(env, "SELECT COUNT(*) AS n FROM agenda_horarios WHERE agenda_id = ? AND etapa_id IS NULL AND inicio > ?", id, agoraL);
@@ -309,7 +315,7 @@ export async function agendaCancelarReserva(env, ctx, b, u) {
   await executar(env, "UPDATE agenda_horarios SET sequencia = sequencia + 1 WHERE id = ?", x.h.id);
   x.h.sequencia += 1;
   const reenviar = b.reenviar !== false && x.a.ativo;
-  avisarHorario(env, ctx, x, "CANCEL", { motivo, linkNovo: reenviar ? linkAgendar(env, x.e.agenda_token) : "" });
+  await avisarHorario(env, ctx, x, "CANCEL", { motivo, linkNovo: reenviar ? linkAgendar(env, x.e.agenda_token) : "" });
   await executar(env, "UPDATE agenda_horarios SET etapa_id = NULL, reservado_em = NULL, participantes_extra = '[]' WHERE id = ?", x.h.id);
   await executar(env, "UPDATE etapas SET data_prevista = '' WHERE id = ?", x.e.id);
   await registrarLog(env, quemE(u), "AGENDA_RESERVA_CANCELADA", "candidatura", x.ca.id, dataHoraExtenso(x.h.inicio) + (motivo ? " — " + motivo : ""));
@@ -328,7 +334,7 @@ export async function agendaParticipante(env, ctx, b, u) {
   const extra = lerParticipantes([...parseJson(x.h.participantes_extra, []), ...realmenteNovos]);
   await executar(env, "UPDATE agenda_horarios SET participantes_extra = ? WHERE id = ?", JSON.stringify(extra), x.h.id);
   x.h.participantes_extra = JSON.stringify(extra);
-  avisarHorario(env, ctx, x, "REQUEST", { candidato: false, somente: realmenteNovos });
+  await avisarHorario(env, ctx, x, "REQUEST", { candidato: false, somente: realmenteNovos });
   await registrarLog(env, quemE(u), "AGENDA_PARTICIPANTE", "candidatura", x.ca.id, realmenteNovos.map(p => p.email).join(", "));
   return { ok: true, convidados: realmenteNovos.length };
 }
@@ -336,6 +342,10 @@ export async function agendaParticipante(env, ctx, b, u) {
 // Libera os horários reservados de uma candidatura (candidato excluído, desistência ou recusa).
 // Horários futuros: avisa os participantes que a entrevista foi cancelada.
 export async function liberarReservasDaCandidatura(env, ctx, candidaturaId, motivo) {
+  const fixas = await todos(env, `SELECT e.id FROM etapas e JOIN google_calendar_eventos g ON g.chave = 'etapa-' || e.id
+    WHERE e.candidatura_id = ? AND g.cancelar = 0
+    AND NOT EXISTS (SELECT 1 FROM agenda_horarios h WHERE h.etapa_id = e.id)`, candidaturaId);
+  for (const e of fixas) await enfileirarGoogle(env, ctx, `etapa-${e.id}`, null, true);
   const hs = await todos(env,
     "SELECT h.id, h.inicio FROM agenda_horarios h JOIN etapas e ON e.id = h.etapa_id WHERE e.candidatura_id = ?", candidaturaId);
   const agoraL = agoraLocal();
@@ -343,7 +353,7 @@ export async function liberarReservasDaCandidatura(env, ctx, candidaturaId, moti
     if (h.inicio > agoraL && ctx) {
       await executar(env, "UPDATE agenda_horarios SET sequencia = sequencia + 1 WHERE id = ?", h.id);
       const x = await contextoDoHorario(env, h.id);
-      if (x && x.ca) avisarHorario(env, ctx, x, "CANCEL", { candidato: false, motivo });
+      if (x && x.ca) await avisarHorario(env, ctx, x, "CANCEL", { candidato: false, motivo });
     }
     await executar(env, "UPDATE agenda_horarios SET etapa_id = NULL, reservado_em = NULL, participantes_extra = '[]', lembrete_em = NULL WHERE id = ?", h.id);
   }
@@ -461,7 +471,7 @@ export async function apiAgendamento(request, env, ctx, resto) {
       if (!r.meta.changes) return json({ ok: false, ocupado: true, erro: "Esse horário acabou de ser reservado por outra pessoa. Escolha outro." }, 409);
       await executar(env, "UPDATE etapas SET data_prevista = ? WHERE id = ?", h.inicio.slice(0, 10), e.id);
       const ctxH = await contextoDoHorario(env, h.id);
-      avisarHorario(env, ctx, ctxH, "REQUEST");
+      await avisarHorario(env, ctx, ctxH, "REQUEST");
       await registrarLog(env, ca.email, "AGENDA_RESERVA", "candidatura", ca.id, a.etapa_nome + " — " + dataHoraExtenso(h.inicio));
       return json({ ok: true, inicio: h.inicio, fim: h.fim });
     }
@@ -479,7 +489,7 @@ export async function apiAgendamento(request, env, ctx, resto) {
       }
       await executar(env, "UPDATE agenda_horarios SET sequencia = sequencia + 1 WHERE id = ?", reserva.id);
       const ctxH = await contextoDoHorario(env, reserva.id);
-      avisarHorario(env, ctx, ctxH, "CANCEL", { candidato: false, motivo: "o candidato pediu para trocar de horário" });
+      await avisarHorario(env, ctx, ctxH, "CANCEL", { candidato: false, motivo: "o candidato pediu para trocar de horário" });
       await executar(env, "UPDATE agenda_horarios SET etapa_id = NULL, reservado_em = NULL, participantes_extra = '[]' WHERE id = ?", reserva.id);
       await executar(env, "UPDATE etapas SET data_prevista = '' WHERE id = ?", e.id);
       await registrarLog(env, ca.email, "AGENDA_RESERVA_LIBERADA", "candidatura", ca.id, dataHoraExtenso(reserva.inicio));

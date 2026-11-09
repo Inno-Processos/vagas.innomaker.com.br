@@ -24,20 +24,22 @@ export function ehArquivo(v) {
 
 export async function salvarArquivo(env, file, opts) {
   const tipo = tipoDoArquivo(file, opts.documentos);
+  if (opts.apenasImagem && !/^image\/(jpeg|png)$/.test(tipo)) throw new ErroApi(`"${file.name}": envie a foto em JPG ou PNG.`);
   if (!tipo || (opts.apenasPdf && tipo !== "application/pdf")) {
     throw new ErroApi(`"${file.name}": envie ${opts.apenasPdf ? "um PDF" : opts.documentos ? "PDF, imagem, Word, Excel, PowerPoint, texto ou zip" : "PDF, JPG ou PNG"}.`);
   }
   if (file.size > MAX_ARQUIVO) throw new ErroApi(`"${file.name}" passa de 10 MB.`);
 
   const id = crypto.randomUUID();
+  const quando = agora();
   const nome = String(file.name || "arquivo").replace(/[\\/:*?"<>|]/g, "-").slice(0, 120);
   const chave = `${opts.categoria}/${id}-${nome}`;
   await env.ARQUIVOS.put(chave, await file.arrayBuffer(), { httpMetadata: { contentType: tipo } });
   await executar(env,
     "INSERT INTO arquivos (id, r2_key, nome, tipo_mime, tamanho, categoria, candidato_id, admissao_id, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    id, chave, nome, tipo, file.size, opts.categoria, opts.candidatoId || null, opts.admissaoId || null, agora());
+    id, chave, nome, tipo, file.size, opts.categoria, opts.candidatoId || null, opts.admissaoId || null, quando);
   if (opts.etapaId) await executar(env, "UPDATE arquivos SET etapa_id = ? WHERE id = ?", opts.etapaId, id);
-  return { id, nome };
+  return { id, nome, criado_em: quando };
 }
 
 export async function apagarArquivo(env, id) {

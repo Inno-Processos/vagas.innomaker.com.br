@@ -8,7 +8,8 @@ import {
 import { um, todos, executar, prep, novoId, registrarLog, lerConfig, historicoMais, quemE } from "../lib/db.js";
 import { enviarEmail, layout, textoSimples, anexoIcs, smtpConfigurado } from "../lib/email.js";
 import { estadoDasEtapas } from "../lib/etapas.js";
-import { icsEvento, somarMinutos } from "../lib/agenda.js";
+import { icsEvento, somarMinutos, lerParticipantes } from "../lib/agenda.js";
+import { enfileirarGoogle } from "../lib/googleCalendar.js";
 import { acoesDoPapel } from "../lib/papeis.js";
 import { cfg, caminhoVaga, CAMINHO_AREA } from "../lib/config.js";
 import {
@@ -18,7 +19,7 @@ import { excluirCandidato, prazosLgpd, candidatosVencidos } from "../lib/lgpd.js
 import { salvarArquivo, apagarArquivo, ehArquivo } from "../lib/arquivos.js";
 import { ORIGENS } from "./candidato.js";
 import {
-  CAMPOS_PROPOSTA, CAMPOS_DATA_PROPOSTA, CAMPOS_CADASTRO, ehEtapaProposta, etapaAgendavel, lerHorariosInicio, ADM_ENCERRADAS, ADM_ANTES_DA_APROVACAO, ADM_CANDIDATO_PREENCHE, PASSOS_MANUAIS,
+  CAMPOS_PROPOSTA, CAMPOS_DATA_PROPOSTA, CAMPOS_OUTRA_BOLSA, somaSalario, CAMPOS_CADASTRO, ehEtapaProposta, etapaAgendavel, lerHorariosInicio, ADM_ENCERRADAS, ADM_ANTES_DA_APROVACAO, ADM_CANDIDATO_PREENCHE, PASSOS_MANUAIS,
   trilha, documentosExigidos, documentosFaltando, listaDocumentos, nomeCategoria, categoriaValida
 } from "../lib/admissao.js";
 
@@ -358,8 +359,13 @@ async function etapaAtualizar(env, ctx, b, u) {
     if (b[k] && !ehDataISO(b[k])) throw new ErroApi("Data inválida.");
   }
   // Triagem não tem data prevista (é a análise do currículo)
-  const dataPrevista = e.ordem === 1 || /triagem/i.test(e.nome) ? "" : texto(b.data_prevista, 10);
+  const dataPrevista = e.ordem === 1 || /triagem/i.test(e.nome) ? "" : (b.data_prevista === undefined ? e.data_prevista : texto(b.data_prevista, 10));
   const dataRealizada = resultado === "Pendente" ? texto(b.data_realizada, 10) : (texto(b.data_realizada, 10) || hojeISO());
+  if (resultado === "Pendente" && dataPrevista !== e.data_prevista && etapaAgendavel(e.nome, e.ordem - 1)) {
+    if (dataPrevista) await etapaAgendar(env, ctx, { etapa_id: e.id, data: dataPrevista, hora: e.hora_prevista,
+      local: e.local_prevista, participantes: parseJson(e.participantes_previstos, []), avisar: false }, u);
+    else await enfileirarGoogle(env, ctx, `etapa-${e.id}`, null, true);
+  }
 
   await executar(env,
     `UPDATE etapas SET resultado = ?, nota = ?, motivo = ?, mensagem = '', responsavel = ?, data_prevista = ?, data_realizada = ?, obs = ?, avaliado_em = ?
@@ -423,9 +429,29 @@ function lerProposta(src, base) {
     if (obrig) obrigatorio(p[k], rotulo);
   });
   CAMPOS_DATA_PROPOSTA.forEach(k => { if (p[k] && !ehDataISO(p[k])) throw new ErroApi("Data inválida em " + CAMPOS_PROPOSTA[k][1] + "."); });
-  if (p.data_final_bolsa && p.data_inicio && p.data_final_bolsa < p.data_inicio) throw new ErroApi("O fim da bolsa / contrato não pode ser antes do início.");
+  if (p.data_fim_contrato && p.data_inicio && p.data_fim_contrato < p.data_inicio) throw new ErroApi("O fim do contrato não pode ser antes do início.");
+  // Bolsa: a Innomaker sempre; a outra bolsa só se marcada
+  const outra = src.tem_outra_bolsa !== undefined ? src.tem_outra_bolsa : p.tem_outra_bolsa;
+  p.tem_outra_bolsa = outra === true || ["sim", "1", "true"].indexOf(String(outra || "").toLowerCase()) >= 0 ? "Sim" : "";
+  if (p.tem_outra_bolsa) {
+    obrigatorio(p.bolsa_valor, "Bolsa - Valor (outra bolsa)");
+    obrigatorio(p.entidade_vinculada, "Entidade vinculada");
+    if (p.data_inicial_bolsa && p.data_final_bolsa && p.data_final_bolsa < p.data_inicial_bolsa) throw new ErroApi("O fim da outra bolsa não pode ser antes do início dela.");
+  } else if (p.bolsa_innomaker) {
+    CAMPOS_OUTRA_BOLSA.forEach(k => { p[k] = ""; });
+  }
+  p.salario_bruto = p.bolsa_innomaker ? somaSalario(p.bolsa_innomaker, p.bolsa_valor) : (p.salario_bruto || "");
+  if (p.bolsa_innomaker && !p.salario_bruto) throw new ErroApi("Informe os valores das bolsas em reais (ex.: 1.200,00).");
   if (p.gestor_email && !emailValido(p.gestor_email)) throw new ErroApi("E-mail do gestor inválido.");
   return p;
+}
+
+// Bolsa no e-mail da proposta
+function textoBolsa(p) {
+  if (!p.bolsa_innomaker) return "<b>Bolsa / remuneração:</b> " + esc(p.bolsa_valor);
+  return "<b>Bolsa Innomaker:</b> " + esc(p.bolsa_innomaker) +
+    (p.tem_outra_bolsa ? "<br><b>Outra bolsa (" + esc(p.entidade_vinculada) + "):</b> " + esc(p.bolsa_valor) : "") +
+    (p.salario_bruto ? "<br><b>Salário bruto:</b> " + esc(p.salario_bruto) : "");
 }
 
 function lerPrazo(v) {
@@ -654,11 +680,23 @@ export function conviteInicio(env, a, p, nome, email) {
     participantes: [{ nome, email }] }) };
 }
 
+export async function agendarInicioGoogle(env, ctx, a, p, nome, email) {
+  if (!p.data_inicio) return;
+  const config = await lerConfig(env);
+  const inicio = p.hora_inicio ? p.data_inicio + "T" + p.hora_inicio : p.data_inicio;
+  await enfileirarGoogle(env, ctx, `inicio-${a.id}`, {
+    titulo: "Primeiro dia (onboarding) · " + nome,
+    descricao: `ID de agendamento: inicio-${a.id}\nColaborador: ${nome} — ${email}\nFunção: ${p.funcao || ""}`,
+    inicio, fim: p.hora_inicio ? somarMinutos(inicio, 120) : "", local: p.local_inicio || "",
+    participantes: [{ nome, email }, { nome: p.gestor_nome, email: p.gestor_email }, { nome: "RH", email: config.email_rh }]
+  });
+}
+
 function enviarEmailProposta(env, ctx, { nome, email, titulo, p, prazo }) {
   notificar(env, ctx, email, "Proposta — " + titulo, "Você recebeu uma proposta",
     [`Olá, <b>${String(nome).split(" ")[0]}</b>! Parabéns: você concluiu o processo seletivo e recebeu uma proposta para <b>${titulo}</b>.`,
       `<b>Contratação:</b> ${p.tipo_contratacao}<br><b>Função:</b> ${p.funcao}<br><b>Horário:</b> ${p.horario_trabalho}<br>` +
-      `<b>Bolsa / remuneração:</b> ${p.bolsa_valor}<br><b>Início:</b> ${dataBR(p.data_inicio)}${p.horarios_inicio ? " — você escolhe o horário: " + p.horarios_inicio : ""}`,
+      `${textoBolsa(p)}<br><b>Início:</b> ${dataBR(p.data_inicio)}${p.horarios_inicio ? " — você escolhe o horário: " + p.horarios_inicio : ""}`,
       (prazo ? `Responda até <b>${dataBR(prazo)}</b>. ` : "") + "Para aceitar ou recusar, entre na Área do candidato com seu e-mail e senha. Ao aceitar, você preenche o cadastro e envia os documentos."],
     { texto: "Ver proposta", url: linkArea(env) });
 }
@@ -768,17 +806,20 @@ async function admDecidir(env, ctx, b, u) {
   const c = parseJson(a.cadastro, {});
   const t = agora();
   const dados = {};
-  ["cpf", "rg", "cnh", "ctps", "sexo", "data_nascimento", "cep", "endereco", "bairro", "cidade", "estado", "banco", "agencia", "conta",
-    "tipo_conta", "pix_numero", "pix_banco", "grau_instrucao", "area_formacao", "instituicao_ensino", "cr", "matricula_uff",
-    "curriculo_lattes", "nome_emergencia", "telefone_emergencia"].forEach(k => { dados[k] = c[k] || ""; });
+  CAMPOS_DADOS.forEach(k => { dados[k] = c[k] || ""; });
+  const foto = await um(env, "SELECT id FROM arquivos WHERE admissao_id = ? AND categoria = 'foto' ORDER BY criado_em DESC LIMIT 1", a.id);
+  if (foto) dados.foto_id = foto.id;
 
   const func = {
     admissao_id: a.id, candidato_id: a.candidato_id, nome: c.nome || a.candidato_nome, email: c.email_pessoal || a.email_contato,
     email_innomaker: c.email_innomaker || "", telefone: c.telefone || a.candidato_telefone || "",
     situacao: p.situacao, cargo: p.cargo, funcao: p.funcao, departamento: p.departamento, setor: p.setor,
-    horario_trabalho: p.horario_trabalho, tipo_contratacao: p.tipo_contratacao, bolsa_valor: p.bolsa_valor, auxilio: p.auxilio,
-    responsavel: p.responsavel, entidade_vinculada: p.entidade_vinculada, principais_funcoes: a.principais_funcoes || "",
-    data_efetivacao: p.data_inicio, data_final_contrato: p.data_final_bolsa || somarAnos(p.data_inicio, 1),
+    horario_trabalho: p.horario_trabalho, tipo_contratacao: p.tipo_contratacao, bolsa_valor: p.bolsa_valor || "", auxilio: p.auxilio,
+    bolsa_innomaker: p.bolsa_innomaker || "", salario_bruto: p.salario_bruto || "",
+    data_inicial_bolsa: p.data_inicial_bolsa || "", data_final_bolsa: p.data_final_bolsa || "",
+    responsavel: p.responsavel || "", entidade_vinculada: p.entidade_vinculada || "", principais_funcoes: a.principais_funcoes || "",
+    data_efetivacao: p.data_inicio,
+    data_final_contrato: p.data_fim_contrato || (p.bolsa_innomaker ? "" : p.data_final_bolsa) || somarAnos(p.data_inicio, 1),
     dados: JSON.stringify(dados)
   };
 
@@ -798,6 +839,7 @@ async function admDecidir(env, ctx, b, u) {
 
   const ics = p.hora_inicio ? null : anexoIcs("Início — " + f.nome, f.data_efetivacao, `Início de ${f.nome} (${a.titulo_vaga}). Função: ${f.funcao}. Departamento: ${f.departamento}.`);
   const convite = conviteInicio(env, a, p, f.nome, f.email);
+  await agendarInicioGoogle(env, ctx, a, p, f.nome, f.email);
   notificar(env, ctx, f.email, "Admissão aprovada — bem-vindo(a) à Innomaker", "Sua admissão foi aprovada",
     [`Olá, <b>${esc(primeiro)}</b>! Seu cadastro foi aprovado. Sua matrícula na Innomaker é <b>${matricula}</b>.`,
       `Seu primeiro dia (onboarding) será em <b>${dataBR(f.data_efetivacao)}${p.hora_inicio ? " às " + p.hora_inicio : ""}</b>${p.local_inicio ? ", em " + esc(p.local_inicio) : ""}. O convite está anexado.`],
@@ -841,9 +883,10 @@ async function funcDetalhe(env, ctx, b) {
 
 const CAMPOS_FUNC_TEXTO = ["nome", "email", "email_innomaker", "telefone", "situacao", "cargo", "funcao", "departamento", "setor",
   "horario_trabalho", "tipo_contratacao", "bolsa_valor", "auxilio", "responsavel", "entidade_vinculada", "principais_funcoes",
-  "data_efetivacao", "data_final_contrato"];
+  "data_efetivacao", "data_final_contrato", "bolsa_innomaker", "data_inicial_bolsa", "data_final_bolsa"];
+const CAMPOS_FUNC_DATA = ["data_efetivacao", "data_final_contrato", "data_inicial_bolsa", "data_final_bolsa"];
 const CAMPOS_FUNC_FLAG = ["ponto_cadastrado", "onboarding_ok", "acessos_ok", "ativo"];
-const CAMPOS_DADOS = ["cpf", "rg", "cnh", "ctps", "sexo", "data_nascimento", "cep", "endereco", "bairro", "cidade", "estado", "banco",
+const CAMPOS_DADOS = ["cpf", "rg", "rg_orgao", "cnh", "cnh_orgao", "ctps", "ctps_orgao", "resumo", "sexo", "data_nascimento", "cep", "endereco", "bairro", "cidade", "estado", "banco",
   "agencia", "conta", "tipo_conta", "pix_numero", "pix_banco", "grau_instrucao", "area_formacao", "instituicao_ensino", "cr",
   "matricula_uff", "curriculo_lattes", "nome_emergencia", "telefone_emergencia"];
 
@@ -855,13 +898,19 @@ async function funcAtualizar(env, ctx, b, u) {
   CAMPOS_FUNC_TEXTO.forEach(k => {
     if (b[k] === undefined) return;
     const v = texto(b[k], 3000);
-    if ((k === "data_efetivacao" || k === "data_final_contrato") && v && !ehDataISO(v)) throw new ErroApi("Data inválida.");
+    if (CAMPOS_FUNC_DATA.indexOf(k) >= 0 && v && !ehDataISO(v)) throw new ErroApi("Data inválida.");
     sets.push(k + " = ?"); vals.push(v);
   });
+  // salário bruto = bolsa Innomaker + outra bolsa
+  if (b.bolsa_innomaker !== undefined || b.bolsa_valor !== undefined) {
+    const inno = b.bolsa_innomaker !== undefined ? texto(b.bolsa_innomaker, 120) : f.bolsa_innomaker;
+    const outra = b.bolsa_valor !== undefined ? texto(b.bolsa_valor, 120) : f.bolsa_valor;
+    sets.push("salario_bruto = ?"); vals.push(inno ? somaSalario(inno, outra) : "");
+  }
   CAMPOS_FUNC_FLAG.forEach(k => { if (b[k] !== undefined) { sets.push(k + " = ?"); vals.push(b[k] ? 1 : 0); } });
   if (b.dados && typeof b.dados === "object") {
     const atual = parseJson(f.dados, {});
-    CAMPOS_DADOS.forEach(k => { if (b.dados[k] !== undefined) atual[k] = texto(b.dados[k], 300); });
+    CAMPOS_DADOS.forEach(k => { if (b.dados[k] !== undefined) atual[k] = texto(b.dados[k], k === "resumo" ? 2000 : 300); });
     sets.push("dados = ?"); vals.push(JSON.stringify(atual));
   }
   if (b.data_final_contrato !== undefined && b.data_final_contrato !== f.data_final_contrato) {
@@ -1139,8 +1188,21 @@ async function etapaAgendar(env, ctx, b, u) {
   if (hora && !/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) throw new ErroApi("Hora inválida.");
   const dur = Math.min(480, Math.max(10, parseInt(b.duracao_min, 10) || 60));
   const avisar = b.avisar !== false;
+  const reserva = await um(env, "SELECT id FROM agenda_horarios WHERE etapa_id = ?", e.id);
+  if (reserva) throw new ErroApi("Cancele a reserva na agenda antes de marcar uma data fixa.");
+  const participantes = lerParticipantes(b.participantes);
+  const rh = await um(env, "SELECT valor FROM config WHERE chave = 'email_rh'");
+  const vaga = await um(env, "SELECT gestor_nome, gestor_email FROM vagas WHERE id = ?", ca.vaga_id);
+  const convidados = lerParticipantes([{ nome: ca.nome, email: ca.email }, ...participantes,
+    { nome: u.nome, email: u.email }, { nome: "RH", email: rh && rh.valor },
+    { nome: vaga.gestor_nome, email: vaga.gestor_email }]);
   await executar(env, "UPDATE etapas SET data_prevista = ?, hora_prevista = ?, local_prevista = ?, data_enviada_em = ? WHERE id = ?",
     data, hora, local, avisar ? agora() : e.data_enviada_em, e.id);
+  await executar(env, "UPDATE etapas SET participantes_previstos = ? WHERE id = ?", JSON.stringify(participantes), e.id);
+  await enfileirarGoogle(env, ctx, `etapa-${e.id}`, {
+    titulo: `${e.nome} · ${ca.nome} · ${ca.titulo}`, descricao: [`ID de agendamento: etapa-${e.id}`, `Candidato: ${ca.email}`, msg].filter(Boolean).join("\n"),
+    inicio: hora ? data + "T" + hora : data, fim: hora ? somarMinutos(data + "T" + hora, dur) : "", local, participantes: convidados
+  });
   await registrarLog(env, quemE(u), "ETAPA_DATA_MARCADA", "candidatura", ca.id, e.nome + " — " + dataBR(data) + (hora ? " " + hora : "") + (avisar ? " (candidato avisado)" : ""));
   if (avisar) {
     const quando = dataBR(data) + (hora ? " às " + hora : "");
@@ -1151,7 +1213,7 @@ async function etapaAgendar(env, ctx, b, u) {
       extra = { convite: { metodo: "REQUEST", ics: icsEvento({ uid: "etapa-" + e.id + "@vagas.innomaker.com.br", metodo: "REQUEST", sequencia: Math.floor(Date.now() / 1000),
         inicio: ini, fim: somarMinutos(ini, dur), titulo, descricao: [msg, local ? "Local: " + local : ""].filter(Boolean).join("\n"), local,
         organizador: { nome: env.EMAIL_NOME || "Innomaker Recrutamento", email: String(env.SMTP_FROM || env.SMTP_USER || "rh.innomaker@gmail.com").trim() },
-        participantes: [{ nome: ca.nome, email: ca.email }] }) } };
+        participantes: convidados }) } };
     } else {
       const ics = anexoIcs(titulo, data, [msg, local].filter(Boolean).join("\n"));
       if (ics) extra = { anexos: [ics] };
@@ -1183,7 +1245,7 @@ async function entrevistasListar(env, ctx, b, u) {
        JOIN etapas e ON e.id = h.etapa_id JOIN candidaturas ca ON ca.id = e.candidatura_id JOIN candidatos c ON c.id = ca.candidato_id
       WHERE substr(h.inicio, 1, 10) BETWEEN ? AND ? ORDER BY h.inicio`, de, ate);
   const marcadas = await todos(env,
-    `SELECT e.id, e.nome AS etapa_nome, e.data_prevista, e.hora_prevista, e.local_prevista, e.data_enviada_em, v.id AS vaga_id, v.titulo AS vaga_titulo,
+    `SELECT e.id, e.nome AS etapa_nome, e.data_prevista, e.hora_prevista, e.local_prevista, e.data_enviada_em, e.participantes_previstos, v.id AS vaga_id, v.titulo AS vaga_titulo,
             v.gestor_email, v.solicitacao_id, c.nome AS candidato_nome, c.email AS candidato_email, ca.id AS candidatura_id
        FROM etapas e JOIN candidaturas ca ON ca.id = e.candidatura_id JOIN candidatos c ON c.id = ca.candidato_id JOIN vagas v ON v.id = ca.vaga_id
       WHERE e.data_prevista BETWEEN ? AND ? AND e.resultado = 'Pendente' AND ca.status = 'Em processo'
@@ -1194,13 +1256,14 @@ async function entrevistasListar(env, ctx, b, u) {
     itens.push({ origem: "agenda", quando: r.inicio, data: r.inicio.slice(0, 10), hora: r.inicio.slice(11, 16), fim: r.fim.slice(11, 16),
       etapa: r.etapa_nome, local: r.local, online: r.local_tipo === "online", vaga_id: r.vaga_id, vaga_titulo: r.vaga_titulo,
       candidato_nome: r.candidato_nome, candidato_email: r.candidato_email, candidatura_id: r.candidatura_id,
-      participantes: [...parseJson(r.participantes, []), ...parseJson(r.participantes_extra, [])].map(p => p.nome || p.email) });
+      participantes: lerParticipantes([...parseJson(r.participantes, []), ...parseJson(r.participantes_extra, [])]).map(p => p.nome ? `${p.nome} <${p.email}>` : p.email) });
   }
   for (const r of marcadas) {
     if (!(await podeVerVaga(env, u, r))) continue;
     itens.push({ origem: "data", quando: r.data_prevista + "T" + (r.hora_prevista || "99:99"), data: r.data_prevista, hora: r.hora_prevista || "", fim: "",
       etapa: r.etapa_nome, local: r.local_prevista || "", online: /^https?:/i.test(r.local_prevista || ""), vaga_id: r.vaga_id, vaga_titulo: r.vaga_titulo,
-      candidato_nome: r.candidato_nome, candidato_email: r.candidato_email, candidatura_id: r.candidatura_id, avisado: !!r.data_enviada_em, participantes: [] });
+      candidato_nome: r.candidato_nome, candidato_email: r.candidato_email, candidatura_id: r.candidatura_id, avisado: !!r.data_enviada_em,
+      participantes: lerParticipantes(parseJson(r.participantes_previstos, [])).map(p => p.nome ? `${p.nome} <${p.email}>` : p.email) });
   }
   itens.sort((x, y) => passadas ? (x.quando < y.quando ? 1 : -1) : (x.quando < y.quando ? -1 : 1));
   return { ok: true, hoje, itens };

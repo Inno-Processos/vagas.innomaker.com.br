@@ -6,6 +6,7 @@ import { enviarEmail, layout, textoSimples } from "./lib/email.js";
 import { cfg } from "./lib/config.js";
 import { lembretesDeEntrevista } from "./api/agendamento.js";
 import { limpezaLgpd } from "./lib/lgpd.js";
+import { sincronizarGoogle } from "./lib/googleCalendar.js";
 import { CAMPOS_CADASTRO, documentosExigidos, documentosFaltando } from "./lib/admissao.js";
 
 const DIAS_AVISO_RENOVACAO = 45;
@@ -124,6 +125,7 @@ export async function avisosAoCandidato(env) {
 }
 
 export async function rotinaDiaria(env) {
+  await sincronizarGoogle(env);
   const hoje = hojeISO();
 
   const r = await executar(env,

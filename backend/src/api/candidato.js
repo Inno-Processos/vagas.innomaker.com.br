@@ -14,7 +14,7 @@ import { cfg, CAMINHO_AREA } from "../lib/config.js";
 import { excluirCandidato, bloqueioExclusao } from "../lib/lgpd.js";
 import { agoraLocal } from "../lib/agenda.js";
 import { desistirDaCandidatura } from "./agendamento.js";
-import { conviteInicio } from "./staff.js";
+import { conviteInicio, agendarInicioGoogle } from "./staff.js";
 import {
   ADM_CANDIDATO_PREENCHE, CAMPOS_PROPOSTA, lerCadastro, validarCadastro, cpfValido, documentosExigidos, documentosFaltando,
   categoriaValida, CATEGORIA_ANTIGA, nomeCategoria, lerHorariosInicio
@@ -67,6 +67,7 @@ async function horaInicio(request, env, ctx) {
   await registrarLog(env, c.email, "HORARIO_INICIO", "admissao", a.id, hora);
   await emailRH(env, ctx, "Horário de início — " + c.nome, "Horário de início alterado", [`<b>${esc(c.nome)}</b> vai começar em <b>${dataBR(p.data_inicio)} às ${hora}</b>.`], "admissao/" + a.id);
   if (a.status === "APROVADA") {
+    await agendarInicioGoogle(env, ctx, a, p, c.nome, a.email_contato || c.email);
     const vaga = await um(env, "SELECT titulo FROM vagas WHERE id = ?", a.vaga_id);
     const conv = conviteInicio(env, Object.assign({ titulo_vaga: vaga && vaga.titulo }, a), p, c.nome, a.email_contato || c.email);
     if (conv) ctx.waitUntil(enviarEmail(env, { para: a.email_contato || c.email, assunto: "Seu primeiro dia: " + dataBR(p.data_inicio) + " às " + hora,
@@ -481,6 +482,13 @@ async function anexar(request, env) {
   if (!files.length) throw new ErroApi("Escolha um arquivo.");
   if (ja.n + files.length > 30) throw new ErroApi("Limite de 30 arquivos por admissão. Remova algum antes de enviar outro.");
   const salvos = [];
+  if (cat === "foto") {
+    if (files.length > 1) throw new ErroApi("Envie só uma foto.");
+    const salvo = await salvarArquivo(env, files[0], { categoria: cat, candidatoId: c.id, admissaoId: a.id, apenasImagem: true });
+    const antigas = await todos(env, "SELECT id FROM arquivos WHERE admissao_id = ? AND categoria = 'foto' AND id <> ?", a.id, salvo.id);
+    for (const x of antigas) await apagarArquivo(env, x.id);
+    return { ok: true, arquivos: [Object.assign(salvo, { categoria: cat })] };
+  }
   for (const f of files) salvos.push(Object.assign(await salvarArquivo(env, f, { categoria: cat, candidatoId: c.id, admissaoId: a.id }), { categoria: cat }));
   return { ok: true, arquivos: salvos };
 }

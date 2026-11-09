@@ -1691,6 +1691,7 @@
     const data = entrada("data", e.data_prevista || "", { type: "date", min: hoje });
     const hora = entrada("hora", e.hora_prevista || "", { type: "time" });
     const dur = entrada("duracao_min", "60", { type: "number", min: "10", max: "480", step: "5" });
+    const participantes = areaTexto("participantes", JSON.parse(e.participantes_previstos || "[]").map(p => p.nome ? p.nome + " <" + p.email + ">" : p.email).join("\n"), { rows: "3", placeholder: "Nome <email@empresa.com.br>, um por linha" });
     const local = entrada("local", e.local_prevista || "", { placeholder: "Endereço e sala, ou link da reunião" });
     const mensagem = areaTexto("mensagem", "", { rows: "3", placeholder: "Ex.: leve um documento com foto. A entrevista será com o gestor da área." });
     const avisar = el("input", { type: "checkbox", checked: true });
@@ -1698,12 +1699,12 @@
       el("p", { class: "suave pequeno", style: "margin:0 0 12px" }, e.nome + " · " + vaga.titulo +
         (e.data_enviada_em ? " · última data enviada em " + fmtData(e.data_enviada_em, true) : "")),
       el("div", { class: "campos" }, campo("Data", data, { obrigatorio: true }), campo("Hora", hora, { dica: "Com hora, o candidato recebe um convite para a agenda." }),
-        campo("Duração (min)", dur), campo("Local ou link", local), campo("Mensagem ao candidato (opcional)", mensagem, { largo: true })),
+        campo("Duração (min)", dur), campo("Local ou link", local), campo("Participantes da reunião / teste", participantes, { largo: true, dica: "O candidato, o RH e o gestor também entram no evento do Google Calendar." }), campo("Mensagem ao candidato (opcional)", mensagem, { largo: true })),
       el("label", { class: "check", style: "margin-top:12px" }, avisar, el("span", null, "Enviar a data ao candidato por e-mail (" + c.email + ")")));
     const ok = await dialogo({ titulo: (e.data_prevista ? "Mudar data — " : "Marcar data — ") + c.nome, corpo, okTexto: "Salvar e enviar",
       aoConfirmar: async () => {
         if (!data.value) return "Escolha a data.";
-        const r = await api("etapa_agendar", { etapa_id: e.id, data: data.value, hora: hora.value, duracao_min: dur.value, local: local.value, mensagem: mensagem.value, avisar: avisar.checked });
+        const r = await api("etapa_agendar", { etapa_id: e.id, data: data.value, hora: hora.value, duracao_min: dur.value, local: local.value, mensagem: mensagem.value, participantes: participantes.value, avisar: avisar.checked });
         if (!r.ok) return r.erro;
         toast(r.avisado ? "Data marcada e enviada ao candidato." : "Data marcada (o candidato não foi avisado).");
         return true;
@@ -1868,7 +1869,7 @@
   // ---------- Proposta: formulário (enviar e editar) ----------
   const hojeBR = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
   const maisDias = n => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() + n * 864e5));
-  const OBRIG_PROPOSTA = ["email_contato", "tipo_contratacao", "cargo", "funcao", "departamento", "horario_trabalho", "data_inicio", "horarios_inicio", "bolsa_valor", "prazo_resposta"];
+  const OBRIG_PROPOSTA = ["email_contato", "tipo_contratacao", "cargo", "funcao", "departamento", "horario_trabalho", "data_inicio", "horarios_inicio", "bolsa_innomaker", "prazo_resposta"];
 
   // Grade de horários (07:00 a 18:00, de 30 em 30 min) + horário avulso; guarda em <input name="horarios_inicio">
   function seletorHorarios(valor) {
@@ -1893,6 +1894,45 @@
     return el("div", { class: "seletor-horarios" }, grade, el("div", { class: "horas-outro" }, outro, add, resumo), oculto);
   }
 
+  // Bolsa Innomaker (sempre) + outra bolsa de outra entidade (se marcar); o salário bruto é a soma
+  const numBR = s => {
+    const t = String(s || "").replace(/[R$\s]/g, "");
+    if (!t) return 0;
+    const n = /,\d{1,2}$/.test(t) || /\.\d{3}/.test(t) ? Number(t.replace(/\./g, "").replace(",", ".")) : Number(t);
+    return Number.isFinite(n) ? n : NaN;
+  };
+  const moeda = n => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  function blocoBolsas(v) {
+    // proposta antiga (antes da separação): a bolsa única vira a bolsa Innomaker
+    const antiga = v.bolsa_innomaker === undefined && !v.tem_outra_bolsa;
+    const inno = entrada("bolsa_innomaker", antiga ? (v.bolsa_valor || "") : (v.bolsa_innomaker || ""), { placeholder: "R$ 0,00", inputmode: "decimal" });
+    const marca = el("input", { type: "checkbox", name: "tem_outra_bolsa", checked: !antiga && !!v.tem_outra_bolsa });
+    const outra = entrada("bolsa_valor", antiga ? "" : (v.bolsa_valor || ""), { placeholder: "R$ 0,00", inputmode: "decimal" });
+    const total = el("output", { class: "salario-total" });
+    const extra = el("div", { class: "campos outra-bolsa" },
+      campo("Bolsa - Valor (outra bolsa)", outra, { obrigatorio: true, nome: "bolsa_valor" }),
+      campo("Entidade vinculada", entrada("entidade_vinculada", antiga ? "" : (v.entidade_vinculada || ""), { placeholder: "Ex.: FAPERJ, CNPq, UFF" }), { obrigatorio: true, nome: "entidade_vinculada" }),
+      campo("Responsável", entrada("responsavel", antiga ? "" : (v.responsavel || ""), { placeholder: "Quem responde pela outra bolsa" })),
+      campo("Data inicial da bolsa", entrada("data_inicial_bolsa", antiga ? "" : (v.data_inicial_bolsa || ""), { type: "date" })),
+      campo("Data final da bolsa", entrada("data_final_bolsa", antiga ? "" : (v.data_final_bolsa || ""), { type: "date" })));
+    function atualizar() {
+      extra.hidden = !marca.checked;
+      extra.querySelectorAll("input").forEach(i => { i.disabled = !marca.checked; });
+      const a = numBR(inno.value), b = marca.checked ? numBR(outra.value) : 0;
+      total.textContent = isNaN(a) || isNaN(b) ? "Digite os valores em reais (ex.: 1.200,00) para calcular." : moeda(a + b);
+    }
+    [inno, outra].forEach(i => i.addEventListener("input", atualizar));
+    marca.addEventListener("change", atualizar);
+    atualizar();
+    return el("div", { class: "campo largo bolsas" },
+      el("div", { class: "campos" },
+        campo("Bolsa - Innomaker", inno, { obrigatorio: true, nome: "bolsa_innomaker" }),
+        el("div", { class: "campo" }, el("span", { class: "rot-total" }, "Salário bruto (soma)"), total)),
+      el("label", { class: "check", style: "margin:12px 0 4px" }, marca,
+        el("span", null, el("b", null, "Também recebe outra bolsa"), el("br"), el("span", { class: "pequeno suave" }, "Bolsa paga por outra entidade (não Innomaker). Marque para informar valor, responsável, entidade e datas."))),
+      extra);
+  }
+
   function formProposta(op, v, aviso) {
     const deps = op.departamentos.map(d => d.nome);
     return el("form", { novalidate: true },
@@ -1913,12 +1953,9 @@
         campo("Horários que o candidato pode escolher para começar", seletorHorarios(v.horarios_inicio || "09:00, 10:00, 14:00"),
           { obrigatorio: true, largo: true, nome: "horarios_inicio", dica: "Clique para marcar ou desmarcar. Ao aceitar a proposta, ele escolhe um destes horários do dia de início." }),
         campo("Local do primeiro dia", entrada("local_inicio", v.local_inicio || "", { placeholder: "Endereço e sala" }), { largo: true }),
-        campo("Bolsa / remuneração", entrada("bolsa_valor", v.bolsa_valor || ""), { obrigatorio: true, nome: "bolsa_valor" }),
+        campo("Fim do contrato Innomaker", entrada("data_fim_contrato", v.data_fim_contrato || "", { type: "date" }), { dica: "Se vazio, o contrato vale 1 ano a partir do início." }),
         campo("Auxílio", seletor("auxilio", lista(op, "auxilio"), v.auxilio || "")),
-        campo("Responsável", entrada("responsavel", v.responsavel || "")),
-        campo("Entidade vinculada", entrada("entidade_vinculada", v.entidade_vinculada || "")),
-        campo("Início da bolsa", entrada("data_inicial_bolsa", v.data_inicial_bolsa || "", { type: "date" })),
-        campo("Fim da bolsa / contrato", entrada("data_final_bolsa", v.data_final_bolsa || "", { type: "date" }), { dica: "Se vazio, o contrato vale 1 ano a partir do início." }),
+        blocoBolsas(v),
         campo("Gestor", entrada("gestor_nome", v.gestor_nome || "")),
         campo("E-mail do gestor", entrada("gestor_email", v.gestor_email || "", { type: "email" }), { dica: "Recebe o aviso da aprovação e da véspera do 1º dia." }),
         campo("Observação interna", areaTexto("observacao", v.observacao || ""), { largo: true, dica: "Só o RH vê." })),
@@ -1928,7 +1965,7 @@
 
   function lerFormProposta(f) {
     const d = lerForm(f);
-    const falta = OBRIG_PROPOSTA.filter(k => !String(d[k] || "").trim());
+    const falta = OBRIG_PROPOSTA.concat(d.tem_outra_bolsa ? ["bolsa_valor", "entidade_vinculada"] : []).filter(k => !String(d[k] || "").trim());
     if (!d.conferido) falta.push("conferido");
     if (falta.length) { marcarFaltando(f, falta); return { erro: "Preencha os campos obrigatórios e confirme a conferência." }; }
     if (/@id\.uff\.br$/i.test(d.email_contato)) return { erro: "Não é permitido usar e-mail @id.uff.br." };
@@ -1940,7 +1977,7 @@
   async function abrirProposta(c, vaga) {
     const op = await opcoes();
     const f = formProposta(op, { email_contato: c.email, local_inicio: vaga.localidade, tipo_contratacao: vaga.tipo_contratacao, funcao: vaga.titulo, departamento: vaga.departamento,
-      horario_trabalho: vaga.carga_horaria, bolsa_valor: vaga.remuneracao, responsavel: vaga.gestor_nome, gestor_nome: vaga.gestor_nome, gestor_email: vaga.gestor_email },
+      horario_trabalho: vaga.carga_horaria, bolsa_innomaker: vaga.remuneracao || "", gestor_nome: vaga.gestor_nome, gestor_email: vaga.gestor_email },
       "Revisão obrigatória: confira se tudo pertence ao candidato correto e à contratação autorizada. A data de início é a mesma do onboarding.");
     await dialogo({
       titulo: "Proposta para " + c.nome, corpo: f, okTexto: "Enviar proposta", largo: true,
@@ -2110,8 +2147,12 @@
     box.append(el("h2", { class: "sec" }, "Proposta"), el("div", { class: "card" }, dados([
       ["Contratação", p.tipo_contratacao], ["Situação", p.situacao], ["Cargo", p.cargo], ["Função", p.funcao], ["Departamento", p.departamento], ["Setor", p.setor],
       ["Horário", p.horario_trabalho], ["Início", fmtData(p.data_inicio) + (p.hora_inicio ? " às " + p.hora_inicio + " (escolhido pelo candidato)" : p.horarios_inicio ? " — opções: " + p.horarios_inicio + " (o candidato ainda não escolheu)" : "")],
-      ["Local do primeiro dia", p.local_inicio], ["Bolsa / remuneração", p.bolsa_valor], ["Auxílio", p.auxilio], ["Responsável", p.responsavel],
-      ["Entidade vinculada", p.entidade_vinculada], ["Bolsa de/até", [fmtData(p.data_inicial_bolsa), fmtData(p.data_final_bolsa)].filter(Boolean).join(" até ")],
+      ["Local do primeiro dia", p.local_inicio], ["Fim do contrato Innomaker", fmtData(p.data_fim_contrato)],
+      ...(p.bolsa_innomaker !== undefined ? [["Bolsa - Innomaker", p.bolsa_innomaker],
+        ["Outra bolsa", p.tem_outra_bolsa ? [p.bolsa_valor, p.entidade_vinculada, p.responsavel ? "resp. " + p.responsavel : ""].filter(Boolean).join(" · ") : "Não"],
+        ["Outra bolsa de/até", [fmtData(p.data_inicial_bolsa), fmtData(p.data_final_bolsa)].filter(Boolean).join(" até ")], ["Salário bruto", p.salario_bruto]]
+        : [["Bolsa / remuneração", p.bolsa_valor], ["Responsável", p.responsavel], ["Entidade vinculada", p.entidade_vinculada]]),
+      ["Auxílio", p.auxilio],
       ["Gestor", [p.gestor_nome, p.gestor_email].filter(Boolean).join(" — ")], ["Observação interna", p.observacao]])));
 
     if (Object.keys(c).length) {
@@ -2289,8 +2330,9 @@
       f.admissao_id ? el("a", { class: "bt-sec", href: "#admissao/" + f.admissao_id }, "Ver admissão") : null
     ], ["#funcionarios", "Funcionários"]));
 
-    // Resumo do registro
-    box.append(el("div", { class: "card" }, el("div", { class: "meta" },
+    // Resumo do registro (com a foto 3x4, se enviada)
+    const foto = d.foto_id || ((r.arquivos || []).find(x => x.categoria === "foto") || {}).id;
+    box.append(el("div", { class: "card ficha-func" }, foto ? el("img", { class: "foto-3x4", src: "/arquivo/" + foto, alt: "Foto de " + f.nome }) : null, el("div", { class: "meta" },
       el("span", { class: "pill " + (f.ativo ? "verde" : "cinza") }, f.ativo ? "Ativo" : "Inativo"),
       el("span", null, el("b", null, [f.cargo, f.funcao].filter(Boolean).join(" — ") || "—")),
       f.departamento ? el("span", null, [f.departamento, f.setor].filter(Boolean).join(" / ")) : null,
@@ -2328,8 +2370,12 @@
       el("div", { class: "campos" },
         ...[["nome", "Nome"], ["email", "E-mail pessoal"], ["email_innomaker", "E-mail Innomaker"], ["telefone", "Telefone"], ["situacao", "Situação"], ["cargo", "Cargo"],
           ["funcao", "Função"], ["departamento", "Departamento"], ["setor", "Setor"], ["horario_trabalho", "Horário de trabalho"], ["tipo_contratacao", "Tipo de contratação"],
-          ["bolsa_valor", "Bolsa / remuneração"], ["auxilio", "Auxílio"], ["responsavel", "Responsável"], ["entidade_vinculada", "Entidade vinculada"]]
+          ["auxilio", "Auxílio"], ["bolsa_innomaker", "Bolsa - Innomaker"], ["bolsa_valor", "Bolsa - Valor (outra bolsa)"], ["responsavel", "Responsável (outra bolsa)"],
+          ["entidade_vinculada", "Entidade vinculada"]]
           .map(([k, rot]) => campo(rot, k === "situacao" ? seletor("situacao", ["Ativo", "Não ativo"], f.situacao === "Não ativo" ? "Não ativo" : "Ativo", false) : entrada(k, f[k]))),
+        campo("Data inicial da bolsa", entrada("data_inicial_bolsa", f.data_inicial_bolsa, { type: "date" })),
+        campo("Data final da bolsa", entrada("data_final_bolsa", f.data_final_bolsa, { type: "date" })),
+        campo("Salário bruto", entrada("salario_bruto_ver", f.salario_bruto || "", { readonly: true }), { dica: "Soma da bolsa Innomaker com a outra bolsa. Recalculado ao salvar." }),
         campo("Data de efetivação", entrada("data_efetivacao", f.data_efetivacao, { type: "date" })),
         campo("Data final do contrato", entrada("data_final_contrato", f.data_final_contrato, { type: "date" }), { dica: "Confirme sempre manualmente (item 5)." }),
         campo("Principais funções", areaTexto("principais_funcoes", f.principais_funcoes), { largo: true })),

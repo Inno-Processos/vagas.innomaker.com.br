@@ -134,7 +134,7 @@ async function funcionariosXlsx(request, env, url) {
   const mat = parseInt(url.searchParams.get("matricula"), 10) || 0;
   const fs = mat ? await todos(env, "SELECT * FROM funcionarios WHERE matricula = ?", mat) : await todos(env, "SELECT * FROM funcionarios ORDER BY matricula");
   if (mat && !fs.length) return json({ ok: false, erro: "Funcionário não encontrado." }, 404);
-  const arq = gerarXlsx("Registros", COLUNAS, fs.map(f => linhaRegistro(f)));
+  const arq = gerarXlsx("Registros", COLUNAS, fs.map(f => linhaRegistro(f, { siteUrl: cfg(env).siteUrl })));
   const nome = mat ? `registro-${mat}-${String(fs[0].nome || "").normalize("NFD").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase()}.xlsx` : `registros-${hojeISO()}.xlsx`;
   return new Response(arq, { headers: {
     "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
