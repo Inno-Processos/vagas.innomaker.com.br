@@ -365,6 +365,7 @@
 
   function abrirMenu(abrir) {
     $("lateral").classList.toggle("aberta", abrir);
+    $("barra").classList.toggle("aberta", abrir);
     $("veu").classList.toggle("ativo", abrir);
     $("veu").hidden = !abrir;
     $("menuBtn").setAttribute("aria-expanded", String(abrir));

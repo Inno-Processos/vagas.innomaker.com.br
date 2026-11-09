@@ -8,35 +8,49 @@
 <title>Painel — Vagas.Innomaker</title>
 <script>(function(){document.documentElement.dataset.tema=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"escuro":"claro"})();</script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%2341A639%22/></svg>">
+<link rel="preload" href="/assets/fontes/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/painel.css?v=__VERSAO__">
 <script src="/assets/tema.js?v=__VERSAO__" defer></script>
 </head>
 <body>
-<header class="topo">
-  <button class="menu-btn" id="menuBtn" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="lateral">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-  </button>
-  <a class="marca" href="/painel#inicio">
-    <img class="logo-claro" src="/assets/logo.png" alt="Innomaker">
-    <img class="logo-escuro" src="/assets/logo-escuro.png" alt="Innomaker">
-    <span class="marca-tag">Painel</span>
-  </a>
-  <div class="topo-dir">
-    <button class="bt-icone" type="button" id="btManual" aria-label="Manual desta tela" title="Manual desta tela">
-      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2zM22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/></svg>
-    </button>
-    <a class="bt-ghost so-largo" href="/" target="_blank" rel="noopener">Ver site</a>
-    <div class="usuario">
-      <span class="avatar" id="uAvatar" aria-hidden="true"></span>
-      <span class="u-txt"><span class="u-nome" id="uNome"></span><span class="u-papel" id="uPapel"></span></span>
+<div class="app">
+  <aside class="barra" id="barra">
+    <a class="marca" href="/painel#inicio" aria-label="Painel Innomaker — início">
+      <img src="/assets/logo-escuro.png" alt="Innomaker">
+      <span class="marca-tag">Painel de vagas</span>
+    </a>
+    <nav class="lateral" id="lateral" aria-label="Seções do painel"></nav>
+    <div class="barra-rodape">
+      <div class="usuario">
+        <span class="avatar" id="uAvatar" aria-hidden="true"></span>
+        <span class="u-txt"><span class="u-nome" id="uNome"></span><span class="u-papel" id="uPapel"></span></span>
+      </div>
+      <div class="barra-acoes">
+        <button class="bt-barra" type="button" id="btManual" title="Manual desta tela">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2zM22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/></svg>
+          <span>Manual</span>
+        </button>
+        <a class="bt-barra" href="/" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+          <span>Ver site</span>
+        </a>
+        <a class="bt-barra" id="btSair" href="/sair">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3"/></svg>
+          <span>Sair</span>
+        </a>
+      </div>
     </div>
-    <a class="bt-ghost" id="btSair" href="/sair">Sair</a>
-  </div>
-</header>
+  </aside>
 
-<div class="layout">
-  <nav class="lateral" id="lateral" aria-label="Seções do painel"></nav>
-  <main class="conteudo" id="conteudo" tabindex="-1"></main>
+  <div class="principal">
+    <header class="topo-movel">
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="barra">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <img class="logo-movel" src="/assets/logo-escuro.png" alt="Innomaker">
+    </header>
+    <main class="conteudo" id="conteudo" tabindex="-1"></main>
+  </div>
 </div>
 <div class="veu" id="veu" hidden></div>
 
