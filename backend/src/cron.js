@@ -124,9 +124,16 @@ export async function avisosAoCandidato(env) {
   return adms.length;
 }
 
+// Roda um passo da rotina sem deixar a falha dele parar os outros
+async function passo(nome, fn) {
+  try { return await fn(); } catch (e) { console.error("Rotina — " + nome + " falhou:", e); return null; }
+}
+
 export async function rotinaDiaria(env) {
-  await sincronizarGoogle(env);
+  await passo("Google Calendar", () => sincronizarGoogle(env));
   const hoje = hojeISO();
+  const hora = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  const comercial = hora >= 8 && hora < 20;
 
   const r = await executar(env,
     "UPDATE vagas SET status = 'Fechada', atualizado_em = ? WHERE status IN ('Aberta', 'Pausada') AND data_limite IS NOT NULL AND data_limite <> '' AND data_limite < ?",
@@ -139,16 +146,15 @@ export async function rotinaDiaria(env) {
     `SELECT matricula, nome, data_final_contrato FROM funcionarios
       WHERE ativo = 1 AND data_final_contrato <> '' AND data_final_contrato <= ? AND lembrete_renovacao_em IS NULL
       ORDER BY data_final_contrato`, limite);
-  await vencerPropostas(env);
-  // Lembretes só em horário comercial (8h–20h de Brasília), para não chegar de madrugada
-  const hora = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
-  if (hora >= 8 && hora < 20) {
-    await avisosAoCandidato(env);
-    await lembretesDeEntrevista(env);
-    await avisoVesperaInicio(env);
+  // E-mails só em horário comercial (8h–20h de Brasília), para não chegar de madrugada
+  if (comercial) {
+    await passo("propostas vencidas", () => vencerPropostas(env));
+    await passo("lembretes ao candidato", () => avisosAoCandidato(env));
+    await passo("lembretes de entrevista", () => lembretesDeEntrevista(env));
+    await passo("véspera do 1º dia", () => avisoVesperaInicio(env));
   }
-  await limpezaLgpd(env);
-  if (!vencendo.length) return;
+  await passo("prazo de guarda (LGPD)", () => limpezaLgpd(env));
+  if (!vencendo.length || !comercial) return;
 
   const config = await lerConfig(env);
   if (config.email_rh) {

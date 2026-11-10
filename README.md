@@ -139,7 +139,14 @@ Todo dia o backend copia o banco para `<destino>/banco/` (mantém 30) e espelha 
 (o que é apagado aqui, por pedido LGPD ou prazo, também sai de lá). A situação aparece em **Painel → Configurações → Backup**
 e o RH recebe um e-mail se a cópia falhar. Para testar na hora: `npm run backup`.
 
-Para **restaurar**: pare o sistema, copie `<destino>/banco/vagas-AAAA-MM-DD.db` para `data/vagas.db` e `<destino>/arquivos/` para `data/arquivos/`, e suba de novo.
+Para **restaurar**:
+
+1. Pare o sistema (`docker compose down`).
+2. Apague `data/vagas.db-wal` e `data/vagas.db-shm`, se existirem. Sem isso, o banco restaurado pode ser misturado com o antigo.
+3. Copie `<destino>/banco/vagas-AAAA-MM-DD.db` para `data/vagas.db` e `<destino>/arquivos/` para `data/arquivos/`.
+4. Suba de novo (`docker compose up -d`).
+
+Arquivos apagados no sistema (exclusão LGPD, prazo de guarda) ficam 30 dias em `<destino>/lixeira/AAAA-MM-DD/` antes de sumir da cópia.
 
 ## Manutenção
 

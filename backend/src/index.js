@@ -20,7 +20,7 @@ import { abrirBanco } from "./infra/banco.js";
 import { criarArmazenamento } from "./infra/arquivos.js";
 import { criarCorreio } from "./infra/correio.js";
 import { criarBackupExterno } from "./infra/backupExterno.js";
-import { enviarEmail, layout, textoSimples } from "./lib/email.js";
+import { enviarEmail, layout, textoSimples, reenviarEmails } from "./lib/email.js";
 import { lerConfig } from "./lib/db.js";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -109,18 +109,27 @@ async function rotina() {
   if (rodando) return;
   rodando = true;
   try {
-    await rotinaDiaria(env);
-    const b = banco.backup();
-    if (b) console.log("Backup do banco:", b);
-    const ext = await env.BACKUP.copiar();
-    if (ext && ext.ok) console.log("Cópia externa:", env.BACKUP.destino, ext.arquivos);
-    if (ext && !ext.ok) await avisarFalhaBackup(ext);
-  } catch (e) {
-    console.error("Rotina falhou:", e);
+    // a rotina (vagas, avisos, LGPD) não pode impedir o backup: cada parte tem o seu try
+    try { await rotinaDiaria(env); } catch (e) { console.error("Rotina falhou:", e); }
+    try {
+      const b = banco.backup();
+      if (b) console.log("Backup do banco:", b);
+    } catch (e) {
+      console.error("Backup do banco falhou:", e);
+      await avisarFalhaBackup({ dia: "banco-" + new Date().toISOString().slice(0, 10), erro: "backup do banco: " + (e && e.message || e) }).catch(() => {});
+    }
+    try {
+      const ext = await env.BACKUP.copiar();
+      if (ext && ext.ok) console.log("Cópia externa:", env.BACKUP.destino, ext.arquivos);
+      if (ext && !ext.ok) await avisarFalhaBackup(ext);
+    } catch (e) { console.error("Cópia externa falhou:", e); }
   } finally {
     rodando = false;
   }
 }
+
+// E-mails que falharam: nova tentativa a cada 5 minutos
+const filaEmails = setInterval(() => { reenviarEmails(env).catch(e => console.error("Reenvio de e-mails falhou:", e)); }, 5 * 60 * 1000);
 // Cópia externa falhou: avisa o RH (uma vez por dia)
 let avisoBackupDia = "";
 async function avisarFalhaBackup(s) {
@@ -137,6 +146,7 @@ async function avisarFalhaBackup(s) {
 }
 
 const relogio = setInterval(rotina, UMA_HORA);
+filaEmails.unref && filaEmails.unref();
 const primeira = setTimeout(rotina, 15 * 1000);
 
 servidor.listen(PORTA, () => {
@@ -150,6 +160,7 @@ servidor.listen(PORTA, () => {
 async function desligar(sinal) {
   console.log(`\n${sinal}: desligando o backend…`);
   clearInterval(relogio);
+  clearInterval(filaEmails);
   clearTimeout(primeira);
   servidor.close();
   await Promise.race([Promise.allSettled([...pendentes]), new Promise(r => setTimeout(r, 10000))]);

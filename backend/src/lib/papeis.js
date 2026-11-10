@@ -35,6 +35,7 @@ export const ACOES = {
   vaga_preparacao_desanexar: RH,
   etapa_atualizar: RH,
   candidatura_status: RH,
+  candidatura_reativar: RH,
   proposta_criar: RH,
   adm_listar: RH,
   adm_detalhe: RH,

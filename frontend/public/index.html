@@ -202,14 +202,25 @@
       </div>
 
       <div class="card login" id="boxEsqueci" hidden>
-        <h2 class="card-title">Receber nova senha</h2>
-        <p class="small">Informe o e-mail usado na inscrição. Enviaremos uma nova senha para ele.</p>
+        <h2 class="card-title">Criar nova senha</h2>
+        <p class="small">Informe o e-mail usado na inscrição. Enviaremos um link para você criar uma nova senha. Sua senha atual continua valendo até lá.</p>
         <form id="formEsqueci" novalidate>
           <div class="field" style="margin-top:14px"><label for="eEmail">E-mail</label><input class="input" id="eEmail" type="email" autocomplete="email"></div>
           <div id="esqueciMsg"></div>
-          <button class="btn full" id="btnEsqueciEnviar" type="submit">Enviar nova senha</button>
+          <button class="btn full" id="btnEsqueciEnviar" type="submit">Enviar link</button>
         </form>
         <button class="link-btn" id="btnVoltarLogin" type="button">Voltar para entrar</button>
+      </div>
+
+      <div class="card login" id="boxRedefinir" hidden>
+        <h2 class="card-title">Escolha sua nova senha</h2>
+        <p class="small">Use pelo menos 8 caracteres. Depois de salvar, você já entra na sua área.</p>
+        <form id="formRedefinir" novalidate>
+          <div class="field" style="margin-top:14px"><label for="rNova">Nova senha</label><input class="input" id="rNova" type="password" autocomplete="new-password" minlength="8"></div>
+          <div class="field"><label for="rConfirma">Repita a nova senha</label><input class="input" id="rConfirma" type="password" autocomplete="new-password" minlength="8"></div>
+          <div id="redefinirMsg"></div>
+          <button class="btn full" id="btnRedefinir" type="submit">Salvar nova senha</button>
+        </form>
       </div>
 
       <div id="boxArea" hidden>

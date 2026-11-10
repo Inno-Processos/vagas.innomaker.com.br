@@ -4,13 +4,15 @@
 //   <destino>/banco/vagas-AAAA-MM-DD.db   uma cópia por dia do banco (mantém as últimas 30)
 //   <destino>/arquivos/...                espelho de data/arquivos (currículos e documentos)
 //
-// O espelho também apaga do destino o que foi apagado aqui (pedido de exclusão LGPD, prazo de guarda).
+// O que foi apagado aqui (exclusão LGPD, prazo de guarda) vai para <destino>/lixeira/AAAA-MM-DD/ e some depois de 30 dias.
+// Se a pasta de origem estiver vazia e o destino não, a cópia para (proteção contra disco desmontado ou dados perdidos).
 // A situação da última cópia fica em data/backups/externo.json e aparece em Painel → Configurações.
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
 const BANCOS_MANTIDOS = 30;
+const DIAS_LIXEIRA = 30;
 
 async function listarArquivos(base, rel = "") {
   const saida = new Map();
@@ -28,9 +30,10 @@ async function listarArquivos(base, rel = "") {
 }
 
 // Espelha origem → destino: copia novos/alterados e remove os que não existem mais na origem
-async function espelhar(origem, destino) {
+async function espelhar(origem, destino, lixeira, hoje) {
   await fsp.mkdir(destino, { recursive: true });
   const [a, b] = await Promise.all([listarArquivos(origem), listarArquivos(destino)]);
+  if (!a.size && b.size) throw new Error("a pasta de arquivos do sistema está vazia, mas a cópia tem " + b.size + " arquivo(s). Nada foi apagado: confira o servidor");
   let copiados = 0, removidos = 0;
   for (const [rel, info] of a) {
     const d = b.get(rel);
@@ -42,9 +45,22 @@ async function espelhar(origem, destino) {
     await fsp.utimes(alvo, t, t).catch(() => {});
     copiados++;
   }
+  // apagados aqui vão para a lixeira (não somem de imediato)
   for (const rel of b.keys()) {
-    if (!a.has(rel)) { await fsp.rm(path.join(destino, rel), { force: true }); removidos++; }
+    if (a.has(rel)) continue;
+    const alvo = path.join(lixeira, hoje, rel);
+    await fsp.mkdir(path.dirname(alvo), { recursive: true });
+    await fsp.rename(path.join(destino, rel), alvo).catch(async () => {
+      await fsp.copyFile(path.join(destino, rel), alvo);
+      await fsp.rm(path.join(destino, rel), { force: true });
+    });
+    removidos++;
   }
+  // lixeira: some depois de 30 dias
+  const limite = new Date(Date.now() - DIAS_LIXEIRA * 864e5).toISOString().slice(0, 10);
+  let dias = [];
+  try { dias = await fsp.readdir(lixeira); } catch (e) { /* sem lixeira */ }
+  for (const d of dias) if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d < limite) await fsp.rm(path.join(lixeira, d), { recursive: true, force: true });
   return { total: a.size, copiados, removidos };
 }
 
@@ -83,7 +99,7 @@ export function criarBackupExterno(pastaDados, destino) {
         const antigos = fs.readdirSync(dBanco).filter(f => /^vagas-.*\.db$/.test(f)).sort();
         for (const f of antigos.slice(0, Math.max(0, antigos.length - BANCOS_MANTIDOS))) await fsp.rm(path.join(dBanco, f), { force: true });
         s.banco = ultimo;
-        s.arquivos = await espelhar(path.join(pastaDados, "arquivos"), path.join(destino, "arquivos"));
+        s.arquivos = await espelhar(path.join(pastaDados, "arquivos"), path.join(destino, "arquivos"), path.join(destino, "lixeira"), hoje);
         s.ok = true;
       } catch (e) {
         s.erro = String(e && e.message || e);

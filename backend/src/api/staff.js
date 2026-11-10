@@ -321,7 +321,7 @@ async function vagaDetalhe(env, ctx, b, u) {
 
   const cands = await todos(env,
     `SELECT ca.*, c.nome, c.email, c.telefone, c.banco_talentos, c.talento_marcado, c.talento_nota, c.talento_tags,
-            (SELECT a.id FROM admissoes a WHERE a.candidatura_id = ca.id ORDER BY a.criado_em DESC LIMIT 1) AS admissao_id,
+            (SELECT a.id FROM admissoes a WHERE a.candidatura_id = ca.id AND a.status NOT IN ('CANCELADA', 'RECUSADA', 'PROPOSTA_RECUSADA') ORDER BY a.criado_em DESC LIMIT 1) AS admissao_id,
             (SELECT a.status FROM admissoes a WHERE a.candidatura_id = ca.id ORDER BY a.criado_em DESC LIMIT 1) AS admissao_status
        FROM candidaturas ca JOIN candidatos c ON c.id = ca.candidato_id
       WHERE ca.vaga_id = ? ORDER BY ca.criado_em DESC`, vaga.id);
@@ -419,9 +419,40 @@ async function etapaAtualizar(env, ctx, b, u) {
   return { ok: true, status: novoStatus, emailEnviado };
 }
 
+// Admissão que ainda não terminou (proposta enviada, cadastro, aprovação ou aprovada)
+async function admissaoAtiva(env, candidaturaId) {
+  return um(env, `SELECT id, status FROM admissoes WHERE candidatura_id = ? AND status NOT IN (${ADM_ENCERRADAS.map(() => "?").join(",")})`, candidaturaId, ...ADM_ENCERRADAS);
+}
+
+// Desfaz uma desistência/encerramento (ex.: candidato recusou a proposta por engano)
+async function candidaturaReativar(env, ctx, b, u) {
+  const ca = await um(env, `SELECT ca.*, c.nome, c.email, v.titulo FROM candidaturas ca JOIN candidatos c ON c.id = ca.candidato_id
+    JOIN vagas v ON v.id = ca.vaga_id WHERE ca.id = ?`, texto(b.id, 30));
+  if (!ca) throw new ErroApi("Candidatura não encontrada.");
+  if (["Desistiu", "Encerrado"].indexOf(ca.status) < 0) throw new ErroApi("Só é possível reativar uma candidatura encerrada ou com desistência.");
+  if (await admissaoAtiva(env, ca.id)) throw new ErroApi("Esta candidatura tem uma admissão em andamento.");
+  const ets = await todos(env, "SELECT nome, resultado FROM etapas WHERE candidatura_id = ? ORDER BY ordem", ca.id);
+  const etapasProcesso = ets.filter(e => !ehEtapaProposta(e.nome));
+  const status = etapasProcesso.length && etapasProcesso.every(e => e.resultado === "Aprovado") ? "Aprovado" : "Em processo";
+  const motivo = texto(b.motivo, 2000);
+  await executar(env, "UPDATE candidaturas SET status = ?, atualizado_em = ? WHERE id = ?", status, agora(), ca.id);
+  await registrarLog(env, quemE(u), "CANDIDATURA_REATIVADA", "candidatura", ca.id, ca.status + " → " + status + (motivo ? " — " + motivo : ""));
+  if (b.avisar) {
+    notificar(env, ctx, ca.email, "Sua candidatura foi reativada — " + ca.titulo, "Candidatura reativada",
+      [`Olá, <b>${esc(String(ca.nome).split(" ")[0])}</b>.`, `Sua candidatura para <b>${esc(ca.titulo)}</b> foi reativada pelo RH.`,
+        status === "Aprovado" ? "Você já passou por todas as etapas: o RH vai entrar em contato com a proposta." : "O processo seletivo continua de onde parou.",
+        motivo ? "<b>Observação:</b> " + esc(motivo) : ""].filter(Boolean), { texto: "Abrir Área do candidato", url: linkArea(env) });
+  }
+  return { ok: true, status };
+}
+
 async function candidaturaStatus(env, ctx, b, u) {
   const status = ["Em processo", "Aprovado", "Encerrado", "Desistiu"].indexOf(b.status) >= 0 ? b.status : "";
   if (!status) throw new ErroApi("Situação inválida.");
+  const ca = await um(env, "SELECT * FROM candidaturas WHERE id = ?", texto(b.id, 30));
+  if (!ca) throw new ErroApi("Candidatura não encontrada.");
+  if (ca.status === "Contratado") throw new ErroApi("Esta pessoa já foi contratada.");
+  if (await admissaoAtiva(env, ca.id)) throw new ErroApi("Esta candidatura tem uma proposta/admissão em andamento. Cancele a admissão antes.");
   const r = await executar(env, "UPDATE candidaturas SET status = ?, obs = ?, atualizado_em = ? WHERE id = ?",
     status, texto(b.obs, 2000), agora(), texto(b.id, 30));
   if (!r.meta || !r.meta.changes) throw new ErroApi("Candidatura não encontrada.");
@@ -502,6 +533,12 @@ async function admPropostaSalvar(env, ctx, b, u) {
   const difs = diferencas(antes, p);
   const visiveis = difs.filter(d => d.visivel);
   const reabre = a.status === "PROPOSTA_EXPIRADA";
+  if (reabre) {
+    const outra = await admissaoAtiva(env, a.candidatura_id);
+    if (outra && outra.id !== a.id) throw new ErroApi("Já existe outra proposta para este candidato (" + outra.id + "). Use aquela.");
+    const ca = await um(env, "SELECT status FROM candidaturas WHERE id = ?", a.candidatura_id);
+    if (!ca || ["Aprovado", "Proposta"].indexOf(ca.status) < 0) throw new ErroApi("A candidatura não está mais aprovada (" + (ca ? ca.status : "excluída") + "). Reative a candidatura antes.");
+  }
   const precisaAceitar = reabre || a.status === "PROPOSTA_ENVIADA" || visiveis.length > 0;
   const prazo = precisaAceitar ? lerPrazo(b.prazo_resposta || a.prazo_resposta) : a.prazo_resposta;
   const mudouPrazo = prazo !== a.prazo_resposta;
@@ -1384,7 +1421,7 @@ const HANDLERS = {
   solic_criar: solicCriar, solic_editar: solicEditar, solic_minhas: solicMinhas, solic_listar: solicListar, solic_decidir: solicDecidir,
   vagas_todas: vagasTodas, minhas_vagas: minhasVagas, vaga_salvar: vagaSalvar, vaga_detalhe: vagaDetalhe,
   vaga_preparacao_anexar: vagaPreparacaoAnexar, vaga_preparacao_desanexar: vagaPreparacaoDesanexar,
-  etapa_atualizar: etapaAtualizar, candidatura_status: candidaturaStatus,
+  etapa_atualizar: etapaAtualizar, candidatura_status: candidaturaStatus, candidatura_reativar: candidaturaReativar,
   proposta_criar: propostaCriar, adm_listar: admListar, adm_detalhe: admDetalhe, adm_decidir: admDecidir, adm_reenviar: admReenviar,
   func_listar: funcListar, func_detalhe: funcDetalhe, func_atualizar: funcAtualizar,
   cfg_obter: cfgObter, cfg_salvar_geral: cfgSalvarGeral, dep_salvar: depSalvar, lista_salvar: listaSalvar,

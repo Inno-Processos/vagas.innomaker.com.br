@@ -1737,7 +1737,9 @@
     const rodape = rh ? el("div", { class: "acoes", style: "margin-top:16px;justify-content:flex-end" },
         !c.admissao_id ? el("button", { type: "button", class: "bt-perigo-txt", onclick: () => excluirCandidato(c, recarregar) }, "Excluir dados (LGPD)") : null,
         !travado && ["Em processo", "Aprovado"].indexOf(c.status) >= 0
-          ? el("button", { type: "button", class: "bt-perigo", onclick: () => marcarDesistencia(c) }, "Registrar desistência") : null)
+          ? el("button", { type: "button", class: "bt-perigo", onclick: () => marcarDesistencia(c) }, "Registrar desistência") : null,
+        ["Desistiu", "Encerrado"].indexOf(c.status) >= 0
+          ? el("button", { type: "button", class: "bt", onclick: () => reativarCandidatura(c) }, "Reativar candidatura") : null)
       : null;
 
     dialogo({ titulo: c.nome + " — " + vaga.titulo, corpo: el("div", null, topo, mensagem, fim, el("h3", { class: "titulo-etapas" }, "Etapas do processo"), linha, rodape),
@@ -1943,6 +1945,25 @@
     });
     pintar();
     if (await p) { reabrirCandidato = c.id; recarregar(); }
+  }
+
+  // Desfaz desistência/encerramento (ex.: recusou a proposta por engano)
+  async function reativarCandidatura(c) {
+    const motivo = el("textarea", { placeholder: "Motivo (opcional). Ex.: o candidato recusou a proposta por engano." });
+    const avisar = el("input", { type: "checkbox", checked: true });
+    await dialogo({
+      titulo: "Reativar a candidatura de " + c.nome,
+      corpo: el("div", null,
+        el("p", { class: "suave", style: "margin:0 0 10px" }, "A candidatura volta para \"Em processo\" ou, se todas as etapas já estiverem aprovadas, para \"Aprovado\" (aí você pode enviar a proposta de novo)."),
+        motivo, el("label", { class: "check", style: "margin-top:10px" }, avisar, el("span", null, "Avisar o candidato por e-mail"))),
+      okTexto: "Reativar",
+      aoConfirmar: async () => {
+        const r = await api("candidatura_reativar", { id: c.id, motivo: motivo.value, avisar: avisar.checked });
+        if (!r.ok) return r.erro;
+        toast("Candidatura reativada: " + (r.status === "Aprovado" ? "aprovado, pronto para a proposta." : "em processo."));
+        return true;
+      }
+    }) && recarregar();
   }
 
   async function marcarDesistencia(c) {
@@ -2659,7 +2680,7 @@
         el("thead", null, el("tr", null, ["Quando", "Para", "Assunto", "Status"].map(t => el("th", null, t)))),
         el("tbody", null, r.emails.map(e => el("tr", null, el("td", { "data-rotulo": "Quando" }, fmtData(e.quando, true)), el("td", { "data-rotulo": "Para" }, e.para),
           el("td", { "data-rotulo": "Assunto" }, e.assunto), el("td", { "data-rotulo": "Status", title: e.erro || "" },
-            el("span", { class: "pill " + ({ ENVIADO: "verde", FALHOU: "verm" }[e.status] || "ambar") }, { ENVIADO: "Enviado", FALHOU: "Falhou", SEM_PROVEDOR: "Sem provedor" }[e.status] || e.status))))))));
+            el("span", { class: "pill " + ({ ENVIADO: "verde", FALHOU: "verm" }[e.status] || "ambar") }, { ENVIADO: "Enviado", FALHOU: "Falhou", SEM_PROVEDOR: "Sem provedor", TENTANDO: "Tentando de novo" }[e.status] || e.status))))))));
       area.append(el("h2", { class: "sec" }, "Ações"), el("div", { class: "rolagem" }, el("table", { class: "tabela" },
         el("thead", null, el("tr", null, ["Quando", "Quem", "Ação", "Registro", "Detalhe"].map(t => el("th", null, t)))),
         el("tbody", null, r.log.map(l => el("tr", null, el("td", { "data-rotulo": "Quando" }, fmtData(l.quando, true)), el("td", { "data-rotulo": "Quem" }, String(l.quem).replace(/ <.*>$/, "")),

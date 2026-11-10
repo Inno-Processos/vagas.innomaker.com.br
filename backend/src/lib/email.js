@@ -3,21 +3,17 @@
 // env.CORREIO (nodemailer, criado em infra/correio.js) faz o envio.
 // Sem usuário/senha, o e-mail é só registrado na tabela "emails" com status SEM_PROVEDOR.
 import { agora, esc } from "./http.js";
-import { executar } from "./db.js";
+import { executar, todos, registrarLog } from "./db.js";
+
+// Espera entre as tentativas de um e-mail que falhou (depois da 1ª falha)
+const ESPERAS_MIN = [5, 15, 60, 180, 360];
 
 export function smtpConfigurado(env) {
   return !!(env.CORREIO && env.SMTP_USER && env.SMTP_PASS);
 }
 
-export async function enviarEmail(env, msg) {
-  const para = [].concat(msg.para || []).map(s => String(s || "").trim()).filter(Boolean);
-  if (!para.length) return { ok: false, erro: "sem destinatário" };
-
-  let status = "SEM_PROVEDOR";
-  let erro = "";
-  if (smtpConfigurado(env)) {
-    try {
-      const envio = {
+function montarEnvio(env, msg, para) {
+  return {
         usuario: String(env.SMTP_USER).trim(),
         senha: String(env.SMTP_PASS).replace(/\s+/g, ""),
         de: String(env.SMTP_FROM || env.SMTP_USER).trim(),
@@ -30,8 +26,18 @@ export async function enviarEmail(env, msg) {
         texto: msg.texto,
         anexos: msg.anexos,
         convite: msg.convite // { metodo: "REQUEST" | "CANCEL", ics } — convite de calendário
-      };
-      await env.CORREIO.enviar(envio);
+  };
+}
+
+export async function enviarEmail(env, msg) {
+  const para = [].concat(msg.para || []).map(s => String(s || "").trim()).filter(Boolean);
+  if (!para.length) return { ok: false, erro: "sem destinatário" };
+
+  let status = "SEM_PROVEDOR";
+  let erro = "";
+  if (smtpConfigurado(env)) {
+    try {
+      await env.CORREIO.enviar(montarEnvio(env, msg, para));
       status = "ENVIADO";
     } catch (e) {
       status = "FALHOU";
@@ -39,12 +45,54 @@ export async function enviarEmail(env, msg) {
     }
   }
 
+  let emailId = null;
   try {
-    await executar(env, "INSERT INTO emails (quando, para, assunto, status, erro, corpo) VALUES (?, ?, ?, ?, ?, ?)",
-      agora(), msg.registroPara || para.join(", "), msg.assunto, status, erro, env.DEV_USUARIO_FALSO && !msg.registroPara ? (msg.texto || "") : "");
+    const r = await executar(env, "INSERT INTO emails (quando, para, assunto, status, erro, corpo) VALUES (?, ?, ?, ?, ?, ?)",
+      agora(), msg.registroPara || para.join(", "), msg.assunto, status === "FALHOU" ? "TENTANDO" : status, erro, env.DEV_USUARIO_FALSO && !msg.registroPara ? (msg.texto || "") : "");
+    emailId = r.meta && r.meta.last_row_id;
   } catch (e) { console.log("registro de e-mail falhou", e); }
 
-  return { ok: status === "ENVIADO", status, erro };
+  // Falhou (Gmail fora do ar, limite, rede): guarda para tentar de novo sozinho
+  if (status === "FALHOU") {
+    try {
+      const guardar = Object.assign({}, msg, { para });
+      await executar(env, "INSERT INTO emails_fila (email_id, mensagem, tentativas, proxima_em, erro, criado_em) VALUES (?, ?, 1, ?, ?, ?)",
+        emailId, JSON.stringify(guardar), new Date(Date.now() + ESPERAS_MIN[0] * 60000).toISOString(), erro, agora());
+    } catch (e) { console.log("fila de e-mail falhou", e); }
+  }
+
+  return { ok: status === "ENVIADO", status, erro, naFila: status === "FALHOU" };
+}
+
+// Tenta de novo os e-mails que falharam (chamado a cada 5 minutos). Depois de 6 tentativas, desiste e fica no Histórico como FALHOU.
+let reenviando = false;
+export async function reenviarEmails(env) {
+  if (reenviando || !smtpConfigurado(env)) return 0;
+  reenviando = true;
+  let n = 0;
+  try {
+    const fila = await todos(env, "SELECT * FROM emails_fila WHERE proxima_em <= ? ORDER BY id LIMIT 50", new Date().toISOString());
+    for (const item of fila) {
+      const msg = JSON.parse(item.mensagem);
+      try {
+        await env.CORREIO.enviar(montarEnvio(env, msg, msg.para));
+        await executar(env, "DELETE FROM emails_fila WHERE id = ?", item.id);
+        if (item.email_id) await executar(env, "UPDATE emails SET status = 'ENVIADO', erro = ? WHERE id = ?", "enviado na tentativa " + (item.tentativas + 1), item.email_id);
+        n++;
+      } catch (e) {
+        const erro = String(e && e.message || e).slice(0, 500);
+        if (item.tentativas >= ESPERAS_MIN.length) {
+          await executar(env, "DELETE FROM emails_fila WHERE id = ?", item.id);
+          if (item.email_id) await executar(env, "UPDATE emails SET status = 'FALHOU', erro = ? WHERE id = ?", erro + " (" + (item.tentativas + 1) + " tentativas)", item.email_id);
+          await registrarLog(env, "sistema", "EMAIL_FALHOU", "email", String(item.email_id || ""), msg.assunto + " → " + [].concat(msg.para).join(", ") + ": " + erro).catch(() => {});
+        } else {
+          await executar(env, "UPDATE emails_fila SET tentativas = tentativas + 1, proxima_em = ?, erro = ? WHERE id = ?",
+            new Date(Date.now() + ESPERAS_MIN[item.tentativas] * 60000).toISOString(), erro, item.id);
+        }
+      }
+    }
+  } finally { reenviando = false; }
+  return n;
 }
 
 // Layout padrão dos e-mails

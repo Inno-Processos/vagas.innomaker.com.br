@@ -232,6 +232,15 @@
     if (!res || !res.ok) {
       $("btnEnviar").disabled = false;
       $("btnEnviar").textContent = "Enviar candidatura";
+      if (res && res.entrar) {
+        erroForm(res.erro);
+        const msg = $("formMsg");
+        const bt = el("button", "btn-line", "Entrar na Área do candidato");
+        bt.type = "button"; bt.style.marginTop = "10px";
+        bt.onclick = () => { $("lEmail").value = d.email; go("acompanhar", {}); };
+        msg.append(bt);
+        return;
+      }
       return erroForm((res && res.erro) || "Não foi possível enviar sua candidatura. Tente novamente.");
     }
 
@@ -261,11 +270,18 @@
   };
 
   function mostrarBox(qual){
-    ["boxLogin", "boxEsqueci", "boxArea"].forEach(id => { $(id).hidden = id !== qual; });
+    ["boxLogin", "boxEsqueci", "boxRedefinir", "boxArea"].forEach(id => { $(id).hidden = id !== qual; });
     $("aIntro").hidden = qual === "boxArea";
   }
 
   function abrirAcompanhar(){
+    // link "Criar nova senha" do e-mail
+    if (URL_INICIAL.get("redefinir")) {
+      setMsg("redefinirMsg");
+      mostrarBox("boxRedefinir");
+      $("rNova").focus();
+      return;
+    }
     if (logado) {
       mostrarBox("boxArea");
       if (areaDados) renderArea(areaDados);
@@ -983,6 +999,24 @@
     if (!res.ok) return setMsg("esqueciMsg", "err", null, res.erro || "Não foi possível enviar agora.");
     $("lEmail").value = email;
     abrirLogin("ok", res.mensagem);
+  });
+
+  $("formRedefinir").addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    const nova = $("rNova").value.trim(), conf = $("rConfirma").value.trim();
+    if (nova.length < 8) return setMsg("redefinirMsg", "err", null, "A nova senha precisa ter pelo menos 8 caracteres.");
+    if (nova !== conf) return setMsg("redefinirMsg", "err", null, "As duas senhas não são iguais.");
+    $("btnRedefinir").disabled = true;
+    const res = await api("redefinir", { token: URL_INICIAL.get("redefinir"), nova });
+    $("btnRedefinir").disabled = false;
+    if (!res.ok) return setMsg("redefinirMsg", "err", null, res.erro || "Não foi possível salvar.");
+    URL_INICIAL.delete("redefinir");
+    history.replaceState(null, "", location.pathname);
+    $("rNova").value = $("rConfirma").value = "";
+    logado = true;
+    mostrarBox("boxArea");
+    await carregarArea();
+    setMsg("areaMsg", "ok", "Senha alterada", "Pronto! Use a nova senha nos próximos acessos.");
   });
 
   $("btnAtualizar").addEventListener("click", () => carregarArea());

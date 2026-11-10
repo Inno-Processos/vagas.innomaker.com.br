@@ -11,6 +11,8 @@ import { enviarEmail, layout, textoSimples } from "../lib/email.js";
 import { salvarArquivo, apagarArquivo, ehArquivo } from "../lib/arquivos.js";
 import { estadoDasEtapas } from "../lib/etapas.js";
 import { cfg, CAMINHO_AREA } from "../lib/config.js";
+import { ipDe, contar, atingiu, minutosRestantes, zerar } from "../lib/limite.js";
+import { randomBytes } from "node:crypto";
 import { excluirCandidato, bloqueioExclusao } from "../lib/lgpd.js";
 import { agoraLocal } from "../lib/agenda.js";
 import { desistirDaCandidatura } from "./agendamento.js";
@@ -27,6 +29,9 @@ export const ORIGENS = { site: "Site de vagas", indicacao: "Indicação de funci
 const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MIN = 15;
 const INTERVALO_NOVA_SENHA_MS = 2 * 60 * 1000;
+const VALIDADE_LINK_SENHA_MIN = 60;
+const MAX_INSCRICOES_POR_IP_HORA = 20;
+const MAX_ESQUECI_POR_IP_HORA = 10;
 
 const linkArea = env => cfg(env).siteUrl + CAMINHO_AREA;
 const linkPainel = (env, hash) => cfg(env).siteUrl + "/painel#" + hash;
@@ -48,7 +53,7 @@ export async function vagasPublicas(env) {
 }
 
 // ---------- Roteamento ----------
-const ACOES = { inscrever, login, sair, esqueci, senha: trocarSenha, area, proposta, cadastro, privacidade, excluir, rascunho, anexar, desanexar, desistir, hora_inicio: horaInicio };
+const ACOES = { inscrever, login, sair, esqueci, redefinir, senha: trocarSenha, area, proposta, cadastro, privacidade, excluir, rascunho, anexar, desanexar, desistir, hora_inicio: horaInicio };
 
 // Muda o horário de início (primeiro dia) até 24 h antes
 async function horaInicio(request, env, ctx) {
@@ -107,6 +112,9 @@ async function exigirSessao(env, request) {
 
 // ---------- Inscrição ----------
 async function inscrever(request, env, ctx) {
+  if (contar(env, "inscrever:" + ipDe(request), MAX_INSCRICOES_POR_IP_HORA, 3600000)) {
+    throw new ErroApi("Muitas inscrições seguidas a partir desta conexão. Tente de novo em uma hora.");
+  }
   let fd;
   try { fd = await request.formData(); } catch (e) { throw new ErroApi("Envio inválido. Recarregue a página e tente de novo."); }
   const f = (k, max) => texto(fd.get(k), max || 300);
@@ -132,9 +140,19 @@ async function inscrever(request, env, ctx) {
   const indicadoPor = origem === "indicacao" ? f("indicado_por", 150) : "";
   if (origem === "indicacao" && !indicadoPor) throw new ErroApi("Informe o nome de quem indicou você.");
 
-  // Conta do candidato (criada na 1ª inscrição, com senha enviada por e-mail)
+  if (cv.size > 10 * 1024 * 1024) throw new ErroApi("O currículo passa de 10 MB.");
+  if (!(cv.type === "application/pdf" || /\.pdf$/i.test(cv.name || ""))) throw new ErroApi("O currículo precisa estar em PDF.");
+
+  // Conta do candidato (criada na 1ª inscrição, com senha enviada por e-mail).
+  // Se o e-mail já tem conta, só quem está logado nela pode se inscrever (ninguém se inscreve em nome de outra pessoa).
   let cand = await um(env, "SELECT * FROM candidatos WHERE email = ?", email);
   let senhaNova = "";
+  if (cand) {
+    const logado = await candidatoDaSessao(env, request);
+    if (!logado || logado.id !== cand.id) {
+      return { ok: false, entrar: true, erro: "Já existe uma conta com este e-mail. Entre na Área do candidato e volte a esta vaga para se inscrever." };
+    }
+  }
   if (!cand) {
     senhaNova = gerarSenha();
     const salt = novoSalt();
@@ -206,24 +224,19 @@ async function login(request, env) {
   if (!email || !senha) return { ok: false, erro: "Informe seu e-mail e sua senha." };
 
   const generico = { ok: false, erro: "E-mail ou senha incorretos." };
-  const c = await um(env, "SELECT * FROM candidatos WHERE email = ?", email);
-  if (!c || !c.senha_hash) return generico;
-
-  if (c.bloqueado_ate && c.bloqueado_ate > agora()) {
-    const min = Math.ceil((new Date(c.bloqueado_ate).getTime() - Date.now()) / 60000);
-    return { ok: false, erro: `Muitas tentativas. Tente de novo em ${min} min ou use "Esqueci minha senha".` };
+  const ip = ipDe(request);
+  const chave = "login:" + ip + "|" + email;
+  if (atingiu(env, chave, MAX_TENTATIVAS)) {
+    return { ok: false, erro: `Muitas tentativas. Tente de novo em ${minutosRestantes(env, chave)} min ou use "Esqueci minha senha".` };
   }
+  if (contar(env, "login-ip:" + ip, 60, 10 * 60000)) return { ok: false, erro: "Muitas tentativas a partir desta conexão. Aguarde alguns minutos." };
 
-  if (await hashSenha(senha, c.senha_salt) !== c.senha_hash) {
-    const t = (c.tentativas || 0) + 1;
-    if (t >= MAX_TENTATIVAS) {
-      await executar(env, "UPDATE candidatos SET tentativas = 0, bloqueado_ate = ? WHERE id = ?",
-        new Date(Date.now() + BLOQUEIO_MIN * 60000).toISOString(), c.id);
-    } else {
-      await executar(env, "UPDATE candidatos SET tentativas = ? WHERE id = ?", t, c.id);
-    }
+  const c = await um(env, "SELECT * FROM candidatos WHERE email = ?", email);
+  if (!c || !c.senha_hash || await hashSenha(senha, c.senha_salt) !== c.senha_hash) {
+    contar(env, chave, MAX_TENTATIVAS, BLOQUEIO_MIN * 60000);
     return generico;
   }
+  zerar(env, chave);
 
   await executar(env, "UPDATE candidatos SET tentativas = 0, bloqueado_ate = NULL, ultimo_login = ?, ultima_atividade = ? WHERE id = ?", agora(), agora(), c.id);
   return json({ ok: true, nome: c.nome }, 200, { "set-cookie": await cookieSessao(env, c) });
@@ -236,31 +249,50 @@ async function sair() {
 async function esqueci(request, env, ctx) {
   const email = texto((await lerJson(request)).email, 200).toLowerCase();
   if (!emailValido(email)) return { ok: false, erro: "Informe um e-mail válido." };
-  const resp = { ok: true, mensagem: "Se este e-mail tiver inscrição conosco, a nova senha chega em alguns instantes. Confira também a caixa de spam." };
+  const resp = { ok: true, mensagem: "Se este e-mail tiver inscrição conosco, o link para criar uma nova senha chega em alguns instantes. Confira também a caixa de spam." };
+  if (contar(env, "esqueci:" + ipDe(request), MAX_ESQUECI_POR_IP_HORA, 3600000)) return { ok: false, erro: "Muitos pedidos a partir desta conexão. Tente de novo mais tarde." };
 
   const c = await um(env, "SELECT * FROM candidatos WHERE email = ?", email);
   if (!c) return resp;
   if (c.senha_enviada_em && Date.now() - new Date(c.senha_enviada_em).getTime() < INTERVALO_NOVA_SENHA_MS) return resp;
 
-  const senha = gerarSenha();
-  const salt = novoSalt();
-  await executar(env,
-    "UPDATE candidatos SET senha_hash = ?, senha_salt = ?, versao_sessao = versao_sessao + 1, tentativas = 0, bloqueado_ate = NULL, senha_enviada_em = ? WHERE id = ?",
-    await hashSenha(senha, salt), salt, agora(), c.id);
+  // Link de uso único. A senha atual continua valendo: quem pediu sem querer não perde o acesso.
+  const token = randomBytes(32).toString("hex");
+  const expira = new Date(Date.now() + VALIDADE_LINK_SENHA_MIN * 60000).toISOString();
+  await executar(env, "UPDATE candidatos SET reset_hash = ?, reset_expira = ?, senha_enviada_em = ? WHERE id = ?", await sha256Hex(token), expira, agora(), c.id);
+  const link = linkArea(env) + "?redefinir=" + token;
 
   ctx.waitUntil(enviarEmail(env, {
     para: email,
-    assunto: "Sua nova senha — Área do candidato Innomaker",
+    assunto: "Criar nova senha — Área do candidato Innomaker",
     html: layout({
-      titulo: "Sua nova senha",
-      paragrafos: ["Esta é a sua nova senha para a Área do candidato. A senha anterior deixou de funcionar."],
-      destaque: `E-mail: ${email}<br>Senha: <b style="font-family:Consolas,monospace;font-size:16px;letter-spacing:1px;">${senha}</b>`,
-      botao: { texto: "Entrar na Área do candidato", url: linkArea(env) },
-      rodape: "Se você não pediu uma nova senha, ignore este e-mail."
+      titulo: "Criar uma nova senha",
+      paragrafos: ["Recebemos um pedido para criar uma nova senha da sua Área do candidato.",
+        `Clique no botão abaixo e escolha a nova senha. O link vale por ${VALIDADE_LINK_SENHA_MIN} minutos e só pode ser usado uma vez.`],
+      botao: { texto: "Criar nova senha", url: link },
+      rodape: "Se você não pediu, ignore este e-mail: sua senha atual continua valendo."
     }),
-    texto: textoSimples("Sua nova senha", [`E-mail: ${email}`, `Senha: ${senha}`], linkArea(env))
+    texto: textoSimples("Criar uma nova senha", [`O link vale por ${VALIDADE_LINK_SENHA_MIN} minutos e só pode ser usado uma vez. Se você não pediu, ignore este e-mail.`], link)
   }));
   return resp;
+}
+
+// Nova senha a partir do link do e-mail ("Esqueci minha senha")
+async function redefinir(request, env) {
+  const b = await lerJson(request);
+  const token = String(b.token || "").trim();
+  const nova = String(b.nova || "").trim();
+  if (contar(env, "redefinir:" + ipDe(request), 20, 3600000)) return { ok: false, erro: "Muitas tentativas. Tente de novo mais tarde." };
+  if (nova.length < 8) return { ok: false, erro: "A nova senha precisa ter pelo menos 8 caracteres." };
+  const c = /^[0-9a-f]{64}$/.test(token) ? await um(env, "SELECT * FROM candidatos WHERE reset_hash = ? AND reset_expira > ?", await sha256Hex(token), new Date().toISOString()) : null;
+  if (!c) return { ok: false, erro: "Este link expirou ou já foi usado. Peça outro em \"Esqueci minha senha\"." };
+  const salt = novoSalt();
+  await executar(env,
+    "UPDATE candidatos SET senha_hash = ?, senha_salt = ?, versao_sessao = versao_sessao + 1, reset_hash = NULL, reset_expira = NULL, tentativas = 0, bloqueado_ate = NULL, ultimo_login = ?, ultima_atividade = ? WHERE id = ?",
+    await hashSenha(nova, salt), salt, agora(), agora(), c.id);
+  await registrarLog(env, c.email, "SENHA_REDEFINIDA", "candidato", c.id, "");
+  const atual = await um(env, "SELECT * FROM candidatos WHERE id = ?", c.id);
+  return json({ ok: true, nome: atual.nome }, 200, { "set-cookie": await cookieSessao(env, atual) });
 }
 
 async function trocarSenha(request, env) {

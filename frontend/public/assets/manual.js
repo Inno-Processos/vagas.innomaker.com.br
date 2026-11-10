@@ -108,7 +108,7 @@ window.MANUAL_PAINEL = {
         "<b>Recusado</b> encerra o processo e envia o texto da análise como <b>feedback ao candidato</b> por e-mail. A janela mostra a prévia do e-mail antes de confirmar.",
         "<b>Aprovado</b> passa para a próxima etapa. Se quiser, marque <b>Avisar o candidato</b> para mandar um e-mail dizendo que ele avançou.",
         "<b>Agendar</b> (na etapa atual do candidato): clique em <b>Enviar horários</b> para mandar o link da sua agenda; o candidato escolhe um horário livre. Se preferir um dia e hora fixos, use <b>Ou marcar um dia e hora fixos</b>.",
-        "Quando todas as etapas estiverem aprovadas, clique em <b>Enviar proposta</b> (o e-mail do candidato pode ser o IdUFF).",
+        "Quando todas as etapas estiverem aprovadas, clique em <b>Enviar proposta</b> (o e-mail do candidato pode ser o IdUFF). Se o candidato desistiu ou recusou por engano, abra a ficha e use <b>Reativar candidatura</b>.",
         "<b>Agenda de horários</b> (como no Google Agenda): fica na aba <b>Agenda de entrevistas</b> (na vaga há o atalho <b>Abrir agenda</b>). Clique em <b>+ Nova agenda de horários</b>, dê um título, escolha a duração, o intervalo entre entrevistas e a <b>disponibilidade semanal</b> (dias e faixas de horário) e o período. Em <b>Descrição</b>, escreva o local, como chegar e as informações gerais.",
         "Na <b>prévia</b>, clique num horário para tirar (ou devolver). Em <b>Horário avulso</b>, inclua um horário fora da disponibilidade.",
         "Clique em <b>Enviar link</b>: cada candidato recebe um e-mail para escolher um horário. Quando alguém escolhe, o horário some para os outros, inclusive nas agendas de outras vagas com o mesmo entrevistador.",
