@@ -11,8 +11,8 @@
   var SITE = {
     logoUrl: "/assets/logo.png",
     logoEscuroUrl: "/assets/logo-escuro.png",
-    // Imagem local: o antigo link do Google Drive exige login e entra em redirecionamento.
-    usvUrl: "/assets/logo.png",
+    // Imagem servida pelo próprio site, sem depender de login no Google Drive.
+    usvUrl: "/assets/innoboate.png",
     contato: { whatsapp: "https://wa.me/21966396480", email: "ainnomaker@gmail.com", site: "https://innomaker.com.br/" }
   };
 
