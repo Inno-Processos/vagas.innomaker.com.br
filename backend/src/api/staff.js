@@ -499,7 +499,6 @@ async function admPropostaSalvar(env, ctx, b, u) {
   if (p.data_inicio !== antes.data_inicio || lerHorariosInicio(p.horarios_inicio).indexOf(antes.hora_inicio) < 0) p.hora_inicio = "";
   const email = texto(b.email_contato || a.email_contato, 200).toLowerCase();
   if (!emailValido(email)) throw new ErroApi("E-mail pessoal do candidato inválido.");
-  if (/@id\.uff\.br$/i.test(email)) throw new ErroApi("Não é permitido usar e-mail @id.uff.br. Use o e-mail pessoal.");
   const difs = diferencas(antes, p);
   const visiveis = difs.filter(d => d.visivel);
   const reabre = a.status === "PROPOSTA_EXPIRADA";
@@ -658,7 +657,6 @@ async function propostaCriar(env, ctx, b, u) {
 
   const email = texto(b.email_contato || ca.email, 200).toLowerCase();
   if (!emailValido(email)) throw new ErroApi("E-mail pessoal do candidato inválido.");
-  if (/@id\.uff\.br$/i.test(email)) throw new ErroApi("Não é permitido enviar proposta para e-mail @id.uff.br. Use o e-mail pessoal.");
 
   const p = lerProposta(b.proposta || {});
   p.horarios_inicio = lerHorariosInicio(p.horarios_inicio).join(", ");

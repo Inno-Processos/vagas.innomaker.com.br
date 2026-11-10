@@ -96,7 +96,6 @@ export function validarCadastro(d) {
   if (!cpfValido(d.cpf)) return { erro: "CPF inválido.", campos: ["cpf"] };
   if (!ehDataISO(d.data_nascimento)) return { erro: "Data de nascimento inválida.", campos: ["data_nascimento"] };
   if (!emailValido(d.email_pessoal)) return { erro: "E-mail pessoal inválido.", campos: ["email_pessoal"] };
-  if (/@id\.uff\.br$/i.test(d.email_pessoal)) return { erro: "Use um e-mail pessoal, não o IdUFF.", campos: ["email_pessoal"] };
   if (d.email_innomaker && !emailValido(d.email_innomaker)) return { erro: "E-mail Innomaker inválido.", campos: ["email_innomaker"] };
   if (!/^[A-Z]{2}$/.test(d.estado)) return { erro: "UF inválida (duas letras, ex.: RJ).", campos: ["estado"] };
   if (!d.pix_numero && !(d.banco && d.agencia && d.conta)) {

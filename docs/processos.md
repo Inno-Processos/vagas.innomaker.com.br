@@ -26,7 +26,7 @@
 
 | Etapa | No sistema |
 |---|---|
-| 4.1 RH solicita o novo candidato | **Enviar proposta** com prazo para responder (bloqueia e-mail IdUFF; revisão obrigatória marcada). **Editar proposta** e **Cancelar admissão** até a aprovação |
+| 4.1 RH solicita o novo candidato | **Enviar proposta** com prazo para responder (aceita e-mail IdUFF; revisão obrigatória marcada). **Editar proposta** e **Cancelar admissão** até a aprovação |
 | 4.2–4.3 Proposta e decisão | Candidato aceita ou recusa na Área do candidato; RH avisado por e-mail. Sem resposta até o prazo, a proposta vence sozinha e o RH é avisado |
 | 4.4 Cadastro | Formulário em etapas na Área do candidato, salvo sozinho (rascunho). Um envio por documento; os obrigatórios dependem do tipo de contratação (Configurações → Admissão) |
 | 4.5 Validação inicial | **Corrigir** em cada campo ou documento errado e **Pedir correção** com o que ajustar em cada um; o candidato vê os itens destacados e o RH vê o valor antigo e o novo |

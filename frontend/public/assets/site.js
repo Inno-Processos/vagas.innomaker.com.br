@@ -603,7 +603,7 @@
     ["rg", "RG", "text", 1, "pessoais"], ["rg_orgao", "Órgão expedidor/UF do RG", "text", 1, "pessoais", { ph: "Ex.: DETRAN/RJ" }],
     ["cnh", "CNH", "text", 0, "pessoais"], ["cnh_orgao", "Órgão expedidor/UF da CNH", "text", 0, "pessoais", { ph: "Ex.: DETRAN/RJ" }],
     ["ctps", "CTPS", "text", 0, "pessoais"], ["ctps_orgao", "Órgão expedidor/UF da CTPS", "text", 0, "pessoais", { ph: "Ex.: MTE/RJ" }],
-    ["telefone", "Telefone / WhatsApp", "tel", 1, "pessoais", { auto: "tel" }], ["email_pessoal", "E-mail pessoal", "email", 1, "pessoais", { dica: "Não use o IdUFF.", auto: "email" }],
+    ["telefone", "Telefone / WhatsApp", "tel", 1, "pessoais", { auto: "tel" }], ["email_pessoal", "E-mail pessoal", "email", 1, "pessoais", { dica: "Pode ser o IdUFF (@id.uff.br).", auto: "email" }],
     ["curriculo_lattes", "Link do Currículo Lattes", "url", 0, "pessoais", { largo: 1 }],
     ["cep", "CEP", "text", 1, "endereco", { modo: "numeric", auto: "postal-code", dica: "O endereço é preenchido sozinho pelo CEP." }],
     ["endereco", "Endereço (rua, número, complemento)", "text", 1, "endereco", { largo: 1, auto: "street-address" }],

@@ -43,7 +43,7 @@ test("regras: documentos por tipo de contrato, validação e trilha", () => {
 
   assert.equal(validarCadastro(lerCadastro(CADASTRO)).ok, true);
   assert.deepEqual(validarCadastro(lerCadastro(Object.assign({}, CADASTRO, { pix_numero: "" }))).campos, ["pix_numero", "banco", "agencia", "conta"]);
-  assert.deepEqual(validarCadastro(lerCadastro(Object.assign({}, CADASTRO, { email_pessoal: "a@id.uff.br" }))).campos, ["email_pessoal"]);
+  assert.equal(validarCadastro(lerCadastro(Object.assign({}, CADASTRO, { email_pessoal: "a@id.uff.br" }))).ok, true, "IdUFF é permitido");
 
   const tr = trilha({ status: "APROVADA", historico: "[]", checklist: "{}", funcionario_id: 7 }, { ponto_cadastrado: 1 });
   assert.equal(tr.total, 6);

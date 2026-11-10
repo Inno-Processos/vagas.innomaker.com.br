@@ -2030,7 +2030,7 @@
     return el("form", { novalidate: true },
       el("p", { class: "suave", style: "margin:0 0 12px" }, aviso),
       el("div", { class: "campos" },
-        campo("E-mail pessoal do candidato (não pode ser IdUFF)", entrada("email_contato", v.email_contato, { type: "email" }), { obrigatorio: true, nome: "email_contato" }),
+        campo("E-mail do candidato (pode ser o IdUFF)", entrada("email_contato", v.email_contato, { type: "email" }), { obrigatorio: true, nome: "email_contato" }),
         campo("Responder até", entrada("prazo_resposta", v.prazo_resposta || maisDias(5), { type: "date", min: hojeBR() }),
           { obrigatorio: true, nome: "prazo_resposta", dica: "Depois desse dia a proposta vence sozinha e o RH é avisado." }),
         campo("Tipo de contratação", seletor("tipo_contratacao", lista(op, "tipo_contratacao"), v.tipo_contratacao), { obrigatorio: true, nome: "tipo_contratacao",
@@ -2060,7 +2060,6 @@
     const falta = OBRIG_PROPOSTA.concat(d.tem_outra_bolsa ? ["bolsa_valor", "entidade_vinculada"] : []).filter(k => !String(d[k] || "").trim());
     if (!d.conferido) falta.push("conferido");
     if (falta.length) { marcarFaltando(f, falta); return { erro: "Preencha os campos obrigatórios e confirme a conferência." }; }
-    if (/@id\.uff\.br$/i.test(d.email_contato)) return { erro: "Não é permitido usar e-mail @id.uff.br." };
     const extra = { email_contato: d.email_contato, prazo_resposta: d.prazo_resposta };
     delete d.email_contato; delete d.prazo_resposta; delete d.conferido;
     return Object.assign(extra, { proposta: d });
